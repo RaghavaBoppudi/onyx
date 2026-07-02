@@ -56,7 +56,7 @@ struct ContentView: View {
                         Button(action: {
                             camera.cycleLens()
                         }) {
-                            Text(formattedLensName(currentLens.label))
+                            Text(currentLens.label)
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(cloudWhite)
                                 .frame(width: 85, alignment: .trailing)
@@ -139,14 +139,6 @@ struct ContentView: View {
             dragStartBias = camera.currentExposureBias
             temporaryExposureBias = camera.currentExposureBias
         }
-    }
-    
-    // Translates internal hardware strings to clean UI labels
-    private func formattedLensName(_ label: String) -> String {
-        if label.contains("0.5") { return "ultra-wide" }
-        if label.contains("1x") || label == "1.0x" { return "wide" }
-        if label.contains("4") || label.contains("5") { return "tele" }
-        return label
     }
     
     // Preloads the mechanical audio buffer into memory on a background thread

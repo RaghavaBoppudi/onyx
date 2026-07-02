@@ -9,15 +9,16 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     @Published var isMonochrome = true
     
     // Default baseline EV. Underexposes to protect highlights and preserve natural shadows.
-    var currentExposureBias: Float = -1.5
+    var currentExposureBias: Float = -1.8
     
     private var videoDeviceInput: AVCaptureDeviceInput?
     private let photoOutput = AVCapturePhotoOutput()
     private let processor = PhotoProcessor()
+    private let locationProvider = LocationProvider()
 
     override init() {
         super.init()
-        self.availableLenses = HardwareScanner.availableLenses()
+        self.availableLenses = CameraHardware.availableLenses()
         self.currentLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera }) ?? availableLenses.first
         setupCamera()
     }
@@ -70,7 +71,8 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     // Intercepts the RAW sensor data and hands it off to the custom processing pipeline.
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard error == nil, photo.isRawPhoto, let rawData = photo.fileDataRepresentation() else { return }
-        processor.processAndSave(photoData: rawData, isMonochrome: isMonochrome)
+        let location = locationProvider.currentLocation
+        processor.processAndSave(photoData: rawData, isMonochrome: isMonochrome, location: location)
     }
     
     // Hot-swaps the physical camera input while keeping the session alive.
