@@ -7,8 +7,6 @@ struct Lens: Equatable {
 }
 
 struct CameraHardware {
-    // Scans the physical device array and locks in only the rear-facing optical lenses.
-    // Bypasses the front camera to enforce the optical-first purist approach.
     static func availableLenses() -> [Lens] {
         var discovered: [Lens] = []
         
@@ -20,7 +18,6 @@ struct CameraHardware {
             discovered.append(Lens(type: .builtInWideAngleCamera, position: .back, label: "wide"))
         }
         
-        // Hardcoded specifically for the iPhone 17 Pro 4x telephoto module
         if AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: .back) != nil {
             discovered.append(Lens(type: .builtInTelephotoCamera, position: .back, label: "tele"))
         }

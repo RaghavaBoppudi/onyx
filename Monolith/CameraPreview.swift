@@ -1,7 +1,6 @@
 import SwiftUI
 import AVFoundation
 
-// Bridges the gap between UIKit's AVCaptureVideoPreviewLayer and SwiftUI
 struct CameraPreview: UIViewRepresentable {
     class VideoPreviewView: UIView {
         override class var layerClass: AnyClass {
@@ -19,7 +18,6 @@ struct CameraPreview: UIViewRepresentable {
         let view = VideoPreviewView()
         view.backgroundColor = .black
         view.videoPreviewLayer.session = session
-        // Ensures the viewfinder fills the screen bounds, cropping edges to match the 4:3 frame
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
         return view
     }

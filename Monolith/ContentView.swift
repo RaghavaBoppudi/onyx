@@ -2,20 +2,18 @@ import SwiftUI
 import AVFoundation
 import UIKit
 
-// MARK: - Custom Shutter Button
 struct ShutterButtonStyle: ButtonStyle {
     private let cloudWhite = Color(red: 240/255, green: 238/255, blue: 233/255)
     
     func makeBody(configuration: Configuration) -> some View {
         Circle()
             .fill(configuration.isPressed ? Color(UIColor.darkGray) : cloudWhite)
-            .frame(width: 70, height: 70) // Downsized for a minimalist footprint
+            .frame(width: 70, height: 70)
             .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
             .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
-// MARK: - Main View
 struct ContentView: View {
     @StateObject private var camera = CameraManager()
     
@@ -23,7 +21,6 @@ struct ContentView: View {
     @State private var focusPoint: CGPoint? = nil
     @State private var showFocusIndicator = false
     
-    // Exposure drag state variables
     @State private var dragStartBias: Float = -1.0
     @State private var temporaryExposureBias: Float = -1.0
     
@@ -39,49 +36,16 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 Spacer()
                 
-                // Top Control Cluster
-                HStack {
-                    Button(action: {
-                        camera.isMonochrome.toggle()
-                    }) {
-                        Text(camera.isMonochrome ? "mono" : "color")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(camera.isMonochrome ? .gray : cloudWhite)
-                            .frame(width: 85, alignment: .leading)
-                    }
-                    
-                    Spacer()
-                    
-                    if let currentLens = camera.currentLens {
-                        Button(action: {
-                            camera.cycleLens()
-                        }) {
-                            Text(currentLens.label)
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(cloudWhite)
-                                .frame(width: 85, alignment: .trailing)
-                        }
-                    } else {
-                        Spacer().frame(width: 85)
-                    }
-                }
-                .padding(.horizontal, 24)
-                
-                Spacer()
-                
-                // Viewfinder & Interaction Layer
                 ZStack {
                     CameraPreview(session: camera.session)
-                        .saturation(camera.isMonochrome ? 0.0 : 1.0)
+                        .saturation(0.0)
                     
-                    // Invisible interaction plane for gestures
                     GeometryReader { geometry in
                         Color.clear
                             .contentShape(Rectangle())
                             .gesture(
                                 DragGesture()
                                     .onChanged { value in
-                                        // Translates vertical swipe distance into EV steps
                                         let delta = Float(-value.translation.height / 100.0)
                                         let newBias = max(-4.0, min(4.0, dragStartBias + delta))
                                         temporaryExposureBias = newBias
@@ -104,7 +68,6 @@ struct ContentView: View {
                             }
                     }
                     
-                    // Hardware-style focus reticle
                     if showFocusIndicator, let point = focusPoint {
                         Circle()
                             .stroke(cloudWhite, lineWidth: 1.5)
@@ -113,7 +76,6 @@ struct ContentView: View {
                             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showFocusIndicator)
                     }
                     
-                    // Shutter blackout animation
                     Color.black.opacity(isFlashing ? 1.0 : 0)
                         .animation(.easeInOut(duration: 0.1), value: isFlashing)
                 }
@@ -124,13 +86,30 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                // Minimalist Bottom Area
-                Button(action: {
-                    triggerCapture()
-                }) {
-                    Color.clear
+                HStack {
+                    if let currentLens = camera.currentLens {
+                        Button(action: {
+                            camera.cycleLens()
+                        }) {
+                            Text(currentLens.label)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(cloudWhite)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
+                    } else {
+                        Spacer().frame(maxWidth: .infinity)
+                    }
+                    
+                    Button(action: {
+                        triggerCapture()
+                    }) {
+                        Color.clear
+                    }
+                    .buttonStyle(ShutterButtonStyle())
+                    
+                    Spacer().frame(maxWidth: .infinity) // Counterbalance to keep shutter centered
                 }
-                .buttonStyle(ShutterButtonStyle())
+                .padding(.horizontal, 24)
                 .padding(.bottom, 40)
             }
         }
@@ -141,11 +120,9 @@ struct ContentView: View {
         }
     }
     
-    // Preloads the mechanical audio buffer into memory on a background thread
     private func setupAudioPlayer() {
         DispatchQueue.global(qos: .background).async {
             do {
-                // Forces the sound to mute when the physical ringer switch is flipped
                 try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
                 try AVAudioSession.sharedInstance().setActive(true)
             } catch {}
