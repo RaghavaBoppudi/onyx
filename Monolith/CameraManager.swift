@@ -2,7 +2,6 @@ import Foundation
 import AVFoundation
 import CoreImage
 import Combine
-import CoreImage.CIFilterBuiltins
 
 enum ManualControl { case none, focus, shutter, iso, timer }
 
@@ -25,23 +24,16 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             firstShotData = nil
             firstShotPreview = nil
             guard let device = videoDeviceInput?.device else { return }
-            
             do {
                 try device.lockForConfiguration()
-                // Starve the sensor: -1.5 EV for double exposure, 0.0 for standard
                 let targetBias: Float = isDoubleExposureMode ? -1.5 : 0.0
-                let clampedBias = max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias))
-                device.setExposureTargetBias(clampedBias, completionHandler: nil)
+                device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias)), completionHandler: nil)
                 device.unlockForConfiguration()
-            } catch {
-                print("Failed to set exposure bias: \(error)")
-            }
-            
+            } catch { print("Failed to set exposure bias: \(error)") }
             applySettings(to: device)
         }
     }
     
-    // Core components
     private var videoDeviceInput: AVCaptureDeviceInput?
     private let videoOutput = AVCaptureVideoDataOutput()
     private let photoOutput = AVCapturePhotoOutput()
@@ -50,7 +42,6 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     let ciContext = CIContext(options: [.cacheIntermediates: false])
     private let videoQueue = DispatchQueue(label: "com.monolith.videoQueue", qos: .userInteractive)
 
-    // State & Stepping Logic
     private var firstShotData: Data?
     private var firstShotPreview: CIImage?
     private var lastVideoFrame: CIImage?
@@ -114,53 +105,27 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     }
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-            frameCount += 1
-            guard frameCount > 10 else { return }
-            
-            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-            let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
-            
-            // 1. Base Monochrome Conversion
-            let weights = CIVector(x: 0.90, y: 0.10, z: 0.00, w: 0.0)
-            let monochromeMatrix = CIFilter.colorMatrix()
-            monochromeMatrix.inputImage = rawImage
-            monochromeMatrix.rVector = weights
-            monochromeMatrix.gVector = weights
-            monochromeMatrix.bVector = weights
-            monochromeMatrix.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
-            
-            guard let baseMono = monochromeMatrix.outputImage else { return }
-            
-            var finalPreviewImage: CIImage
-            let toneCurve = CIFilter.toneCurve()
-            toneCurve.point0 = CGPoint(x: 0.0, y: 0.0)
-            toneCurve.point1 = CGPoint(x: 0.25, y: 0.15)
-            toneCurve.point2 = CGPoint(x: 0.50, y: 0.50)
-            toneCurve.point3 = CGPoint(x: 0.75, y: 0.75)
-            toneCurve.point4 = CGPoint(x: 1.0, y: 1.0)
-            
-            if let firstPreview = firstShotPreview {
-                // DOUBLE EXPOSURE: Blend -> Expose -> Curve
-                let blend = CIFilter.screenBlendMode()
-                            blend.inputImage = baseMono
-                            blend.backgroundImage = firstPreview
-                            
-                            if let blended = blend.outputImage {
-                                toneCurve.inputImage = blended
-                                finalPreviewImage = toneCurve.outputImage ?? blended
-                            } else {
-                                finalPreviewImage = baseMono
-                            }
-                        } else {
-                // SINGLE EXPOSURE: Store pre-curve image for future blending, then Curve
-                self.lastVideoFrame = baseMono
-                
-                toneCurve.inputImage = baseMono
-                finalPreviewImage = toneCurve.outputImage ?? baseMono
-            }
-            
-            DispatchQueue.main.async { self.livePreviewImage = finalPreviewImage }
+        frameCount += 1
+        guard frameCount > 10, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        
+        let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let baseMono = rawImage.applyingMonolithMonochrome() else { return }
+        
+        var finalPreviewImage: CIImage
+        
+        if let firstPreview = firstShotPreview {
+            let blend = CIFilter.screenBlendMode()
+            blend.inputImage = baseMono
+            blend.backgroundImage = firstPreview
+            let blended = blend.outputImage ?? baseMono
+            finalPreviewImage = blended.applyingMonolithToneCurve() ?? blended
+        } else {
+            self.lastVideoFrame = baseMono
+            finalPreviewImage = baseMono.applyingMonolithToneCurve() ?? baseMono
         }
+        
+        DispatchQueue.main.async { self.livePreviewImage = finalPreviewImage }
+    }
     
     func capturePhoto() {
         guard frameCount > 10, let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first else { return }
@@ -191,7 +156,6 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     
     func selectLens(_ targetLens: Lens) {
         guard targetLens != currentLens, availableLenses.contains(targetLens) else { return }
-        
         self.isSwitchingLens = true
         self.currentLens = targetLens
         self.firstShotData = nil
@@ -199,20 +163,13 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            
             guard let newDevice = AVCaptureDevice.default(targetLens.type, for: .video, position: targetLens.position),
                   let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
                   
             self.session.beginConfiguration()
             if let currentInput = self.videoDeviceInput { self.session.removeInput(currentInput) }
-            if self.session.canAddInput(newInput) {
-                self.session.addInput(newInput)
-                self.videoDeviceInput = newInput
-            }
-            
-            if let connection = self.videoOutput.connection(with: .video), connection.isVideoRotationAngleSupported(90) {
-                connection.videoRotationAngle = 90
-            }
+            if self.session.canAddInput(newInput) { self.session.addInput(newInput); self.videoDeviceInput = newInput }
+            if let connection = self.videoOutput.connection(with: .video), connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
             
             self.applySettings(to: newDevice)
             self.session.commitConfiguration()
@@ -221,13 +178,8 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 self.currentFocus = newDevice.lensPosition
                 self.currentISO = newDevice.iso
                 self.currentShutter = CMTimeGetSeconds(newDevice.exposureDuration)
-                self.isFocusAuto = true
-                self.isISOAuto = true
-                self.isShutterAuto = true
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.isSwitchingLens = false
-                }
+                self.isFocusAuto = true; self.isISOAuto = true; self.isShutterAuto = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.isSwitchingLens = false }
             }
         }
     }
@@ -237,12 +189,10 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         do {
             try device.lockForConfiguration()
             let sensorPoint = CGPoint(x: point.y, y: 1.0 - point.x)
-            
             if device.isFocusPointOfInterestSupported {
                 device.focusPointOfInterest = sensorPoint
                 if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
             }
-            
             if !isManualMode {
                 if device.isExposurePointOfInterestSupported {
                     device.exposurePointOfInterest = sensorPoint
@@ -257,89 +207,56 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         guard let device = videoDeviceInput?.device else { return }
         do {
             try device.lockForConfiguration()
-            
             if device.isFocusPointOfInterestSupported && device.isFocusModeSupported(.autoFocus) {
-                device.focusPointOfInterest = point
-                device.focusMode = .autoFocus
+                device.focusPointOfInterest = point; device.focusMode = .autoFocus
             }
-            
             if device.isExposurePointOfInterestSupported && device.isExposureModeSupported(.autoExpose) {
-                device.exposurePointOfInterest = point
-                device.exposureMode = .autoExpose
+                device.exposurePointOfInterest = point; device.exposureMode = .autoExpose
             }
-            
             device.isSubjectAreaChangeMonitoringEnabled = false
-            
             device.unlockForConfiguration()
-            
-            DispatchQueue.main.async {
-                self.isFocusAuto = false
-                self.isISOAuto = false
-                self.isShutterAuto = false
-            }
-        } catch {
-            print("Failed to lock AE/AF: \(error)")
-        }
+            DispatchQueue.main.async { self.isFocusAuto = false; self.isISOAuto = false; self.isShutterAuto = false }
+        } catch { print("Failed to lock AE/AF: \(error)") }
     }
 
     func adjust(control: ManualControl, delta: Float) {
         guard let device = videoDeviceInput?.device else { return }
         do {
             try device.lockForConfiguration()
-            
             switch control {
             case .focus:
                 let newFocus = max(0.0, min(1.0, device.lensPosition + delta * 0.005))
                 device.setFocusModeLocked(lensPosition: newFocus, completionHandler: nil)
                 DispatchQueue.main.async { self.isFocusAuto = false }
-                
             case .iso:
                 accumulatedISODelta += delta
                 if abs(accumulatedISODelta) > 15 {
                     let direction = accumulatedISODelta > 0 ? 1 : -1
                     accumulatedISODelta = 0
-                    
                     var closestIdx = 0
-                    for (i, val) in isoSteps.enumerated() {
-                        if abs(val - device.iso) < abs(isoSteps[closestIdx] - device.iso) { closestIdx = i }
-                    }
+                    for (i, val) in isoSteps.enumerated() { if abs(val - device.iso) < abs(isoSteps[closestIdx] - device.iso) { closestIdx = i } }
                     let nextIdx = max(0, min(isoSteps.count - 1, closestIdx + direction))
                     let newISO = max(device.activeFormat.minISO, min(device.activeFormat.maxISO, isoSteps[nextIdx]))
-                    
                     device.setExposureModeCustom(duration: device.exposureDuration, iso: newISO, completionHandler: nil)
                     DispatchQueue.main.async { self.isISOAuto = false; self.isShutterAuto = false }
                 }
-                
             case .shutter:
                 accumulatedShutterDelta += delta
                 if abs(accumulatedShutterDelta) > 15 {
                     let direction = accumulatedShutterDelta > 0 ? 1 : -1
                     accumulatedShutterDelta = 0
-                    
                     let current = CMTimeGetSeconds(device.exposureDuration)
                     var closestIdx = 0
-                    for (i, val) in shutterSteps.enumerated() {
-                        if abs(val - current) < abs(shutterSteps[closestIdx] - current) { closestIdx = i }
-                    }
+                    for (i, val) in shutterSteps.enumerated() { if abs(val - current) < abs(shutterSteps[closestIdx] - current) { closestIdx = i } }
                     let nextIdx = max(0, min(shutterSteps.count - 1, closestIdx + direction))
                     let newShutter = max(CMTimeGetSeconds(device.activeFormat.minExposureDuration), min(1.0, shutterSteps[nextIdx]))
-                    
                     device.setExposureModeCustom(duration: CMTimeMakeWithSeconds(newShutter, preferredTimescale: 1000000), iso: device.iso, completionHandler: nil)
                     DispatchQueue.main.async { self.isShutterAuto = false; self.isISOAuto = false }
                 }
-                
             default: break
             }
-            
-            let f = device.lensPosition
-            let i = device.iso
-            let s = CMTimeGetSeconds(device.exposureDuration)
-            
-            DispatchQueue.main.async {
-                self.currentFocus = f
-                self.currentISO = i
-                self.currentShutter = s
-            }
+            let f = device.lensPosition; let i = device.iso; let s = CMTimeGetSeconds(device.exposureDuration)
+            DispatchQueue.main.async { self.currentFocus = f; self.currentISO = i; self.currentShutter = s }
             device.unlockForConfiguration()
         } catch {}
     }
@@ -367,15 +284,11 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     private func applySettings(to device: AVCaptureDevice) {
         do {
             try device.lockForConfiguration()
-            
             let targetBias: Float = isDoubleExposureMode ? -1.5 : 0.0
-            let clampedBias = max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias))
-            device.setExposureTargetBias(clampedBias, completionHandler: nil)
-            
+            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias)), completionHandler: nil)
             if let bestRange = device.activeFormat.videoSupportedFrameRateRanges.max(by: { $0.maxFrameRate < $1.maxFrameRate }) {
                 device.activeVideoMaxFrameDuration = bestRange.minFrameDuration
             }
-            
             if device.isWhiteBalanceModeSupported(.locked) {
                 let tempAndTint = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: 5200.0, tint: 0.0)
                 var gains = device.deviceWhiteBalanceGains(for: tempAndTint)
@@ -385,8 +298,6 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
             }
             device.unlockForConfiguration()
-        } catch {
-            print("Failed to apply camera settings: \(error)")
-        }
+        } catch { print("Failed to apply camera settings: \(error)") }
     }
 }

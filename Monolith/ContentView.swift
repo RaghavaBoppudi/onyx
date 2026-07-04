@@ -2,7 +2,6 @@ import SwiftUI
 import UIKit
 import Combine
 
-// MARK: - Standardized Circular Shutter Button
 struct ShutterButton: View {
     let action: () -> Void
     let isDisabled: Bool
@@ -12,38 +11,27 @@ struct ShutterButton: View {
     
     var body: some View {
         ZStack {
-            // White Rim (Shrinks instantly on touch down to touch the inner circle)
             Circle()
                 .strokeBorder(Color.white, lineWidth: 3)
                 .frame(width: isPressed ? 64 : 72, height: isPressed ? 64 : 72)
-            
-            // Inner Body (Static)
             Circle()
                 .fill(uiAccent)
                 .frame(width: 58, height: 58)
         }
-        .frame(width: 72, height: 72) // Prevents layout shifting
-        // Uses iOS-native spring physics instead of linear easing for fluidity
+        .frame(width: 72, height: 72)
         .animation(.spring(response: 0.15, dampingFraction: 0.65), value: isPressed)
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard !isDisabled else { return }
-                    if !isPressed { isPressed = true }
-                }
+                .onChanged { _ in guard !isDisabled else { return }; if !isPressed { isPressed = true } }
                 .onEnded { _ in
                     guard !isDisabled else { return }
                     action()
-                    // Force the shrunk state to hold for a fraction of a second before expanding
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        isPressed = false
-                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { isPressed = false }
                 }
         )
     }
 }
 
-// MARK: - Dynamic Text Control
 struct DynamicControlIcon: View {
     let title: String
     let isActive: Bool
@@ -59,7 +47,6 @@ struct DynamicControlIcon: View {
     }
 }
 
-// MARK: - Main View
 struct ContentView: View {
     @StateObject private var camera = CameraManager()
     @State private var isManualMode = false
@@ -80,12 +67,8 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            
             VStack(spacing: 0) {
-                
-                Spacer() // Pushes the viewfinder down
-                
-                // MARK: - Viewfinder ZStack
+                Spacer()
                 ZStack(alignment: .bottom) {
                     MetalPreview(image: camera.livePreviewImage, context: camera.ciContext)
                         .blur(radius: camera.isSwitchingLens ? 30 : 0)
@@ -96,7 +79,6 @@ struct ContentView: View {
                             .gesture(
                                 DragGesture(minimumDistance: 0)
                                     .onChanged { value in
-                                        // If moving finger in manual mode, handle slider adjustments
                                         if isManualMode && activeControl != .none && activeControl != .timer {
                                             if dragLastY == 0 { dragLastY = value.location.y }
                                             let delta = Float(dragLastY - value.location.y)
@@ -105,12 +87,9 @@ struct ContentView: View {
                                             camera.adjust(control: activeControl, delta: delta)
                                             return
                                         }
-                                        
-                                        // Start timer for Long Press detection (AE/AF Lock)
                                         if touchTimer == nil {
                                             let nx = value.location.x / geo.size.width
                                             let ny = value.location.y / geo.size.height
-                                            
                                             touchTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
                                                 hapticGenerator.impactOccurred(intensity: 1.0)
                                                 camera.lockFocusAndExposure(at: CGPoint(x: nx, y: ny))
@@ -123,22 +102,17 @@ struct ContentView: View {
                                     .onEnded { value in
                                         dragLastY = 0
                                         showFloatingReadout = false
-                                        
-                                        // If finger lifted before 0.5s, it's a tap. Cancel lock timer and perform standard focus.
                                         if let timer = touchTimer, timer.isValid {
                                             timer.invalidate()
                                             touchTimer = nil
-                                            
                                             isAELocked = false
                                             let nx = value.location.x / geo.size.width
                                             let ny = value.location.y / geo.size.height
                                             camera.setFocusAndExposure(at: CGPoint(x: nx, y: ny), isManualMode: isManualMode)
-                                            
                                             focusPoint = value.location
                                             showFocusIndicator = true
                                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { showFocusIndicator = false }
                                         } else {
-                                            // Finger lifted after lock achieved. Keep indicator on screen longer.
                                             touchTimer = nil
                                             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { showFocusIndicator = false }
                                         }
@@ -177,7 +151,7 @@ struct ContentView: View {
                             .foregroundColor(.black)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Color(red: 255/255, green: 204/255, blue: 0/255)) // Standard iOS warning yellow
+                            .background(Color(red: 255/255, green: 204/255, blue: 0/255))
                             .cornerRadius(4)
                             .position(x: UIScreen.main.bounds.width / 2, y: 40)
                     }
@@ -185,7 +159,6 @@ struct ContentView: View {
                     Color.black.opacity(isFlashing ? 1.0 : 0)
                         .animation(.easeInOut(duration: 0.1), value: isFlashing)
                     
-                    // MARK: - Manual Controls Overlay
                     if isManualMode {
                         HStack {
                             DynamicControlIcon(title: "F", isActive: activeControl == .focus) { toggleControl(.focus) }
@@ -195,9 +168,7 @@ struct ContentView: View {
                             DynamicControlIcon(title: isoLabel(), isActive: activeControl == .iso) { toggleControl(.iso) }
                             Spacer()
                             Button(action: cycleTimer) {
-                                Group {
-                                    if timerValue > 0 { Text("\(timerValue)s") } else { Text("timer") }
-                                }
+                                Group { if timerValue > 0 { Text("\(timerValue)s") } else { Text("timer") } }
                                 .font(.custom("Montserrat-Regular", size: 14))
                                 .foregroundColor(activeControl == .timer || timerValue > 0 ? uiAccent : Color.white)
                             }
@@ -213,13 +184,11 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
                 .clipped()
                 
-                Spacer() // Centers the Lens Switcher
-                
-                // MARK: - Lens Switcher
+                Spacer()
                 HStack(spacing: 24) {
                     ForEach(camera.availableLenses, id: \.type) { lens in
                         Button(action: { camera.selectLens(lens) }) {
-                            Text(shortLensLabel(lens.label))
+                            Text(lens.label)
                                 .font(.custom("Montserrat-Regular", size: 14))
                                 .foregroundColor(camera.currentLens == lens ? uiAccent : Color.white)
                                 .frame(width: 44, height: 44)
@@ -227,10 +196,8 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                     }
                 }
+                Spacer()
                 
-                Spacer() // Centers the Lens Switcher
-                
-                // MARK: - Auto/Manual & Shutter Row
                 HStack(spacing: 0) {
                     Button(isManualMode ? "manual" : "auto") {
                         withAnimation(.easeInOut(duration: 0.25)) { isManualMode.toggle() }
@@ -242,7 +209,6 @@ struct ContentView: View {
                     .foregroundColor(isManualMode ? uiAccent : Color.white)
                     .frame(maxWidth: .infinity)
                     
-                    // Controlled by custom gesture logic inside ShutterButton
                     ShutterButton(action: initiateCapture, isDisabled: countdownDisplay > 0)
                     
                     Button(camera.isDoubleExposureMode ? "double" : "single") {
@@ -258,25 +224,13 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Helpers
-    private func shortLensLabel(_ label: String) -> String {
-        switch label {
-        case "ultra-wide": return "0.5x"
-        case "wide": return "1x"
-        case "tele": return "4x"
-        default: return label
-        }
-    }
-    
     private func shutterLabel() -> String {
         if camera.isShutterAuto { return "S" }
         let s = camera.currentShutter
         return s >= 1.0 ? String(format: "%.1fs", s) : "1/\(Int(1.0 / s))"
     }
     
-    private func isoLabel() -> String {
-        camera.isISOAuto ? "ISO" : "ISO \(Int(camera.currentISO))"
-    }
+    private func isoLabel() -> String { camera.isISOAuto ? "ISO" : "ISO \(Int(camera.currentISO))" }
     
     private func currentReadoutText() -> String {
         switch activeControl {
@@ -288,8 +242,7 @@ struct ContentView: View {
     }
     
     private func toggleControl(_ target: ManualControl) {
-        if activeControl == target { activeControl = .none; camera.resetToAuto(control: target) }
-        else { activeControl = target }
+        if activeControl == target { activeControl = .none; camera.resetToAuto(control: target) } else { activeControl = target }
     }
     
     private func cycleTimer() {

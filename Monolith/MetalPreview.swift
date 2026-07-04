@@ -22,9 +22,7 @@ struct MetalPreview: UIViewRepresentable {
         uiView.setNeedsDisplay()
     }
     
-    func makeCoordinator() -> Coordinator {
-        Coordinator(context: context)
-    }
+    func makeCoordinator() -> Coordinator { Coordinator(context: context) }
     
     class Coordinator: NSObject, MTKViewDelegate {
         var image: CIImage?
@@ -56,7 +54,6 @@ struct MetalPreview: UIViewRepresentable {
             let yOffset = (bounds.height - scaledImage.extent.height) / 2
             let centeredImage = scaledImage.transformed(by: CGAffineTransform(translationX: xOffset, y: yOffset))
 
-            // clampedToExtent prevents out-of-bounds sampling crashing HDR/Gainmap operations
             context.render(centeredImage.clampedToExtent(),
                            to: drawable.texture,
                            commandBuffer: commandBuffer,
