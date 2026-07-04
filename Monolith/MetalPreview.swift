@@ -43,18 +43,26 @@ struct MetalPreview: UIViewRepresentable {
             guard let image = image,
                   let drawable = view.currentDrawable,
                   let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
-            
+
             let bounds = CGRect(origin: .zero, size: view.drawableSize)
+            let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+
             let scaleX = bounds.width / image.extent.width
             let scaleY = bounds.height / image.extent.height
-            let scale = max(scaleX, scaleY) // Fill screen
+            let scale = max(scaleX, scaleY)
             
             let scaledImage = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             let xOffset = (bounds.width - scaledImage.extent.width) / 2
             let yOffset = (bounds.height - scaledImage.extent.height) / 2
             let centeredImage = scaledImage.transformed(by: CGAffineTransform(translationX: xOffset, y: yOffset))
+
+            // clampedToExtent prevents out-of-bounds sampling crashing HDR/Gainmap operations
+            context.render(centeredImage.clampedToExtent(),
+                           to: drawable.texture,
+                           commandBuffer: commandBuffer,
+                           bounds: bounds,
+                           colorSpace: colorSpace)
             
-            context.render(centeredImage, to: drawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: CGColorSpaceCreateDeviceRGB())
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }

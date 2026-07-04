@@ -1,127 +1,154 @@
 import SwiftUI
-import AVFoundation
 import UIKit
-import CoreMotion
 import Combine
 
-class MotionManager: ObservableObject {
-    private let manager = CMMotionManager()
-    @Published var isLevel = false
-    @Published var rollOpacity: Double = 0.0
+// MARK: - Standardized Circular Shutter Button
+struct ShutterButton: View {
+    let action: () -> Void
+    let isDisabled: Bool
     
-    init() {
-        if manager.isDeviceMotionAvailable {
-            manager.deviceMotionUpdateInterval = 1.0 / 30.0
-            manager.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
-                guard let data = data else { return }
-                let deviation = abs(data.attitude.roll)
-                
-                var opacity = 1.0 - (deviation * 15.0)
-                if opacity < 0 { opacity = 0 }
-                
-                self?.isLevel = deviation < 0.015
-                self?.rollOpacity = opacity
-            }
+    @State private var isPressed: Bool = false
+    private let uiAccent = Color(red: 105/255, green: 123/255, blue: 125/255)
+    
+    var body: some View {
+        ZStack {
+            // White Rim (Shrinks instantly on touch down to touch the inner circle)
+            Circle()
+                .strokeBorder(Color.white, lineWidth: 3)
+                .frame(width: isPressed ? 64 : 72, height: isPressed ? 64 : 72)
+            
+            // Inner Body (Static)
+            Circle()
+                .fill(uiAccent)
+                .frame(width: 58, height: 58)
         }
+        .frame(width: 72, height: 72) // Prevents layout shifting
+        // Uses iOS-native spring physics instead of linear easing for fluidity
+        .animation(.spring(response: 0.15, dampingFraction: 0.65), value: isPressed)
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard !isDisabled else { return }
+                    if !isPressed { isPressed = true }
+                }
+                .onEnded { _ in
+                    guard !isDisabled else { return }
+                    action()
+                    // Force the shrunk state to hold for a fraction of a second before expanding
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        isPressed = false
+                    }
+                }
+        )
     }
 }
 
-struct ShutterButtonStyle: ButtonStyle {
-    private let cloudWhite = Color(red: 240/255, green: 238/255, blue: 233/255)
-    
-    func makeBody(configuration: Configuration) -> some View {
-        Circle()
-            .fill(configuration.isPressed ? Color(UIColor.darkGray) : cloudWhite)
-            .frame(width: 70, height: 70)
-            .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
-    }
-}
-
+// MARK: - Dynamic Text Control
 struct DynamicControlIcon: View {
     let title: String
     let isActive: Bool
     let action: () -> Void
+    private let uiAccent = Color(red: 105/255, green: 123/255, blue: 125/255)
     
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(isActive ? .black : .white)
-                .padding(.horizontal, 12)
-                .frame(height: 36)
-                .frame(minWidth: 36)
-                .background(isActive ? Color.white : Color.clear)
-                .clipShape(Capsule())
+                .font(.custom("Montserrat-Regular", size: 14))
+                .foregroundColor(isActive ? uiAccent : Color.white)
         }
     }
 }
 
+// MARK: - Main View
 struct ContentView: View {
     @StateObject private var camera = CameraManager()
     @State private var isManualMode = false
     @State private var activeControl: ManualControl = .none
-    
+    @State private var isAELocked = false
+    @State private var touchTimer: Timer?
     @State private var timerValue = 0
     @State private var countdownDisplay = 0
     @State private var dragLastY: CGFloat = 0
     @State private var showFloatingReadout = false
-    
     @State private var isFlashing = false
     @State private var focusPoint: CGPoint? = nil
     @State private var showFocusIndicator = false
     
-    @State private var audioPlayer: AVAudioPlayer?
-    
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
-    private let cloudWhite = Color(red: 240/255, green: 238/255, blue: 233/255)
+    private let uiAccent = Color(red: 105/255, green: 123/255, blue: 125/255)
     
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             
             VStack(spacing: 0) {
-                Spacer()
                 
-                ZStack {
+                Spacer() // Pushes the viewfinder down
+                
+                // MARK: - Viewfinder ZStack
+                ZStack(alignment: .bottom) {
                     MetalPreview(image: camera.livePreviewImage, context: camera.ciContext)
+                        .blur(radius: camera.isSwitchingLens ? 30 : 0)
+                        .animation(.easeInOut(duration: 0.15), value: camera.isSwitchingLens)
                     
                     GeometryReader { geo in
                         Color.clear.contentShape(Rectangle())
                             .gesture(
-                                DragGesture(minimumDistance: 15)
+                                DragGesture(minimumDistance: 0)
                                     .onChanged { value in
-                                        guard isManualMode, activeControl != .none, activeControl != .timer else { return }
-                                        if dragLastY == 0 { dragLastY = value.location.y }
-                                        let delta = Float(dragLastY - value.location.y)
-                                        dragLastY = value.location.y
-                                        showFloatingReadout = true
-                                        camera.adjust(control: activeControl, delta: delta)
+                                        // If moving finger in manual mode, handle slider adjustments
+                                        if isManualMode && activeControl != .none && activeControl != .timer {
+                                            if dragLastY == 0 { dragLastY = value.location.y }
+                                            let delta = Float(dragLastY - value.location.y)
+                                            dragLastY = value.location.y
+                                            showFloatingReadout = true
+                                            camera.adjust(control: activeControl, delta: delta)
+                                            return
+                                        }
+                                        
+                                        // Start timer for Long Press detection (AE/AF Lock)
+                                        if touchTimer == nil {
+                                            let nx = value.location.x / geo.size.width
+                                            let ny = value.location.y / geo.size.height
+                                            
+                                            touchTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+                                                hapticGenerator.impactOccurred(intensity: 1.0)
+                                                camera.lockFocusAndExposure(at: CGPoint(x: nx, y: ny))
+                                                isAELocked = true
+                                                focusPoint = value.location
+                                                showFocusIndicator = true
+                                            }
+                                        }
                                     }
-                                    .onEnded { _ in
+                                    .onEnded { value in
                                         dragLastY = 0
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                            if dragLastY == 0 { showFloatingReadout = false }
+                                        showFloatingReadout = false
+                                        
+                                        // If finger lifted before 0.5s, it's a tap. Cancel lock timer and perform standard focus.
+                                        if let timer = touchTimer, timer.isValid {
+                                            timer.invalidate()
+                                            touchTimer = nil
+                                            
+                                            isAELocked = false
+                                            let nx = value.location.x / geo.size.width
+                                            let ny = value.location.y / geo.size.height
+                                            camera.setFocusAndExposure(at: CGPoint(x: nx, y: ny), isManualMode: isManualMode)
+                                            
+                                            focusPoint = value.location
+                                            showFocusIndicator = true
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { showFocusIndicator = false }
+                                        } else {
+                                            // Finger lifted after lock achieved. Keep indicator on screen longer.
+                                            touchTimer = nil
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { showFocusIndicator = false }
                                         }
                                     }
                             )
-                            .onTapGesture { location in
-                                guard !isManualMode else { return }
-                                let nx = location.x / geo.size.width
-                                let ny = location.y / geo.size.height
-                                camera.setFocusAndExposure(at: CGPoint(x: nx, y: ny))
-                                
-                                focusPoint = location
-                                showFocusIndicator = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { showFocusIndicator = false }
-                            }
                     }
                     
-                    if isManualMode { GridOverlay() }
-                    
-                    if showFocusIndicator, let point = focusPoint, !isManualMode {
+                    if showFocusIndicator, let point = focusPoint {
                         Circle()
-                            .stroke(cloudWhite, lineWidth: 1.5)
+                            .stroke(Color.white, lineWidth: 1.5)
                             .frame(width: 50, height: 50)
                             .position(point)
                             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showFocusIndicator)
@@ -129,143 +156,145 @@ struct ContentView: View {
                     
                     if countdownDisplay > 0 {
                         Text("\(countdownDisplay)")
-                            .font(.system(size: 72, weight: .bold))
+                            .font(.custom("Montserrat-Regular", size: 72))
                             .foregroundColor(.white)
                             .shadow(color: .black, radius: 4)
+                            .position(x: UIScreen.main.bounds.width / 2, y: (UIScreen.main.bounds.width * 4/3) / 2)
                     } else if isManualMode && activeControl != .none && activeControl != .timer && showFloatingReadout {
                         Text(currentReadoutText())
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.custom("Montserrat-Regular", size: 14))
                             .foregroundColor(.white)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(Color.black.opacity(0.5))
                             .clipShape(Capsule())
+                            .position(x: UIScreen.main.bounds.width / 2, y: (UIScreen.main.bounds.width * 4/3) / 2)
+                    }
+                    
+                    if isAELocked {
+                        Text("AE/AF LOCK")
+                            .font(.custom("Montserrat-Regular", size: 12))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(red: 255/255, green: 204/255, blue: 0/255)) // Standard iOS warning yellow
+                            .cornerRadius(4)
+                            .position(x: UIScreen.main.bounds.width / 2, y: 40)
                     }
                     
                     Color.black.opacity(isFlashing ? 1.0 : 0)
                         .animation(.easeInOut(duration: 0.1), value: isFlashing)
+                    
+                    // MARK: - Manual Controls Overlay
+                    if isManualMode {
+                        HStack {
+                            DynamicControlIcon(title: "F", isActive: activeControl == .focus) { toggleControl(.focus) }
+                            Spacer()
+                            DynamicControlIcon(title: shutterLabel(), isActive: activeControl == .shutter) { toggleControl(.shutter) }
+                            Spacer()
+                            DynamicControlIcon(title: isoLabel(), isActive: activeControl == .iso) { toggleControl(.iso) }
+                            Spacer()
+                            Button(action: cycleTimer) {
+                                Group {
+                                    if timerValue > 0 { Text("\(timerValue)s") } else { Text("timer") }
+                                }
+                                .font(.custom("Montserrat-Regular", size: 14))
+                                .foregroundColor(activeControl == .timer || timerValue > 0 ? uiAccent : Color.white)
+                            }
+                        }
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 16)
+                        .background(Color.black)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(1)
+                    }
                 }
                 .aspectRatio(3.0 / 4.0, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .clipped()
-                .background(Color.black)
                 
-                Spacer()
+                Spacer() // Centers the Lens Switcher
                 
-                HStack {
-                    DynamicControlIcon(title: "F", isActive: activeControl == .focus) { toggleControl(.focus) }
-                    Spacer()
-                    DynamicControlIcon(title: shutterLabel(), isActive: activeControl == .shutter) { toggleControl(.shutter) }
-                    Spacer()
-                    DynamicControlIcon(title: isoLabel(), isActive: activeControl == .iso) { toggleControl(.iso) }
-                    Spacer()
-                    Button(action: cycleTimer) {
-                        Group {
-                            if timerValue > 0 {
-                                Text("\(timerValue)s")
-                            } else {
-                                Image(systemName: "timer")
-                            }
+                // MARK: - Lens Switcher
+                HStack(spacing: 24) {
+                    ForEach(camera.availableLenses, id: \.type) { lens in
+                        Button(action: { camera.selectLens(lens) }) {
+                            Text(shortLensLabel(lens.label))
+                                .font(.custom("Montserrat-Regular", size: 14))
+                                .foregroundColor(camera.currentLens == lens ? uiAccent : Color.white)
+                                .frame(width: 44, height: 44)
                         }
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(activeControl == .timer || timerValue > 0 ? .black : .white)
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
-                        .frame(minWidth: 36)
-                        .background(activeControl == .timer || timerValue > 0 ? Color.white : Color.clear)
-                        .clipShape(Capsule())
+                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-                .opacity(isManualMode ? 1.0 : 0.0)
                 
-                HStack {
-                    if let currentLens = camera.currentLens {
-                        Button(currentLens.label) { camera.cycleLens() }
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(cloudWhite)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    } else { Spacer().frame(maxWidth: .infinity) }
-                    
-                    Button("") { initiateCapture() }
-                        .buttonStyle(ShutterButtonStyle())
-                        .disabled(countdownDisplay > 0)
-                    
+                Spacer() // Centers the Lens Switcher
+                
+                // MARK: - Auto/Manual & Shutter Row
+                HStack(spacing: 0) {
                     Button(isManualMode ? "manual" : "auto") {
-                        isManualMode.toggle()
+                        withAnimation(.easeInOut(duration: 0.25)) { isManualMode.toggle() }
                         activeControl = .none
-                        if !isManualMode {
-                            camera.resetToAuto(control: .focus)
-                            camera.resetToAuto(control: .iso)
-                        }
+                        if !isManualMode { camera.resetToAuto(control: .focus); camera.resetToAuto(control: .iso) }
                         hapticGenerator.impactOccurred()
                     }
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(cloudWhite)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .font(.custom("Montserrat-Regular", size: 14))
+                    .foregroundColor(isManualMode ? uiAccent : Color.white)
+                    .frame(maxWidth: .infinity)
+                    
+                    // Controlled by custom gesture logic inside ShutterButton
+                    ShutterButton(action: initiateCapture, isDisabled: countdownDisplay > 0)
+                    
+                    Button(camera.isDoubleExposureMode ? "double" : "single") {
+                        camera.isDoubleExposureMode.toggle()
+                        hapticGenerator.impactOccurred()
+                    }
+                    .font(.custom("Montserrat-Regular", size: 14))
+                    .foregroundColor(camera.isDoubleExposureMode ? uiAccent : Color.white)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 24)
                 .padding(.bottom, 40)
             }
         }
-        .onAppear { setupAudioPlayer() }
+    }
+    
+    // MARK: - Helpers
+    private func shortLensLabel(_ label: String) -> String {
+        switch label {
+        case "ultra-wide": return "0.5x"
+        case "wide": return "1x"
+        case "tele": return "4x"
+        default: return label
+        }
     }
     
     private func shutterLabel() -> String {
         if camera.isShutterAuto { return "S" }
         let s = camera.currentShutter
-        if s >= 1.0 { return String(format: "%.1fs", s) }
-        return "1/\(Int(1.0 / s))"
+        return s >= 1.0 ? String(format: "%.1fs", s) : "1/\(Int(1.0 / s))"
     }
     
     private func isoLabel() -> String {
-        if camera.isISOAuto { return "ISO" }
-        return "ISO \(Int(camera.currentISO))"
+        camera.isISOAuto ? "ISO" : "ISO \(Int(camera.currentISO))"
     }
     
     private func currentReadoutText() -> String {
         switch activeControl {
         case .focus: return String(format: "F: %.2f", camera.currentFocus)
         case .iso: return "ISO \(Int(camera.currentISO))"
-        case .shutter:
-            let s = camera.currentShutter
-            if s >= 1.0 { return String(format: "%.1fs", s) }
-            return "1/\(Int(1.0 / s))s"
+        case .shutter: return shutterLabel()
         default: return ""
         }
     }
     
     private func toggleControl(_ target: ManualControl) {
-        if activeControl == target {
-            activeControl = .none
-            camera.resetToAuto(control: target)
-        } else {
-            activeControl = target
-        }
+        if activeControl == target { activeControl = .none; camera.resetToAuto(control: target) }
+        else { activeControl = target }
     }
     
     private func cycleTimer() {
-        if activeControl == .timer || timerValue > 0 {
-            timerValue = timerValue == 0 ? 3 : (timerValue == 3 ? 10 : 0)
-            if timerValue == 0 { activeControl = .none } else { activeControl = .timer }
-        } else {
-            activeControl = .timer
-            timerValue = 3
-        }
-    }
-    
-    private func setupAudioPlayer() {
-        DispatchQueue.global(qos: .background).async {
-            try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
-            try? AVAudioSession.sharedInstance().setActive(true)
-            if let url = Bundle.main.url(forResource: "shutter", withExtension: "wav"),
-               let player = try? AVAudioPlayer(contentsOf: url) {
-                player.volume = 0.4
-                player.prepareToPlay()
-                DispatchQueue.main.async { self.audioPlayer = player }
-            }
-        }
+        timerValue = timerValue == 0 ? 3 : (timerValue == 3 ? 10 : 0)
+        activeControl = timerValue > 0 ? .timer : .none
     }
     
     private func initiateCapture() {
@@ -274,53 +303,14 @@ struct ContentView: View {
             countdownDisplay = timerValue
             Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
                 countdownDisplay -= 1
-                if countdownDisplay > 0 {
-                    hapticGenerator.impactOccurred(intensity: 0.5)
-                } else {
-                    timer.invalidate()
-                    executeCapture()
-                }
+                if countdownDisplay <= 0 { timer.invalidate(); executeCapture() }
             }
-        } else {
-            executeCapture()
-        }
+        } else { executeCapture() }
     }
     
     private func executeCapture() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            audioPlayer?.currentTime = 0
-            audioPlayer?.play()
-        }
-        
         isFlashing = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            isFlashing = false
-        }
-        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isFlashing = false }
         camera.capturePhoto()
-    }
-}
-
-struct GridOverlay: View {
-    @StateObject private var motion = MotionManager()
-    
-    var body: some View {
-        GeometryReader { geo in
-            Path { path in
-                let w = geo.size.width
-                let h = geo.size.height
-                path.move(to: CGPoint(x: w/3, y: 0)); path.addLine(to: CGPoint(x: w/3, y: h))
-                path.move(to: CGPoint(x: 2*w/3, y: 0)); path.addLine(to: CGPoint(x: 2*w/3, y: h))
-                path.move(to: CGPoint(x: 0, y: h/3)); path.addLine(to: CGPoint(x: w, y: h/3))
-                path.move(to: CGPoint(x: 0, y: 2*h/3)); path.addLine(to: CGPoint(x: w, y: 2*h/3))
-            }
-            .stroke(Color.white.opacity(0.3), lineWidth: 0.5)
-            
-            Rectangle()
-                .fill(motion.isLevel ? Color.white : Color.white.opacity(0.5))
-                .frame(width: geo.size.width * 0.4, height: 1.5)
-                .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                .opacity(motion.rollOpacity)
-        }
     }
 }
