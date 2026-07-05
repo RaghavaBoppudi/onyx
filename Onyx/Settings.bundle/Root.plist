@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>StringsTable</key>
+    <string>Root</string>
+    <key>PreferenceSpecifiers</key>
+    <array>
+        <dict>
+            <key>Type</key>
+            <string>PSGroupSpecifier</string>
+            <key>Title</key>
+            <string>About Monolith</string>
+        </dict>
+        <dict>
+            <key>Type</key>
+            <string>PSTitleValueSpecifier</string>
+            <key>Title</key>
+            <string>Application</string>
+            <key>Key</key>
+            <string>app_name_preference</string>
+            <key>DefaultValue</key>
+            <string>Monolith Camera</string>
+        </dict>
+        <dict>
+            <key>Type</key>
+            <string>PSTitleValueSpecifier</string>
+            <key>Title</key>
+            <string>Developer</string>
+            <key>Key</key>
+            <string>developer_name_preference</string>
+            <key>DefaultValue</key>
+            <string>Raghava Boppudi</string>
+        </dict>
+        <dict>
+            <key>Type</key>
+            <string>PSTitleValueSpecifier</string>
+            <key>Title</key>
+            <string>Portfolio</string>
+            <key>Key</key>
+            <string>portfolio_url_preference</string>
+            <key>DefaultValue</key>
+            <string>raghavaboppudi.com</string>
+        </dict>
+    </array>
+</dict>
+</plist>
