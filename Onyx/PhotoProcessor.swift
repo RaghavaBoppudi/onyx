@@ -10,32 +10,18 @@ struct PhotoProcessor {
         rawFilter.luminanceNoiseReductionAmount = 0.0
         rawFilter.colorNoiseReductionAmount = 0.0
         rawFilter.sharpnessAmount = 0.0
-        rawFilter.extendedDynamicRangeAmount = 0.0
-        rawFilter.localToneMapAmount = 0.0
-        rawFilter.boostAmount = 0.0
+        rawFilter.extendedDynamicRangeAmount = 0.5
+        rawFilter.localToneMapAmount = 0.7
+        rawFilter.boostAmount = 0.1
         return rawFilter.outputImage
     }
     
-    func processAndSave(photoData: Data, secondaryData: Data?, location: CLLocation?) {
+    func processAndSave(photoData: Data, location: CLLocation?) {
         DispatchQueue.global(qos: .userInitiated).async {
             guard let baseRaw = self.decodeRAW(data: photoData),
-                  let baseMono = baseRaw.applyingMonolithMonochrome() else { return }
+                  let baseMono = baseRaw.applyingOnyxMonochrome() else { return }
             
-            var finalImage: CIImage
-            
-            if let secondaryData = secondaryData,
-               let secondRaw = self.decodeRAW(data: secondaryData),
-               let secondMono = secondRaw.applyingMonolithMonochrome() {
-                
-                let blend = CIFilter.screenBlendMode()
-                blend.inputImage = secondMono
-                blend.backgroundImage = baseMono
-                let blended = blend.outputImage ?? baseMono
-                
-                finalImage = blended.applyingMonolithToneCurve() ?? blended
-            } else {
-                finalImage = baseMono.applyingMonolithToneCurve() ?? baseMono
-            }
+            let finalImage = baseMono.applyingOnyxToneCurve() ?? baseMono
             
             let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
             guard let finalData = self.ciContext.jpegRepresentation(

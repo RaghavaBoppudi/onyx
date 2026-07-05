@@ -55,11 +55,15 @@ struct ContentView: View {
     @State private var touchTimer: Timer?
     @State private var timerValue = 0
     @State private var countdownDisplay = 0
-    @State private var dragLastY: CGFloat = 0
     @State private var showFloatingReadout = false
     @State private var isFlashing = false
     @State private var focusPoint: CGPoint? = nil
     @State private var showFocusIndicator = false
+    
+    @State private var dragLastY: CGFloat = 0
+    @State private var dragAccumulator: CGFloat = 0
+    @State private var startIndex: Int = 0
+    private let swipeSensitivity: CGFloat = 20.0
     
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     private let uiAccent = Color(red: 105/255, green: 123/255, blue: 125/255)
@@ -80,13 +84,41 @@ struct ContentView: View {
                                 DragGesture(minimumDistance: 0)
                                     .onChanged { value in
                                         if isManualMode && activeControl != .none && activeControl != .timer {
-                                            if dragLastY == 0 { dragLastY = value.location.y }
-                                            let delta = Float(dragLastY - value.location.y)
-                                            dragLastY = value.location.y
                                             showFloatingReadout = true
-                                            camera.adjust(control: activeControl, delta: delta)
+                                            
+                                            if activeControl == .focus {
+                                                if dragLastY == 0 { dragLastY = value.location.y }
+                                                let delta = Float(dragLastY - value.location.y)
+                                                dragLastY = value.location.y
+                                                camera.setFocus(camera.currentFocus + delta * 0.005)
+                                                return
+                                            }
+                                            
+                                            if dragAccumulator == 0 {
+                                                if activeControl == .iso {
+                                                    startIndex = findClosestIndex(for: camera.currentISO, in: camera.standardISOs)
+                                                } else if activeControl == .shutter {
+                                                    startIndex = findClosestIndex(for: Float(camera.currentShutter), in: camera.standardShutterSpeeds.map { Float($0) })
+                                                }
+                                            }
+                                            
+                                            dragAccumulator = -value.translation.height
+                                            let steps = Int(dragAccumulator / swipeSensitivity)
+                                            
+                                            if activeControl == .iso {
+                                                var targetIndex = startIndex + steps
+                                                targetIndex = max(0, min(targetIndex, camera.standardISOs.count - 1))
+                                                let newISO = camera.standardISOs[targetIndex]
+                                                if newISO != camera.currentISO { camera.setISO(newISO) }
+                                            } else if activeControl == .shutter {
+                                                var targetIndex = startIndex + steps
+                                                targetIndex = max(0, min(targetIndex, camera.standardShutterSpeeds.count - 1))
+                                                let newShutter = camera.standardShutterSpeeds[targetIndex]
+                                                if newShutter != camera.currentShutter { camera.setShutter(newShutter) }
+                                            }
                                             return
                                         }
+                                        
                                         if touchTimer == nil {
                                             let nx = value.location.x / geo.size.width
                                             let ny = value.location.y / geo.size.height
@@ -101,7 +133,9 @@ struct ContentView: View {
                                     }
                                     .onEnded { value in
                                         dragLastY = 0
+                                        dragAccumulator = 0
                                         showFloatingReadout = false
+                                        
                                         if let timer = touchTimer, timer.isValid {
                                             timer.invalidate()
                                             touchTimer = nil
@@ -211,17 +245,25 @@ struct ContentView: View {
                     
                     ShutterButton(action: initiateCapture, isDisabled: countdownDisplay > 0)
                     
-                    Button(camera.isDoubleExposureMode ? "double" : "single") {
-                        camera.isDoubleExposureMode.toggle()
-                        hapticGenerator.impactOccurred()
-                    }
-                    .font(.custom("Montserrat-Regular", size: 14))
-                    .foregroundColor(camera.isDoubleExposureMode ? uiAccent : Color.white)
-                    .frame(maxWidth: .infinity)
+                    Spacer()
+                        .frame(maxWidth: .infinity)
                 }
                 .padding(.bottom, 40)
             }
         }
+    }
+    
+    private func findClosestIndex(for value: Float, in array: [Float]) -> Int {
+        var closestIndex = 0
+        var minDifference = Float.infinity
+        for (index, stop) in array.enumerated() {
+            let diff = abs(value - stop)
+            if diff < minDifference {
+                minDifference = diff
+                closestIndex = index
+            }
+        }
+        return closestIndex
     }
     
     private func shutterLabel() -> String {

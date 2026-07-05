@@ -1,13 +1,12 @@
 import SwiftUI
 
 @main
-struct MonolithApp: App {
+struct OnyxApp: App {
     @State private var showSplash = true
 
     var body: some Scene {
         WindowGroup {
             ZStack {
-                // Initialize the camera in the background
                 ContentView()
                 
                 if showSplash {
@@ -18,7 +17,7 @@ struct MonolithApp: App {
                         Image("splash-screen")
                             .resizable()
                             .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity) // Force expansion
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .ignoresSafeArea()
                     }
                     .transition(.opacity)

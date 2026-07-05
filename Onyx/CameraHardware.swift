@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 
 struct Lens: Equatable {
     let type: AVCaptureDevice.DeviceType
