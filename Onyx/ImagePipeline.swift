@@ -6,7 +6,16 @@ import CoreLocation
 struct OnyxFilterPipeline: Sendable {
     nonisolated static func apply(to image: CIImage, isColor: Bool) -> CIImage {
         if isColor {
-            return image
+            // Subtle S-Curve for natural color contrast
+            let colorCurve = CIFilter.toneCurve()
+            colorCurve.point0 = CGPoint(x: 0.0, y: 0.0)
+            colorCurve.point1 = CGPoint(x: 0.25, y: 0.20)
+            colorCurve.point2 = CGPoint(x: 0.50, y: 0.50)
+            colorCurve.point3 = CGPoint(x: 0.75, y: 0.80)
+            colorCurve.point4 = CGPoint(x: 1.0, y: 1.0)
+            colorCurve.inputImage = image
+            
+            return colorCurve.outputImage ?? image
         }
         
         // B&W Orange Filter Matrix (High Red transmission, blocks Blue)
