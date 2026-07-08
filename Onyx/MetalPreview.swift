@@ -3,8 +3,7 @@ import MetalKit
 import CoreImage
 
 struct MetalPreview: UIViewRepresentable {
-    var image: CIImage?
-    let context: CIContext
+    let camera: CameraManager
     
     func makeUIView(context: Context) -> MTKView {
         guard let device = MTLCreateSystemDefaultDevice() else { fatalError("Metal not supported") }
@@ -14,20 +13,20 @@ struct MetalPreview: UIViewRepresentable {
         mtkView.enableSetNeedsDisplay = true
         mtkView.isPaused = true
         mtkView.backgroundColor = .black
+        camera.frameReceiver = context.coordinator
         return mtkView
     }
     
-    func updateUIView(_ uiView: MTKView, context: Context) {
-        context.coordinator.image = image
-        uiView.setNeedsDisplay()
-    }
+    func updateUIView(_ uiView: MTKView, context: Context) {}
     
-    func makeCoordinator() -> Coordinator { Coordinator(context: context) }
+    func makeCoordinator() -> Coordinator { Coordinator(context: camera.ciContext) }
     
-    class Coordinator: NSObject, MTKViewDelegate {
-        var image: CIImage?
+    class Coordinator: NSObject, MTKViewDelegate, FrameReceiver, @unchecked Sendable {
+        nonisolated(unsafe) private var currentImage: CIImage?
         let context: CIContext
         let commandQueue: MTLCommandQueue?
+        nonisolated(unsafe) private weak var view: MTKView?
+        private let lock = NSLock()
         
         init(context: CIContext) {
             self.context = context
@@ -35,9 +34,24 @@ struct MetalPreview: UIViewRepresentable {
             super.init()
         }
         
-        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+        nonisolated func receive(image: CIImage?) {
+            lock.lock()
+            currentImage = image
+            lock.unlock()
+            DispatchQueue.main.async { [weak self] in self?.view?.setNeedsDisplay() }
+        }
         
-        func draw(in view: MTKView) {
+        nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+            lock.lock()
+            self.view = view
+            lock.unlock()
+        }
+        
+        nonisolated func draw(in view: MTKView) {
+            lock.lock()
+            let image = currentImage
+            lock.unlock()
+            
             guard let image = image,
                   let drawable = view.currentDrawable,
                   let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
@@ -49,12 +63,11 @@ struct MetalPreview: UIViewRepresentable {
             let scaleY = bounds.height / image.extent.height
             let scale = max(scaleX, scaleY)
             
-            let scaledImage = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            let xOffset = (bounds.width - scaledImage.extent.width) / 2
-            let yOffset = (bounds.height - scaledImage.extent.height) / 2
-            let centeredImage = scaledImage.transformed(by: CGAffineTransform(translationX: xOffset, y: yOffset))
+            let transform = CGAffineTransform(scaleX: scale, y: scale)
+                .translatedBy(x: (bounds.width - (image.extent.width * scale)) / (2 * scale),
+                              y: (bounds.height - (image.extent.height * scale)) / (2 * scale))
 
-            context.render(centeredImage.clampedToExtent(),
+            context.render(image.transformed(by: transform).clampedToExtent(),
                            to: drawable.texture,
                            commandBuffer: commandBuffer,
                            bounds: bounds,

@@ -1,24 +1,27 @@
 import SwiftUI
-import UIKit
-import Combine
+import AVFoundation
+
+// MARK: - Global UI Theme
+struct Theme {
+    static let accent = Color(red: 105/255, green: 123/255, blue: 125/255)
+}
 
 struct ShutterButton: View {
     let action: () -> Void
     let isDisabled: Bool
     
     @State private var isPressed: Bool = false
-    private let uiAccent = Color(red: 105/255, green: 123/255, blue: 125/255)
     
     var body: some View {
         ZStack {
             Circle()
                 .strokeBorder(Color.white, lineWidth: 3)
-                .frame(width: isPressed ? 64 : 72, height: isPressed ? 64 : 72)
+                .frame(width: isPressed ? 80 : 88, height: isPressed ? 80 : 88)
             Circle()
-                .fill(uiAccent)
-                .frame(width: 58, height: 58)
+                .fill(Theme.accent)
+                .frame(width: 72, height: 72)
         }
-        .frame(width: 72, height: 72)
+        .frame(width: 88, height: 88)
         .animation(.spring(response: 0.15, dampingFraction: 0.65), value: isPressed)
         .gesture(
             DragGesture(minimumDistance: 0)
@@ -36,13 +39,13 @@ struct DynamicControlIcon: View {
     let title: String
     let isActive: Bool
     let action: () -> Void
-    private let uiAccent = Color(red: 105/255, green: 123/255, blue: 125/255)
     
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.custom("Montserrat-Regular", size: 14))
-                .foregroundColor(isActive ? uiAccent : Color.white)
+                .font(.system(size: 14, weight: .medium, design: .default))
+                .foregroundColor(isActive ? Theme.accent : Color.white)
+                .frame(maxWidth: .infinity)
         }
     }
 }
@@ -66,15 +69,18 @@ struct ContentView: View {
     private let swipeSensitivity: CGFloat = 20.0
     
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
-    private let uiAccent = Color(red: 105/255, green: 123/255, blue: 125/255)
     
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            
             VStack(spacing: 0) {
+                // This Spacer absorbs all available top space, pushing everything down
                 Spacer()
+                
+                // Fixed Edge-to-Edge Viewfinder
                 ZStack(alignment: .bottom) {
-                    MetalPreview(image: camera.livePreviewImage, context: camera.ciContext)
+                    MetalPreview(camera: camera)
                         .blur(radius: camera.isSwitchingLens ? 30 : 0)
                         .animation(.easeInOut(duration: 0.15), value: camera.isSwitchingLens)
                     
@@ -164,13 +170,13 @@ struct ContentView: View {
                     
                     if countdownDisplay > 0 {
                         Text("\(countdownDisplay)")
-                            .font(.custom("Montserrat-Regular", size: 72))
+                            .font(.system(size: 72, weight: .regular))
                             .foregroundColor(.white)
                             .shadow(color: .black, radius: 4)
                             .position(x: UIScreen.main.bounds.width / 2, y: (UIScreen.main.bounds.width * 4/3) / 2)
                     } else if isManualMode && activeControl != .none && activeControl != .timer && showFloatingReadout {
                         Text(currentReadoutText())
-                            .font(.custom("Montserrat-Regular", size: 14))
+                            .font(.system(size: 14, weight: .regular))
                             .foregroundColor(.white)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
@@ -181,7 +187,7 @@ struct ContentView: View {
                     
                     if isAELocked {
                         Text("AE/AF LOCK")
-                            .font(.custom("Montserrat-Regular", size: 12))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.black)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -194,61 +200,86 @@ struct ContentView: View {
                         .animation(.easeInOut(duration: 0.1), value: isFlashing)
                     
                     if isManualMode {
-                        HStack {
+                        HStack(spacing: 0) {
                             DynamicControlIcon(title: "F", isActive: activeControl == .focus) { toggleControl(.focus) }
-                            Spacer()
                             DynamicControlIcon(title: shutterLabel(), isActive: activeControl == .shutter) { toggleControl(.shutter) }
-                            Spacer()
                             DynamicControlIcon(title: isoLabel(), isActive: activeControl == .iso) { toggleControl(.iso) }
-                            Spacer()
+                            
                             Button(action: cycleTimer) {
-                                Group { if timerValue > 0 { Text("\(timerValue)s") } else { Text("timer") } }
-                                .font(.custom("Montserrat-Regular", size: 14))
-                                .foregroundColor(activeControl == .timer || timerValue > 0 ? uiAccent : Color.white)
+                                Image(systemName: timerValue == 0 ? "timer" : (timerValue == 3 ? "3.circle" : "10.circle"))
+                                    .font(.system(size: 18))
+                                    .foregroundColor(activeControl == .timer || timerValue > 0 ? Theme.accent : Color.white)
+                                    .frame(maxWidth: .infinity)
                             }
                         }
-                        .padding(.horizontal, 32)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 16)
-                        .background(Color.black)
+                        .background(Color.black.opacity(0.4))
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
                     }
                 }
-                .aspectRatio(3.0 / 4.0, contentMode: .fit)
-                .frame(maxWidth: .infinity)
+                .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.width * 4 / 3)
                 .clipped()
                 
-                Spacer()
-                HStack(spacing: 24) {
-                    ForEach(camera.availableLenses, id: \.type) { lens in
-                        Button(action: { camera.selectLens(lens) }) {
-                            Text(lens.label)
-                                .font(.custom("Montserrat-Regular", size: 14))
-                                .foregroundColor(camera.currentLens == lens ? uiAccent : Color.white)
-                                .frame(width: 44, height: 44)
+                // Bottom Control Cluster: Fixed Height for Absolute Alignment
+                VStack(spacing: 0) {
+                    
+                    // Fixed height container for lens selectors
+                    HStack(spacing: 24) {
+                        ForEach(camera.availableLenses, id: \.type) { lens in
+                            Button(action: { camera.selectLens(lens) }) {
+                                Text(lens.label)
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundColor(camera.currentLens == lens ? Theme.accent : Color.white)
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
-                }
-                Spacer()
-                
-                HStack(spacing: 0) {
-                    Button(isManualMode ? "manual" : "auto") {
-                        withAnimation(.easeInOut(duration: 0.25)) { isManualMode.toggle() }
-                        activeControl = .none
-                        if !isManualMode { camera.resetToAuto(control: .focus); camera.resetToAuto(control: .iso) }
-                        hapticGenerator.impactOccurred()
-                    }
-                    .font(.custom("Montserrat-Regular", size: 14))
-                    .foregroundColor(isManualMode ? uiAccent : Color.white)
-                    .frame(maxWidth: .infinity)
+                    .frame(height: 100)
                     
-                    ShutterButton(action: initiateCapture, isDisabled: countdownDisplay > 0)
-                    
-                    Spacer()
+                    // Shutter Row: Anchored to bottom
+                    HStack(spacing: 0) {
+                        // Auto/Manual Toggle
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.25)) { isManualMode.toggle() }
+                            activeControl = .none
+                            if !isManualMode {
+                                camera.resetToAuto(control: .focus)
+                                camera.resetToAuto(control: .iso)
+                            }
+                            hapticGenerator.impactOccurred()
+                        }) {
+                            Text(isManualMode ? "manual" : "auto")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(Theme.accent)
+                        }
                         .frame(maxWidth: .infinity)
+                        
+                        // Shutter Button
+                        ShutterButton(action: initiateCapture, isDisabled: countdownDisplay > 0)
+                        
+                        // Format Toggle
+                        Button(action: {
+                            hapticGenerator.impactOccurred()
+                            camera.isColorMode.toggle()
+                        }) {
+                            Text(camera.isColorMode ? "color" : "mono")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(Theme.accent)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .frame(height: 100)
                 }
-                .padding(.bottom, 40)
+            }
+        }
+        .onDisappear {
+            if camera.session.isRunning {
+                DispatchQueue.global(qos: .background).async {
+                    camera.session.stopRunning()
+                }
             }
         }
     }

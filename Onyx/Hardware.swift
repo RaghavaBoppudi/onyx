@@ -1,5 +1,5 @@
 import AVFoundation
-import Combine
+import CoreLocation
 
 struct Lens: Equatable {
     let type: AVCaptureDevice.DeviceType
@@ -20,5 +20,22 @@ struct CameraHardware {
             discovered.append(Lens(type: .builtInTelephotoCamera, position: .back, label: "4x"))
         }
         return discovered
+    }
+}
+
+class LocationProvider: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    var currentLocation: CLLocation?
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.requestWhenInUseAuthorization()
+        manager.startUpdatingLocation()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        currentLocation = locations.last
     }
 }

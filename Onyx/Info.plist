@@ -2,9 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>UIAppFonts</key>
-    <array>
-        <string>Montserrat-Regular.ttf</string>
-    </array>
+    <key>NSCameraUsageDescription</key>
+    <string>Camera access is required to capture photos.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Location access is required to embed GPS metadata.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Photo library access is required to save captures.</string>
 </dict>
 </plist>
