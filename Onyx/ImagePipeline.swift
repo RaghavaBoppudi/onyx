@@ -4,20 +4,7 @@ import Photos
 import CoreLocation
 
 struct OnyxFilterPipeline: Sendable {
-    nonisolated static func apply(to image: CIImage, isColor: Bool) -> CIImage {
-        if isColor {
-            // Subtle S-Curve for natural color contrast
-            let colorCurve = CIFilter.toneCurve()
-            colorCurve.point0 = CGPoint(x: 0.0, y: 0.0)
-            colorCurve.point1 = CGPoint(x: 0.25, y: 0.20)
-            colorCurve.point2 = CGPoint(x: 0.50, y: 0.50)
-            colorCurve.point3 = CGPoint(x: 0.75, y: 0.80)
-            colorCurve.point4 = CGPoint(x: 1.0, y: 1.0)
-            colorCurve.inputImage = image
-            
-            return colorCurve.outputImage ?? image
-        }
-        
+    nonisolated static func apply(to image: CIImage) -> CIImage {
         // B&W Orange Filter Matrix (High Red transmission, blocks Blue)
         let monochrome = CIFilter.colorMatrix()
         monochrome.rVector = CIVector(x: 0.60, y: 0.40, z: 0.00, w: 0.0)
@@ -42,27 +29,25 @@ struct OnyxFilterPipeline: Sendable {
 }
 
 struct PhotoProcessor: Sendable {
-    // nonisolated(unsafe) fixes the Swift 6 strict concurrency static property error
-    nonisolated(unsafe) private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
     
     nonisolated static func decodeRAW(data: Data) -> CIImage? {
         guard let rawFilter = CIRAWFilter(imageData: data, identifierHint: nil) else { return nil }
         
-        // Disable all computational photography elements to replicate the flat, natural aesthetic
         rawFilter.luminanceNoiseReductionAmount = 0.0
         rawFilter.colorNoiseReductionAmount = 0.0
         rawFilter.sharpnessAmount = 0.0
-        rawFilter.extendedDynamicRangeAmount = 0.0 // Disables Apple's Smart HDR
-        rawFilter.localToneMapAmount = 0.0         // Flattens contrast to natural levels
+        rawFilter.extendedDynamicRangeAmount = 0.0
+        rawFilter.localToneMapAmount = 0.0
         rawFilter.boostAmount = 0.0
         
         return rawFilter.outputImage
     }
     
-    nonisolated static func processAndSave(photoData: Data, location: CLLocation?, isColor: Bool) {
+    nonisolated static func processAndSave(photoData: Data, location: CLLocation?) {
         Task.detached(priority: .userInitiated) {
             guard let baseRaw = decodeRAW(data: photoData) else { return }
-            let finalImage = OnyxFilterPipeline.apply(to: baseRaw, isColor: isColor)
+            let finalImage = OnyxFilterPipeline.apply(to: baseRaw)
             
             guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
                   let finalData = ciContext.jpegRepresentation(
