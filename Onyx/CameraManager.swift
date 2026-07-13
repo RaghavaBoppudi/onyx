@@ -28,6 +28,8 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     private let lock = NSLock()
     private let locationProvider = LocationProvider()
     private nonisolated(unsafe) var _frameCount = 0
+    
+    private var rotationCoordinator: Any?
 
     override init() {
         super.init()
@@ -57,10 +59,7 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         videoOutput.alwaysDiscardsLateVideoFrames = true
         if session.canAddOutput(videoOutput) {
             session.addOutput(videoOutput)
-            if let connection = videoOutput.connection(with: .video) {
-                if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
-                if connection.isVideoMirroringSupported { connection.isVideoMirrored = (device.position == .front) }
-            }
+            configureVideoConnection(for: device)
         }
         
         if session.canAddOutput(photoOutput) {
@@ -71,6 +70,22 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         applySettings(to: device)
         session.commitConfiguration()
         session.startRunning()
+    }
+    
+    private func configureVideoConnection(for device: AVCaptureDevice) {
+        guard let connection = videoOutput.connection(with: .video) else { return }
+        
+        if #available(iOS 17.0, *) {
+            let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+            self.rotationCoordinator = coordinator
+            connection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+        } else {
+            if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
+        }
+        
+        if connection.isVideoMirroringSupported {
+            connection.isVideoMirrored = (device.position == .front)
+        }
     }
     
     nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -95,7 +110,7 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             self.photoOutput.capturePhoto(with: settings, delegate: self)
         }
     }
-    
+
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard error == nil, photo.isRawPhoto, let rawData = photo.fileDataRepresentation() else { return }
         PhotoProcessor.processAndSave(photoData: rawData, location: locationProvider.currentLocation)
@@ -113,13 +128,12 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
                   
             self.session.beginConfiguration()
             if let currentInput = self.videoDeviceInput { self.session.removeInput(currentInput) }
-            if self.session.canAddInput(newInput) { self.session.addInput(newInput); self.videoDeviceInput = newInput }
-            
-            if let connection = self.videoOutput.connection(with: .video) {
-                if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
-                if connection.isVideoMirroringSupported { connection.isVideoMirrored = (newDevice.position == .front) }
+            if self.session.canAddInput(newInput) {
+                self.session.addInput(newInput)
+                self.videoDeviceInput = newInput
             }
             
+            self.configureVideoConnection(for: newDevice)
             self.applySettings(to: newDevice)
             self.session.commitConfiguration()
             

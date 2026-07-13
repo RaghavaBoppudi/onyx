@@ -5,7 +5,6 @@ import CoreLocation
 
 struct OnyxFilterPipeline: Sendable {
     nonisolated static func apply(to image: CIImage) -> CIImage {
-        // B&W Orange Filter Matrix (High Red transmission, blocks Blue)
         let monochrome = CIFilter.colorMatrix()
         monochrome.rVector = CIVector(x: 0.60, y: 0.40, z: 0.00, w: 0.0)
         monochrome.gVector = CIVector(x: 0.60, y: 0.40, z: 0.00, w: 0.0)
@@ -15,7 +14,6 @@ struct OnyxFilterPipeline: Sendable {
         
         guard let monoImage = monochrome.outputImage else { return image }
         
-        // B&W Film Contrast Curve
         let curve = CIFilter.toneCurve()
         curve.point0 = CGPoint(x: 0.0, y: 0.02)
         curve.point1 = CGPoint(x: 0.25, y: 0.14)
@@ -32,21 +30,22 @@ struct PhotoProcessor: Sendable {
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
     
     nonisolated static func decodeRAW(data: Data) -> CIImage? {
+        // CIRAWFilter automatically reads and applies the hardware EXIF orientation tag.
         guard let rawFilter = CIRAWFilter(imageData: data, identifierHint: nil) else { return nil }
-        
         rawFilter.luminanceNoiseReductionAmount = 0.0
         rawFilter.colorNoiseReductionAmount = 0.0
         rawFilter.sharpnessAmount = 0.0
         rawFilter.extendedDynamicRangeAmount = 0.0
         rawFilter.localToneMapAmount = 0.0
         rawFilter.boostAmount = 0.0
-        
         return rawFilter.outputImage
     }
     
     nonisolated static func processAndSave(photoData: Data, location: CLLocation?) {
         Task.detached(priority: .userInitiated) {
             guard let baseRaw = decodeRAW(data: photoData) else { return }
+            
+            // baseRaw is already upright. Do not apply secondary rotations here.
             let finalImage = OnyxFilterPipeline.apply(to: baseRaw)
             
             guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),

@@ -4,7 +4,7 @@ import MediaPlayer
 
 // MARK: - Global UI Theme
 struct Theme {
-    static let accent = Color(red: 134/255, green: 134/255, blue: 134/255) // Hex #868686
+    static let accent = Color(red: 134/255, green: 134/255, blue: 134/255)
 }
 
 struct ShutterButton: View {
@@ -80,102 +80,127 @@ struct ContentView: View {
     @State private var focusPoint: CGPoint? = nil
     @State private var showFocusIndicator = false
     @State private var isFlashing = false
+    @State private var uiRotation: Angle = .zero
     
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VolumeShutterView(onShutterPress: initiateCapture)
-            
-            VStack(spacing: 0) {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.ignoresSafeArea()
                 
-                HStack {
-                    Spacer()
-                    Button(action: {
-                        hapticGenerator.impactOccurred()
-                        camera.toggleCameraPosition()
-                    }) {
-                        Image(systemName: "arrow.triangle.2.circlepath.camera")
-                            .font(.system(size: 22, weight: .regular))
-                            .foregroundColor(.white)
-                            .padding(.trailing, 24)
-                            .padding(.top, 12)
-                    }
-                }
+                VolumeShutterView(onShutterPress: initiateCapture)
                 
-                Spacer()
-                
-                ZStack(alignment: .bottom) {
-                    MetalPreview(camera: camera)
-                        .blur(radius: camera.isSwitchingLens ? 30 : 0)
-                        .animation(.easeInOut(duration: 0.15), value: camera.isSwitchingLens)
+                VStack(spacing: 0) {
                     
-                    GeometryReader { geo in
-                        Color.clear.contentShape(Rectangle())
-                            .onTapGesture { location in
-                                hapticGenerator.impactOccurred(intensity: 1.0)
-                                let nx = location.x / geo.size.width
-                                let ny = location.y / geo.size.height
-                                camera.lockFocusAndExposure(at: CGPoint(x: nx, y: ny))
-                                focusPoint = location
-                                showFocusIndicator = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { showFocusIndicator = false }
-                            }
-                    }
-                    
-                    if showFocusIndicator, let point = focusPoint {
-                        Circle()
-                            .stroke(Color.white, lineWidth: 1.5)
-                            .frame(width: 50, height: 50)
-                            .position(point)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showFocusIndicator)
-                    }
-                    
-                    Color.black.opacity(isFlashing ? 1.0 : 0)
-                        .animation(.easeInOut(duration: 0.1), value: isFlashing)
-                }
-                .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.width * 4 / 3)
-                .clipped()
-                
-                VStack(spacing: 24) {
-                    if camera.availableLenses.count > 1 {
-                        HStack(spacing: 0) {
-                            ForEach(camera.availableLenses, id: \.type) { lens in
-                                Button(action: { camera.selectLens(lens) }) {
-                                    VStack(spacing: 6) {
-                                        Circle()
-                                            .fill(camera.currentLens == lens ? Theme.accent : Color.clear)
-                                            .frame(width: 4, height: 4)
-                                        
-                                        Text(lens.label)
-                                            .font(.system(size: 14, weight: .regular))
-                                            .foregroundColor(camera.currentLens == lens ? Theme.accent : Color.white)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            hapticGenerator.impactOccurred()
+                            camera.toggleCameraPosition()
+                        }) {
+                            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                .font(.system(size: 22, weight: .regular))
+                                .foregroundColor(.white)
+                                .rotationEffect(uiRotation)
+                                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: uiRotation)
+                                .padding(.trailing, 24)
+                                .padding(.top, 12)
                         }
-                        .padding(.horizontal, 40)
-                    } else {
-                        Color.clear.frame(height: 24)
                     }
                     
-                    ShutterButton(action: initiateCapture)
+                    Spacer()
+                    
+                    ZStack(alignment: .bottom) {
+                        MetalPreview(camera: camera)
+                            .blur(radius: camera.isSwitchingLens ? 30 : 0)
+                            .animation(.easeInOut(duration: 0.15), value: camera.isSwitchingLens)
+                        
+                        GeometryReader { geo in
+                            Color.clear.contentShape(Rectangle())
+                                .onTapGesture { location in
+                                    hapticGenerator.impactOccurred(intensity: 1.0)
+                                    let nx = location.x / geo.size.width
+                                    let ny = location.y / geo.size.height
+                                    camera.lockFocusAndExposure(at: CGPoint(x: nx, y: ny))
+                                    focusPoint = location
+                                    showFocusIndicator = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { showFocusIndicator = false }
+                                }
+                        }
+                        
+                        if showFocusIndicator, let point = focusPoint {
+                            Circle()
+                                .stroke(Color.white, lineWidth: 1.5)
+                                .frame(width: 50, height: 50)
+                                .position(point)
+                                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showFocusIndicator)
+                        }
+                        
+                        Color.black.opacity(isFlashing ? 1.0 : 0)
+                            .animation(.easeInOut(duration: 0.1), value: isFlashing)
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.width * 4 / 3)
+                    .clipped()
+                    
+                    VStack(spacing: 24) {
+                        if camera.availableLenses.count > 1 {
+                            HStack(spacing: 0) {
+                                ForEach(camera.availableLenses, id: \.type) { lens in
+                                    Button(action: { camera.selectLens(lens) }) {
+                                        VStack(spacing: 6) {
+                                            Circle()
+                                                .fill(camera.currentLens == lens ? Theme.accent : Color.clear)
+                                                .frame(width: 4, height: 4)
+                                            
+                                            Text(lens.label)
+                                                .font(.system(size: 14, weight: .regular))
+                                                .foregroundColor(camera.currentLens == lens ? Theme.accent : Color.white)
+                                        }
+                                        .rotationEffect(uiRotation)
+                                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: uiRotation)
+                                        .frame(maxWidth: .infinity)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 40)
+                        } else {
+                            Color.clear.frame(height: 24)
+                        }
+                        
+                        ShutterButton(action: initiateCapture)
+                    }
+                    .padding(.top, 24)
+                    .padding(.bottom, 36)
                 }
-                .padding(.top, 24)
-                .padding(.bottom, 36)
             }
         }
+        .onAppear {
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+            updateUIRotation(for: UIDevice.current.orientation)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            updateUIRotation(for: UIDevice.current.orientation)
+        }
         .onDisappear {
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
             if camera.session.isRunning {
                 DispatchQueue.global(qos: .background).async {
                     camera.session.stopRunning()
                 }
             }
+        }
+    }
+    
+    private func updateUIRotation(for orientation: UIDeviceOrientation) {
+        switch orientation {
+        case .landscapeLeft: uiRotation = .degrees(90)
+        case .landscapeRight: uiRotation = .degrees(-90)
+        case .portraitUpsideDown: uiRotation = .degrees(180)
+        case .portrait, .unknown, .faceUp, .faceDown: uiRotation = .zero
+        @unknown default: uiRotation = .zero
         }
     }
     
