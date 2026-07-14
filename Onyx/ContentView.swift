@@ -80,7 +80,6 @@ struct ContentView: View {
     @State private var focusPoint: CGPoint? = nil
     @State private var showFocusIndicator = false
     @State private var isFlashing = false
-    @State private var uiRotation: Angle = .zero
     
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     
@@ -102,8 +101,6 @@ struct ContentView: View {
                             Image(systemName: "arrow.triangle.2.circlepath.camera")
                                 .font(.system(size: 22, weight: .regular))
                                 .foregroundColor(.white)
-                                .rotationEffect(uiRotation)
-                                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: uiRotation)
                                 .padding(.trailing, 24)
                                 .padding(.top, 12)
                         }
@@ -157,8 +154,6 @@ struct ContentView: View {
                                                 .font(.system(size: 14, weight: .regular))
                                                 .foregroundColor(camera.currentLens == lens ? Theme.accent : Color.white)
                                         }
-                                        .rotationEffect(uiRotation)
-                                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: uiRotation)
                                         .frame(maxWidth: .infinity)
                                         .contentShape(Rectangle())
                                     }
@@ -177,30 +172,12 @@ struct ContentView: View {
                 }
             }
         }
-        .onAppear {
-            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
-            updateUIRotation(for: UIDevice.current.orientation)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            updateUIRotation(for: UIDevice.current.orientation)
-        }
         .onDisappear {
-            UIDevice.current.endGeneratingDeviceOrientationNotifications()
             if camera.session.isRunning {
                 DispatchQueue.global(qos: .background).async {
                     camera.session.stopRunning()
                 }
             }
-        }
-    }
-    
-    private func updateUIRotation(for orientation: UIDeviceOrientation) {
-        switch orientation {
-        case .landscapeLeft: uiRotation = .degrees(90)
-        case .landscapeRight: uiRotation = .degrees(-90)
-        case .portraitUpsideDown: uiRotation = .degrees(180)
-        case .portrait, .unknown, .faceUp, .faceDown: uiRotation = .zero
-        @unknown default: uiRotation = .zero
         }
     }
     

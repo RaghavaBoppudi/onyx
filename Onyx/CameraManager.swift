@@ -3,6 +3,8 @@ import AVFoundation
 import CoreImage
 import CoreLocation
 import Combine
+import ImageIO
+import UIKit
 
 protocol FrameReceiver: AnyObject, Sendable {
     nonisolated func receive(image: CIImage?)
@@ -75,16 +77,16 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     private func configureVideoConnection(for device: AVCaptureDevice) {
         guard let connection = videoOutput.connection(with: .video) else { return }
         
-        if #available(iOS 17.0, *) {
-            let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
-            self.rotationCoordinator = coordinator
-            connection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
-        } else {
-            if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
+        if connection.isVideoOrientationSupported {
+            connection.videoOrientation = .portrait
         }
         
         if connection.isVideoMirroringSupported {
             connection.isVideoMirrored = (device.position == .front)
+        }
+        
+        if #available(iOS 17.0, *) {
+            self.rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
         }
     }
     
@@ -102,7 +104,17 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     
     func capturePhoto() {
         sessionQueue.async { [weak self] in
-            guard let self = self, let rawFormat = self.photoOutput.availableRawPhotoPixelFormatTypes.first else { return }
+            guard let self = self else { return }
+            
+            if let photoConnection = self.photoOutput.connection(with: .video) {
+                if #available(iOS 17.0, *), let coordinator = self.rotationCoordinator as? AVCaptureDevice.RotationCoordinator {
+                    photoConnection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+                } else if photoConnection.isVideoOrientationSupported {
+                    photoConnection.videoOrientation = .portrait
+                }
+            }
+            
+            guard let rawFormat = self.photoOutput.availableRawPhotoPixelFormatTypes.first else { return }
             let settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat, processedFormat: [AVVideoCodecKey: AVVideoCodecType.hevc])
             settings.photoQualityPrioritization = .speed
             settings.isAutoRedEyeReductionEnabled = false

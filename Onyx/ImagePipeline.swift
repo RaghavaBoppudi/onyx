@@ -2,6 +2,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import Photos
 import CoreLocation
+import ImageIO
 
 struct OnyxFilterPipeline: Sendable {
     nonisolated static func apply(to image: CIImage) -> CIImage {
@@ -30,7 +31,6 @@ struct PhotoProcessor: Sendable {
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
     
     nonisolated static func decodeRAW(data: Data) -> CIImage? {
-        // CIRAWFilter automatically reads and applies the hardware EXIF orientation tag.
         guard let rawFilter = CIRAWFilter(imageData: data, identifierHint: nil) else { return nil }
         rawFilter.luminanceNoiseReductionAmount = 0.0
         rawFilter.colorNoiseReductionAmount = 0.0
@@ -45,7 +45,6 @@ struct PhotoProcessor: Sendable {
         Task.detached(priority: .userInitiated) {
             guard let baseRaw = decodeRAW(data: photoData) else { return }
             
-            // baseRaw is already upright. Do not apply secondary rotations here.
             let finalImage = OnyxFilterPipeline.apply(to: baseRaw)
             
             guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
