@@ -6,8 +6,6 @@
     <string>Camera access is required to capture photos.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Location access is required to embed GPS metadata.</string>
-    <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>Photo library access is required to save captures.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Onyx requires access to your photo library to check for and create a dedicated album for your images.</string>
     <key>NSPhotoLibraryAddUsageDescription</key>

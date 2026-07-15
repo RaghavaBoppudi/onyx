@@ -1,6 +1,7 @@
 import SwiftUI
 import MetalKit
 import CoreImage
+import os
 
 struct MetalPreview: UIViewRepresentable {
     let camera: CameraManager
@@ -22,11 +23,11 @@ struct MetalPreview: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(context: camera.ciContext) }
     
     class Coordinator: NSObject, MTKViewDelegate, FrameReceiver, @unchecked Sendable {
-        nonisolated(unsafe) private var currentImage: CIImage?
+        private let currentImageLock = OSAllocatedUnfairLock(initialState: CIImage?(nil))
         let context: CIContext
         let commandQueue: MTLCommandQueue?
-        nonisolated(unsafe) private weak var view: MTKView?
-        private let lock = NSLock()
+        
+        @MainActor private weak var view: MTKView?
         
         init(context: CIContext) {
             self.context = context
@@ -35,25 +36,25 @@ struct MetalPreview: UIViewRepresentable {
         }
         
         nonisolated func receive(image: CIImage?) {
-            lock.lock()
-            currentImage = image
-            lock.unlock()
-            DispatchQueue.main.async { [weak self] in self?.view?.setNeedsDisplay() }
+            currentImageLock.withLock { $0 = image }
+            DispatchQueue.main.async { [weak self] in
+                self?.triggerDisplay()
+            }
         }
         
-        // MTKViewDelegate methods access UI elements and must run on the MainActor
+        @MainActor
+        private func triggerDisplay() {
+            view?.setNeedsDisplay()
+        }
+        
         @MainActor
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-            lock.lock()
             self.view = view
-            lock.unlock()
         }
         
         @MainActor
         func draw(in view: MTKView) {
-            lock.lock()
-            let image = currentImage
-            lock.unlock()
+            let image = currentImageLock.withLock { $0 }
             
             guard let image = image,
                   let drawable = view.currentDrawable,
