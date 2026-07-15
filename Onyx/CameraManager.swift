@@ -31,7 +31,7 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     private let locationProvider = LocationProvider()
     private nonisolated(unsafe) var _frameCount = 0
     
-    private var rotationCoordinator: Any?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
 
     override init() {
         super.init()
@@ -77,17 +77,19 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     private func configureVideoConnection(for device: AVCaptureDevice) {
         guard let connection = videoOutput.connection(with: .video) else { return }
         
-        if connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
+        // The rear sensor is mounted in landscape (requires 90 deg rotation for portrait).
+        // The front sensor on modern iPhones is mounted natively in portrait (requires 0 deg rotation).
+        let portraitAngle: CGFloat = (device.position == .front) ? 0.0 : 90.0
+        
+        if connection.isVideoRotationAngleSupported(portraitAngle) {
+            connection.videoRotationAngle = portraitAngle
         }
         
         if connection.isVideoMirroringSupported {
             connection.isVideoMirrored = (device.position == .front)
         }
         
-        if #available(iOS 17.0, *) {
-            self.rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
-        }
+        self.rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
     }
     
     nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -106,11 +108,11 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
             
-            if let photoConnection = self.photoOutput.connection(with: .video) {
-                if #available(iOS 17.0, *), let coordinator = self.rotationCoordinator as? AVCaptureDevice.RotationCoordinator {
-                    photoConnection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
-                } else if photoConnection.isVideoOrientationSupported {
-                    photoConnection.videoOrientation = .portrait
+            if let photoConnection = self.photoOutput.connection(with: .video),
+               let coordinator = self.rotationCoordinator {
+                let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+                if photoConnection.isVideoRotationAngleSupported(captureAngle) {
+                    photoConnection.videoRotationAngle = captureAngle
                 }
             }
             
@@ -125,7 +127,13 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard error == nil, photo.isRawPhoto, let rawData = photo.fileDataRepresentation() else { return }
-        PhotoProcessor.processAndSave(photoData: rawData, location: locationProvider.currentLocation)
+        
+        let context = self.ciContext
+        
+        Task { @MainActor in
+            let location = self.locationProvider.currentLocation
+            PhotoProcessor.processAndSave(photoData: rawData, location: location, context: context)
+        }
     }
     
     func selectLens(_ targetLens: Lens) {
@@ -186,23 +194,41 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     }
 
     private func applySettings(to device: AVCaptureDevice) {
-        do {
-            try device.lockForConfiguration()
-            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, -0.5)), completionHandler: nil)
-            if let bestRange = device.activeFormat.videoSupportedFrameRateRanges.max(by: { $0.maxFrameRate < $1.maxFrameRate }) {
-                device.activeVideoMaxFrameDuration = bestRange.minFrameDuration
+            do {
+                try device.lockForConfiguration()
+                
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                }
+                
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+                if device.isExposureModeSupported(.continuousAutoExposure) {
+                    device.exposureMode = .continuousAutoExposure
+                }
+                
+                device.isSubjectAreaChangeMonitoringEnabled = true
+                
+                device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, -0.5)), completionHandler: nil)
+                
+                if let bestRange = device.activeFormat.videoSupportedFrameRateRanges.max(by: { $0.maxFrameRate < $1.maxFrameRate }) {
+                    device.activeVideoMaxFrameDuration = bestRange.minFrameDuration
+                }
+                if device.isWhiteBalanceModeSupported(.locked) {
+                    let tempAndTint = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: 5200.0, tint: 0.0)
+                    var gains = device.deviceWhiteBalanceGains(for: tempAndTint)
+                    gains.redGain = max(1.0, min(gains.redGain, device.maxWhiteBalanceGain))
+                    gains.greenGain = max(1.0, min(gains.greenGain, device.maxWhiteBalanceGain))
+                    gains.blueGain = max(1.0, min(gains.blueGain, device.maxWhiteBalanceGain))
+                    device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
+                }
+                device.unlockForConfiguration()
+            } catch {
+                print("Failed to apply camera settings: \(error)")
             }
-            if device.isWhiteBalanceModeSupported(.locked) {
-                let tempAndTint = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: 5200.0, tint: 0.0)
-                var gains = device.deviceWhiteBalanceGains(for: tempAndTint)
-                gains.redGain = max(1.0, min(gains.redGain, device.maxWhiteBalanceGain))
-                gains.greenGain = max(1.0, min(gains.greenGain, device.maxWhiteBalanceGain))
-                gains.blueGain = max(1.0, min(gains.blueGain, device.maxWhiteBalanceGain))
-                device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
-            }
-            device.unlockForConfiguration()
-        } catch {
-            print("Failed to apply camera settings: \(error)")
         }
-    }
 }

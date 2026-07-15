@@ -41,13 +41,16 @@ struct MetalPreview: UIViewRepresentable {
             DispatchQueue.main.async { [weak self] in self?.view?.setNeedsDisplay() }
         }
         
-        nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        // MTKViewDelegate methods access UI elements and must run on the MainActor
+        @MainActor
+        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
             lock.lock()
             self.view = view
             lock.unlock()
         }
         
-        nonisolated func draw(in view: MTKView) {
+        @MainActor
+        func draw(in view: MTKView) {
             lock.lock()
             let image = currentImage
             lock.unlock()

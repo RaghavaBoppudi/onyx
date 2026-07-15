@@ -4,7 +4,7 @@ import MediaPlayer
 
 // MARK: - Global UI Theme
 struct Theme {
-    static let accent = Color(red: 134/255, green: 134/255, blue: 134/255)
+    static let accent = Color(red: 255/255, green: 165/255, blue: 2/255)
 }
 
 struct ShutterButton: View {

@@ -28,7 +28,6 @@ struct OnyxFilterPipeline: Sendable {
 }
 
 struct PhotoProcessor: Sendable {
-    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
     
     nonisolated static func decodeRAW(data: Data) -> CIImage? {
         guard let rawFilter = CIRAWFilter(imageData: data, identifierHint: nil) else { return nil }
@@ -41,14 +40,15 @@ struct PhotoProcessor: Sendable {
         return rawFilter.outputImage
     }
     
-    nonisolated static func processAndSave(photoData: Data, location: CLLocation?) {
+    // Accept the CIContext as an injected dependency to avoid static isolation errors
+    nonisolated static func processAndSave(photoData: Data, location: CLLocation?, context: CIContext) {
         Task.detached(priority: .userInitiated) {
             guard let baseRaw = decodeRAW(data: photoData) else { return }
             
             let finalImage = OnyxFilterPipeline.apply(to: baseRaw)
             
             guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-                  let finalData = ciContext.jpegRepresentation(
+                  let finalData = context.jpegRepresentation(
                       of: finalImage,
                       colorSpace: colorSpace,
                       options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.95]
