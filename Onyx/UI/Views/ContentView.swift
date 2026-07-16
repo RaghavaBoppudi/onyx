@@ -25,9 +25,7 @@ struct ContentView: View {
             }
         }
         .onDisappear {
-            if camera.session.isRunning {
-                DispatchQueue.global(qos: .background).async { camera.session.stopRunning() }
-            }
+            camera.stopSession()
         }
     }
     

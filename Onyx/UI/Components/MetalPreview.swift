@@ -26,6 +26,7 @@ struct MetalPreview: UIViewRepresentable {
         private let currentImageLock = OSAllocatedUnfairLock(initialState: CIImage?(nil))
         let context: CIContext
         let commandQueue: MTLCommandQueue?
+        private let defaultColorSpace = CGColorSpaceCreateDeviceRGB()
         
         @MainActor private weak var view: MTKView?
         
@@ -54,31 +55,33 @@ struct MetalPreview: UIViewRepresentable {
         
         @MainActor
         func draw(in view: MTKView) {
-            let image = currentImageLock.withLock { $0 }
-            
-            guard let image = image,
-                  let drawable = view.currentDrawable,
-                  let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
+            autoreleasepool {
+                let image = currentImageLock.withLock { $0 }
+                
+                guard let image = image,
+                      let drawable = view.currentDrawable,
+                      let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
 
-            let bounds = CGRect(origin: .zero, size: view.drawableSize)
-            let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+                let bounds = CGRect(origin: .zero, size: view.drawableSize)
+                let colorSpace = image.colorSpace ?? defaultColorSpace
 
-            let scaleX = bounds.width / image.extent.width
-            let scaleY = bounds.height / image.extent.height
-            let scale = max(scaleX, scaleY)
-            
-            let transform = CGAffineTransform(scaleX: scale, y: scale)
-                .translatedBy(x: (bounds.width - (image.extent.width * scale)) / (2 * scale),
-                              y: (bounds.height - (image.extent.height * scale)) / (2 * scale))
+                let scaleX = bounds.width / image.extent.width
+                let scaleY = bounds.height / image.extent.height
+                let scale = max(scaleX, scaleY)
+                
+                let transform = CGAffineTransform(scaleX: scale, y: scale)
+                    .translatedBy(x: (bounds.width - (image.extent.width * scale)) / (2 * scale),
+                                  y: (bounds.height - (image.extent.height * scale)) / (2 * scale))
 
-            context.render(image.transformed(by: transform).clampedToExtent(),
-                           to: drawable.texture,
-                           commandBuffer: commandBuffer,
-                           bounds: bounds,
-                           colorSpace: colorSpace)
-            
-            commandBuffer.present(drawable)
-            commandBuffer.commit()
+                context.render(image.transformed(by: transform).clampedToExtent(),
+                               to: drawable.texture,
+                               commandBuffer: commandBuffer,
+                               bounds: bounds,
+                               colorSpace: colorSpace)
+                
+                commandBuffer.present(drawable)
+                commandBuffer.commit()
+            }
         }
     }
 }
