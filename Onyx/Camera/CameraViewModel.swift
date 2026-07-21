@@ -9,25 +9,60 @@ final class CameraViewModel: ObservableObject {
     @Published var cameraPosition: AVCaptureDevice.Position = .back
     @Published var isSwitchingLens = false
     @Published var isCapturing = false
+    @Published var isFlashing = false
+    @Published var scannedURL: URL?
     
     private let engine = CameraEngine()
+    private var qrClearTask: Task<Void, Never>?
     
     func setFrameReceiver(_ receiver: FrameReceiver) async {
         await engine.setFrameReceiver(receiver)
     }
     
     func start() async {
-        let authorized = await engine.start()
-        guard authorized else {
-            // Optional: You can handle the unauthorized state here (e.g., show an alert)
-            return
+        await engine.setOnCapture { @Sendable [weak self] in
+            Task { @MainActor [weak self] in
+                self?.triggerFlash()
+            }
         }
+        
+        await engine.setOnQRCodeScanned { @Sendable [weak self] stringValue in
+            Task { @MainActor [weak self] in
+                self?.processQRCode(stringValue)
+            }
+        }
+        
+        let authorized = await engine.start()
+        guard authorized else { return }
         self.availableLenses = await engine.availableLenses
         self.currentLens = await engine.currentLens
     }
     
     func stop() async {
         await engine.stop()
+    }
+    
+    private func triggerFlash() {
+        isFlashing = true
+        Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            isFlashing = false
+        }
+    }
+    
+    private func processQRCode(_ value: String) {
+        guard let url = URL(string: value),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme) else { return }
+        
+        scannedURL = url
+        
+        qrClearTask?.cancel()
+        qrClearTask = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            scannedURL = nil
+        }
     }
     
     func toggleCameraPosition() {

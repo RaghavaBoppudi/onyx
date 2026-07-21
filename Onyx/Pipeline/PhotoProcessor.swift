@@ -42,9 +42,7 @@ struct PhotoProcessor: Sendable {
         
         guard status == .authorized || status == .limited else { return }
 
-        await Task.detached(priority: .userInitiated) {
-            
-            // Route processing based on available format
+        Task.detached(priority: .userInitiated) {
             let baseImage: CIImage? = isRaw ? decodeRAW(data: photoData) : CIImage(data: photoData)
             guard let baseRaw = baseImage else { return }
             
@@ -61,6 +59,7 @@ struct PhotoProcessor: Sendable {
                 let album = try await getOrCreateOnyxAlbum()
                 try await PHPhotoLibrary.shared().performChanges {
                     let assetRequest = PHAssetCreationRequest.forAsset()
+                    
                     assetRequest.addResource(with: .photo, data: finalData, options: nil)
                     if let location = location { assetRequest.location = location }
                     
@@ -71,6 +70,6 @@ struct PhotoProcessor: Sendable {
             } catch {
                 print("Failed to save photo to Onyx album: \(error)")
             }
-        }.value
+        }
     }
 }

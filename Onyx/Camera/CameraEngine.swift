@@ -10,6 +10,7 @@ actor CameraEngine {
     let session = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
     private let photoOutput = AVCapturePhotoOutput()
+    private let metadataOutput = AVCaptureMetadataOutput()
     private let captureDelegate = EngineCaptureDelegate()
     private let locationProvider = LocationProvider()
     
@@ -24,6 +25,14 @@ actor CameraEngine {
 
     func setFrameReceiver(_ receiver: FrameReceiver?) {
         captureDelegate.frameReceiver = receiver
+    }
+    
+    func setOnCapture(_ callback: @escaping @Sendable () -> Void) {
+        captureDelegate.onCapture = callback
+    }
+    
+    func setOnQRCodeScanned(_ callback: @escaping @Sendable (String) -> Void) {
+        captureDelegate.onQRCodeScanned = callback
     }
     
     func start() async -> Bool {
@@ -47,32 +56,10 @@ actor CameraEngine {
         session.beginConfiguration()
         session.sessionPreset = .photo
         
-        var targetDevice: AVCaptureDevice?
-        
-        if let lens = currentLens,
-           let device = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
-           let input = try? AVCaptureDeviceInput(device: device) {
-            if session.canAddInput(input) {
-                session.addInput(input)
-                deviceInput = input
-            }
-            targetDevice = device
-            applySettings(to: device)
-        }
-        
-        videoOutput.setSampleBufferDelegate(captureDelegate, queue: DispatchQueue(label: "com.onyx.videoQueue", qos: .userInteractive))
-        videoOutput.alwaysDiscardsLateVideoFrames = true
-        
-        if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
-        
-        if session.canAddOutput(photoOutput) {
-            session.addOutput(photoOutput)
-            photoOutput.maxPhotoQualityPrioritization = .speed
-        }
-        
-        if let device = targetDevice {
-            configureVideoConnection(for: device)
-        }
+        configureInput()
+        configureVideoOutput()
+        configurePhotoOutput()
+        configureMetadataOutput()
         
         session.commitConfiguration()
         session.startRunning()
@@ -83,6 +70,58 @@ actor CameraEngine {
     
     func stop() {
         if session.isRunning { session.stopRunning() }
+    }
+    
+    private func configureInput() {
+        guard let lens = currentLens,
+              let device = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
+              let input = try? AVCaptureDeviceInput(device: device) else { return }
+              
+        if session.canAddInput(input) {
+            session.addInput(input)
+            deviceInput = input
+        }
+        applySettings(to: device)
+    }
+    
+    private func configureVideoOutput() {
+        videoOutput.setSampleBufferDelegate(captureDelegate, queue: DispatchQueue(label: "com.onyx.videoQueue", qos: .userInteractive))
+        videoOutput.alwaysDiscardsLateVideoFrames = true
+        
+        if session.canAddOutput(videoOutput) {
+            session.addOutput(videoOutput)
+        }
+        
+        guard let device = deviceInput?.device else { return }
+        
+        if let connection = videoOutput.connection(with: .video) {
+            let portraitAngle: CGFloat = (device.position == .front) ? 0.0 : 90.0
+            if connection.isVideoRotationAngleSupported(portraitAngle) {
+                connection.videoRotationAngle = portraitAngle
+            }
+            if connection.isVideoMirroringSupported {
+                connection.isVideoMirrored = (device.position == .front)
+            }
+        }
+        
+        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+    }
+    
+    private func configurePhotoOutput() {
+        if session.canAddOutput(photoOutput) {
+            session.addOutput(photoOutput)
+            photoOutput.maxPhotoQualityPrioritization = .speed
+        }
+    }
+    
+    private func configureMetadataOutput() {
+        if session.canAddOutput(metadataOutput) {
+            session.addOutput(metadataOutput)
+            metadataOutput.setMetadataObjectsDelegate(captureDelegate, queue: DispatchQueue(label: "com.onyx.metadataQueue", qos: .userInitiated))
+            if metadataOutput.availableMetadataObjectTypes.contains(.qr) {
+                metadataOutput.metadataObjectTypes = [.qr]
+            }
+        }
     }
     
     func switchCameraPosition(to position: AVCaptureDevice.Position) -> Lens? {
@@ -103,26 +142,20 @@ actor CameraEngine {
             session.addInput(newInput)
             deviceInput = newInput
         }
-        configureVideoConnection(for: newDevice)
+        
+        if let connection = videoOutput.connection(with: .video) {
+            let portraitAngle: CGFloat = (newDevice.position == .front) ? 0.0 : 90.0
+            if connection.isVideoRotationAngleSupported(portraitAngle) {
+                connection.videoRotationAngle = portraitAngle
+            }
+            if connection.isVideoMirroringSupported {
+                connection.isVideoMirrored = (newDevice.position == .front)
+            }
+        }
+        
+        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil)
         applySettings(to: newDevice)
         session.commitConfiguration()
-    }
-    
-    private func configureVideoConnection(for device: AVCaptureDevice) {
-        guard let connection = videoOutput.connection(with: .video) else { return }
-        
-        // The UI is locked to Portrait. The live video buffer must remain statically locked to Portrait.
-        let portraitAngle: CGFloat = (device.position == .front) ? 0.0 : 90.0
-        if connection.isVideoRotationAngleSupported(portraitAngle) {
-            connection.videoRotationAngle = portraitAngle
-        }
-        
-        if connection.isVideoMirroringSupported {
-            connection.isVideoMirrored = (device.position == .front)
-        }
-        
-        // Retain the coordinator strictly for orienting the final captured photo, not the live preview.
-        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
     }
     
     private func applySettings(to device: AVCaptureDevice) {
@@ -130,7 +163,6 @@ actor CameraEngine {
             try device.lockForConfiguration()
             if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
             if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
-            if device.isExposurePointOfInterestSupported { device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
             if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
             
             device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, -0.5)), completionHandler: nil)
@@ -154,6 +186,7 @@ actor CameraEngine {
         }
         
         let settings: AVCapturePhotoSettings
+        // Restored standard Bayer RAW capture to bypass ISP sharpening
         if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
             settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
         } else {
@@ -165,13 +198,26 @@ actor CameraEngine {
         settings.flashMode = .off
         
         captureDelegate.currentLocation = locationProvider.currentLocation
+        
         photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
     }
 }
 
-final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
+final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate, AVCaptureMetadataOutputObjectsDelegate, @unchecked Sendable {
     private let _frameReceiver = OSAllocatedUnfairLock(initialState: WeakReceiverBox(receiver: nil))
     private let _currentLocation = OSAllocatedUnfairLock(initialState: CLLocation?(nil))
+    private let _onCapture = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
+    private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
+    
+    var onCapture: (@Sendable () -> Void)? {
+        get { _onCapture.withLock { $0 } }
+        set { _onCapture.withLock { $0 = newValue } }
+    }
+    
+    var onQRCodeScanned: (@Sendable (String) -> Void)? {
+        get { _onQRCodeScanned.withLock { $0 } }
+        set { _onQRCodeScanned.withLock { $0 = newValue } }
+    }
     
     var frameReceiver: FrameReceiver? {
         get { _frameReceiver.withLock { $0.receiver } }
@@ -194,6 +240,17 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
             let finalImage = OnyxFilterPipeline.apply(to: rawImage)
             frameReceiver?.receive(image: finalImage)
         }
+    }
+    
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard let qrObject = metadataObjects.first(where: { $0.type == .qr }) as? AVMetadataMachineReadableCodeObject,
+              let stringValue = qrObject.stringValue else { return }
+        
+        onQRCodeScanned?(stringValue)
+    }
+    
+    func photoOutput(_ output: AVCapturePhotoOutput, willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+        onCapture?()
     }
     
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {

@@ -24,15 +24,12 @@ struct VolumeShutterView: UIViewRepresentable {
         private var observation: NSKeyValueObservation?
         private var action: (() -> Void)?
         private let audioSession = AVAudioSession.sharedInstance()
+        private weak var volumeView: MPVolumeView?
         private weak var volumeSlider: UISlider?
         
         func setup(volumeView: MPVolumeView, action: @escaping () -> Void) {
             self.action = action
-            
-
-            if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
-                self.volumeSlider = slider
-            }
+            self.volumeView = volumeView
             
             DispatchQueue.global(qos: .userInitiated).async {
                 try? self.audioSession.setCategory(.ambient, options: [.mixWithOthers])
@@ -47,15 +44,31 @@ struct VolumeShutterView: UIViewRepresentable {
                 
                 DispatchQueue.main.async {
                     self.action?()
+                    
                     if new >= 0.9 || new <= 0.1 {
+                        if self.volumeSlider == nil {
+                            self.volumeSlider = self.volumeView?.subviews.first(where: { $0 is UISlider }) as? UISlider
+                        }
                         self.volumeSlider?.setValue(0.5, animated: false)
                     }
                 }
             }
+            
+            NotificationCenter.default.addObserver(self, selector: #selector(suspendAudio), name: UIApplication.didEnterBackgroundNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(resumeAudio), name: UIApplication.willEnterForegroundNotification, object: nil)
+        }
+        
+        @objc private func suspendAudio() {
+            try? audioSession.setActive(false)
+        }
+        
+        @objc private func resumeAudio() {
+            try? audioSession.setActive(true)
         }
         
         deinit {
             observation?.invalidate()
+            NotificationCenter.default.removeObserver(self)
         }
     }
 }
