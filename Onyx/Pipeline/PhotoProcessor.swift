@@ -5,8 +5,8 @@ import CoreLocation
 struct PhotoProcessor: Sendable {
     nonisolated static func decodeRAW(data: Data) -> CIImage? {
         guard let rawFilter = CIRAWFilter(imageData: data, identifierHint: nil) else { return nil }
-        rawFilter.luminanceNoiseReductionAmount = 0.0
-        rawFilter.colorNoiseReductionAmount = 0.0
+        rawFilter.luminanceNoiseReductionAmount = 0.7
+        rawFilter.colorNoiseReductionAmount = 1.0
         rawFilter.sharpnessAmount = 0.0
         rawFilter.extendedDynamicRangeAmount = 0.0
         rawFilter.localToneMapAmount = 0.0
@@ -34,9 +34,20 @@ struct PhotoProcessor: Sendable {
         return album
     }
     
-    nonisolated static func processAndSave(photoData: Data, location: CLLocation?, context: CIContext) {
-        Task.detached(priority: .userInitiated) {
-            guard let baseRaw = decodeRAW(data: photoData) else { return }
+    static func processAndSave(photoData: Data, isRaw: Bool, location: CLLocation?, context: CIContext) async {
+        var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if status == .notDetermined {
+            status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        }
+        
+        guard status == .authorized || status == .limited else { return }
+
+        await Task.detached(priority: .userInitiated) {
+            
+            // Route processing based on available format
+            let baseImage: CIImage? = isRaw ? decodeRAW(data: photoData) : CIImage(data: photoData)
+            guard let baseRaw = baseImage else { return }
+            
             let finalImage = OnyxFilterPipeline.apply(to: baseRaw)
             
             guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
@@ -60,6 +71,6 @@ struct PhotoProcessor: Sendable {
             } catch {
                 print("Failed to save photo to Onyx album: \(error)")
             }
-        }
+        }.value
     }
 }

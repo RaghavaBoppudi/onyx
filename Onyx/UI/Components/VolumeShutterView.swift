@@ -8,10 +8,11 @@ struct VolumeShutterView: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         let volumeView = MPVolumeView(frame: .zero)
+        
         volumeView.alpha = 0.001
         view.addSubview(volumeView)
         
-        context.coordinator.setup(action: onShutterPress)
+        context.coordinator.setup(volumeView: volumeView, action: onShutterPress)
         return view
     }
 
@@ -23,18 +24,38 @@ struct VolumeShutterView: UIViewRepresentable {
         private var observation: NSKeyValueObservation?
         private var action: (() -> Void)?
         private let audioSession = AVAudioSession.sharedInstance()
+        private weak var volumeSlider: UISlider?
         
-        func setup(action: @escaping () -> Void) {
+        func setup(volumeView: MPVolumeView, action: @escaping () -> Void) {
             self.action = action
-            DispatchQueue.global(qos: .background).async {
+            
+
+            if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+                self.volumeSlider = slider
+            }
+            
+            DispatchQueue.global(qos: .userInitiated).async {
                 try? self.audioSession.setCategory(.ambient, options: [.mixWithOthers])
                 try? self.audioSession.setActive(true)
             }
+            
             observation = audioSession.observe(\.outputVolume, options: [.old, .new]) { [weak self] _, change in
-                guard change.oldValue != change.newValue else { return }
-                DispatchQueue.main.async { self?.action?() }
+                guard let self = self,
+                      let old = change.oldValue,
+                      let new = change.newValue,
+                      old != new else { return }
+                
+                DispatchQueue.main.async {
+                    self.action?()
+                    if new >= 0.9 || new <= 0.1 {
+                        self.volumeSlider?.setValue(0.5, animated: false)
+                    }
+                }
             }
         }
-        deinit { observation?.invalidate() }
+        
+        deinit {
+            observation?.invalidate()
+        }
     }
 }

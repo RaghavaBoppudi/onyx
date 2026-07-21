@@ -4,23 +4,25 @@ import CoreImage
 import os
 
 struct MetalPreview: UIViewRepresentable {
-    let camera: CameraManager
+    let viewModel: CameraViewModel
     
     func makeUIView(context: Context) -> MTKView {
         guard let device = MTLCreateSystemDefaultDevice() else { fatalError("Metal not supported") }
         let mtkView = MTKView(frame: .zero, device: device)
         mtkView.framebufferOnly = false
         mtkView.delegate = context.coordinator
-        mtkView.enableSetNeedsDisplay = true
-        mtkView.isPaused = true
+        mtkView.isPaused = false
+        mtkView.enableSetNeedsDisplay = false
+        mtkView.preferredFramesPerSecond = 60
         mtkView.backgroundColor = .black
-        camera.frameReceiver = context.coordinator
+        
+        Task { await viewModel.setFrameReceiver(context.coordinator) }
         return mtkView
     }
     
     func updateUIView(_ uiView: MTKView, context: Context) {}
     
-    func makeCoordinator() -> Coordinator { Coordinator(context: camera.ciContext) }
+    func makeCoordinator() -> Coordinator { Coordinator() }
     
     class Coordinator: NSObject, MTKViewDelegate, FrameReceiver, @unchecked Sendable {
         private let currentImageLock = OSAllocatedUnfairLock(initialState: CIImage?(nil))
@@ -28,37 +30,22 @@ struct MetalPreview: UIViewRepresentable {
         let commandQueue: MTLCommandQueue?
         private let defaultColorSpace = CGColorSpaceCreateDeviceRGB()
         
-        @MainActor private weak var view: MTKView?
-        
-        init(context: CIContext) {
-            self.context = context
-            self.commandQueue = MTLCreateSystemDefaultDevice()?.makeCommandQueue()
+        override init() {
+            let mtlDevice = MTLCreateSystemDefaultDevice()
+            self.context = mtlDevice.map { CIContext(mtlDevice: $0, options: [.cacheIntermediates: false]) } ?? CIContext(options: [.cacheIntermediates: false])
+            self.commandQueue = mtlDevice?.makeCommandQueue()
             super.init()
         }
         
         nonisolated func receive(image: CIImage?) {
             currentImageLock.withLock { $0 = image }
-            DispatchQueue.main.async { [weak self] in
-                self?.triggerDisplay()
-            }
         }
         
-        @MainActor
-        private func triggerDisplay() {
-            view?.setNeedsDisplay()
-        }
+        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
-        @MainActor
-        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-            self.view = view
-        }
-        
-        @MainActor
         func draw(in view: MTKView) {
             autoreleasepool {
-                let image = currentImageLock.withLock { $0 }
-                
-                guard let image = image,
+                guard let image = currentImageLock.withLock({ $0 }),
                       let drawable = view.currentDrawable,
                       let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
 
