@@ -1,5 +1,5 @@
 import SwiftUI
 
 struct Theme {
-    static let accent = Color(red: 255/255, green: 165/255, blue: 2/255)
+    static let accent = Color(red: 226/255, green: 6/255, blue: 18/255)
 }
