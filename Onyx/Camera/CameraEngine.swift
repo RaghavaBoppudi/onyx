@@ -18,6 +18,7 @@ actor CameraEngine {
     
     private var deviceInput: AVCaptureDeviceInput?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var isConfigured = false
 
     init() {}
 
@@ -32,6 +33,11 @@ actor CameraEngine {
             guard granted else { return false }
         } else if authStatus != .authorized {
             return false
+        }
+        
+        guard !isConfigured else {
+            if !session.isRunning { session.startRunning() }
+            return true
         }
         
         availableLenses = CameraHardware.availableLenses(for: .back)
@@ -70,6 +76,8 @@ actor CameraEngine {
         
         session.commitConfiguration()
         session.startRunning()
+        isConfigured = true
+        
         return true
     }
     
@@ -102,9 +110,18 @@ actor CameraEngine {
     
     private func configureVideoConnection(for device: AVCaptureDevice) {
         guard let connection = videoOutput.connection(with: .video) else { return }
+        
+        // The UI is locked to Portrait. The live video buffer must remain statically locked to Portrait.
         let portraitAngle: CGFloat = (device.position == .front) ? 0.0 : 90.0
-        if connection.isVideoRotationAngleSupported(portraitAngle) { connection.videoRotationAngle = portraitAngle }
-        if connection.isVideoMirroringSupported { connection.isVideoMirrored = (device.position == .front) }
+        if connection.isVideoRotationAngleSupported(portraitAngle) {
+            connection.videoRotationAngle = portraitAngle
+        }
+        
+        if connection.isVideoMirroringSupported {
+            connection.isVideoMirrored = (device.position == .front)
+        }
+        
+        // Retain the coordinator strictly for orienting the final captured photo, not the live preview.
         rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
     }
     
@@ -140,7 +157,6 @@ actor CameraEngine {
         if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
             settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
         } else {
-            // Fallback for lenses (like the front camera) that do not support RAW
             settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
         }
         

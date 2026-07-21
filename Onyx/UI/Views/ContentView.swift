@@ -5,6 +5,8 @@ import AVFoundation
 struct ContentView: View {
     @StateObject private var viewModel = CameraViewModel()
     @State private var isFlashing = false
+    @State private var iconOrientation: Angle = .zero
+    @Environment(\.scenePhase) private var scenePhase
     
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     
@@ -25,9 +27,17 @@ struct ContentView: View {
         .task {
             hapticGenerator.prepare()
             await viewModel.start()
+            updateIconOrientation()
         }
-        .onDisappear {
-            Task { await viewModel.stop() }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            if newPhase == .active {
+                Task { await viewModel.start() }
+            } else if newPhase == .background {
+                Task { await viewModel.stop() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            updateIconOrientation()
         }
     }
     
@@ -55,6 +65,7 @@ struct ContentView: View {
                 Text(viewModel.currentLens?.label ?? "")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundColor(.white)
+                    .rotationEffect(iconOrientation)
                     .frame(maxWidth: .infinity, minHeight: 60)
                     .contentShape(Rectangle())
             }
@@ -70,12 +81,31 @@ struct ContentView: View {
                 Image(systemName: "arrow.triangle.2.circlepath.camera")
                     .font(.system(size: 24, weight: .regular))
                     .foregroundColor(.white)
+                    .rotationEffect(iconOrientation)
                     .frame(maxWidth: .infinity, minHeight: 60)
                     .contentShape(Rectangle())
             }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 48)
+    }
+    
+    private func updateIconOrientation() {
+        let deviceOrientation = UIDevice.current.orientation
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+            switch deviceOrientation {
+            case .portrait:
+                iconOrientation = .degrees(0)
+            case .landscapeLeft:
+                iconOrientation = .degrees(90)
+            case .landscapeRight:
+                iconOrientation = .degrees(-90)
+            case .portraitUpsideDown:
+                iconOrientation = .degrees(180)
+            default:
+                break
+            }
+        }
     }
     
     private func cycleLens() {
