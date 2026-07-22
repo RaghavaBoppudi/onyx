@@ -10,7 +10,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate, @unchecked Se
         set { _currentLocation.withLock { $0 = newValue } }
     }
 
-    override init() {
+    nonisolated override init() {
         super.init()
         DispatchQueue.main.async {
             self.manager.delegate = self
@@ -20,7 +20,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate, @unchecked Se
         }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         currentLocation = locations.last
     }
 }

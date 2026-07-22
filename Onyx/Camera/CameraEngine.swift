@@ -1,10 +1,10 @@
-import Foundation
-import AVFoundation
+@preconcurrency import Foundation
+@preconcurrency import AVFoundation
 import CoreImage
 import CoreLocation
 import os
 
-struct WeakReceiverBox { weak var receiver: FrameReceiver? }
+struct WeakReceiverBox: Sendable { weak var receiver: FrameReceiver? }
 
 actor CameraEngine {
     let session = AVCaptureSession()
@@ -21,7 +21,10 @@ actor CameraEngine {
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
 
-    init() {}
+    init() {
+        // Must be set immediately to prevent AVAudioSession from locking the main thread later
+        session.automaticallyConfiguresApplicationAudioSession = false
+    }
 
     func setFrameReceiver(_ receiver: FrameReceiver?) {
         captureDelegate.frameReceiver = receiver
@@ -45,14 +48,15 @@ actor CameraEngine {
         }
         
         guard !isConfigured else {
-            if !session.isRunning { session.startRunning() }
+            Task.detached { [session] in
+                if !session.isRunning { session.startRunning() }
+            }
             return true
         }
         
         availableLenses = CameraHardware.availableLenses(for: .back)
         currentLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera }) ?? availableLenses.first
         
-        session.automaticallyConfiguresApplicationAudioSession = false
         session.beginConfiguration()
         session.sessionPreset = .photo
         
@@ -62,14 +66,25 @@ actor CameraEngine {
         configureMetadataOutput()
         
         session.commitConfiguration()
-        session.startRunning()
+        
+        if let device = deviceInput?.device {
+            updatePhotoOutputDimensions(for: device)
+        }
+        
+        // Explicitly detach to prevent blocking the main thread and triggering the AVAudioSession warning
+        Task.detached { [session] in
+            session.startRunning()
+        }
+        
         isConfigured = true
         
         return true
     }
     
     func stop() {
-        if session.isRunning { session.stopRunning() }
+        Task.detached { [session] in
+            if session.isRunning { session.stopRunning() }
+        }
     }
     
     private func configureInput() {
@@ -110,7 +125,7 @@ actor CameraEngine {
     private func configurePhotoOutput() {
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
-            photoOutput.maxPhotoQualityPrioritization = .speed
+            photoOutput.maxPhotoQualityPrioritization = .quality
         }
     }
     
@@ -156,27 +171,79 @@ actor CameraEngine {
         rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil)
         applySettings(to: newDevice)
         session.commitConfiguration()
+        
+        updatePhotoOutputDimensions(for: newDevice)
     }
     
     private func applySettings(to device: AVCaptureDevice) {
         do {
             try device.lockForConfiguration()
-            if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
-            if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
-            if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+            
+            if device.position == .back {
+                if #available(iOS 16.0, *) {
+                    var bestFormat = device.activeFormat
+                    var maxPixels: Int32 = 0
+                    
+                    for format in device.formats {
+                        let dims = format.supportedMaxPhotoDimensions.last ?? CMVideoDimensions(width: 0, height: 0)
+                        let pixels = dims.width * dims.height
+                        if pixels > maxPixels {
+                            maxPixels = pixels
+                            bestFormat = format
+                        }
+                    }
+                    
+                    if device.activeFormat != bestFormat {
+                        device.activeFormat = bestFormat
+                    }
+                }
+            }
+            
+            if device.isFocusPointOfInterestSupported {
+                device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+            }
+            
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            } else if device.isFocusModeSupported(.autoFocus) {
+                device.focusMode = .autoFocus
+            }
+            
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+            }
+            
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            } else if device.isExposureModeSupported(.autoExpose) {
+                device.exposureMode = .autoExpose
+            }
             
             device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, -0.5)), completionHandler: nil)
             device.isSubjectAreaChangeMonitoringEnabled = false
             
-            if let bestRange = device.activeFormat.videoSupportedFrameRateRanges.max(by: { $0.maxFrameRate < $1.maxFrameRate }) {
-                device.activeVideoMaxFrameDuration = bestRange.minFrameDuration
-                device.activeVideoMinFrameDuration = bestRange.minFrameDuration
+            if device.position == .front {
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+            } else {
+                if let bestRange = device.activeFormat.videoSupportedFrameRateRanges.max(by: { $0.maxFrameRate < $1.maxFrameRate }) {
+                    device.activeVideoMaxFrameDuration = bestRange.minFrameDuration
+                    device.activeVideoMinFrameDuration = bestRange.minFrameDuration
+                }
             }
+            
             device.unlockForConfiguration()
         } catch {}
     }
     
-    func capturePhoto() {
+    private func updatePhotoOutputDimensions(for device: AVCaptureDevice) {
+        if #available(iOS 16.0, *) {
+            let maxDimensions = device.activeFormat.supportedMaxPhotoDimensions.last ?? CMVideoDimensions(width: 0, height: 0)
+            photoOutput.maxPhotoDimensions = maxDimensions
+        }
+    }
+    
+    func capturePhoto(isSuperModeActive: Bool) {
         if let photoConnection = photoOutput.connection(with: .video),
            let coordinator = rotationCoordinator {
             let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
@@ -186,14 +253,22 @@ actor CameraEngine {
         }
         
         let settings: AVCapturePhotoSettings
-        // Restored standard Bayer RAW capture to bypass ISP sharpening
-        if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
-            settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
-        } else {
+        
+        if isSuperModeActive {
             settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+            if #available(iOS 16.0, *) {
+                settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+            }
+            settings.photoQualityPrioritization = .balanced
+        } else {
+            if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
+                settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
+            } else {
+                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+            }
+            settings.photoQualityPrioritization = .speed
         }
         
-        settings.photoQualityPrioritization = .speed
         settings.isAutoRedEyeReductionEnabled = false
         settings.flashMode = .off
         
@@ -233,7 +308,11 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         CIContext(mtlDevice: $0, options: [.cacheIntermediates: false, .priorityRequestLow: false])
     } ?? CIContext(options: [.cacheIntermediates: false])
 
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    nonisolated override init() {
+        super.init()
+    }
+
+    nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         autoreleasepool {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
@@ -242,18 +321,18 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         }
     }
     
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+    nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         guard let qrObject = metadataObjects.first(where: { $0.type == .qr }) as? AVMetadataMachineReadableCodeObject,
               let stringValue = qrObject.stringValue else { return }
         
         onQRCodeScanned?(stringValue)
     }
     
-    func photoOutput(_ output: AVCapturePhotoOutput, willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+    nonisolated func photoOutput(_ output: AVCapturePhotoOutput, willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
         onCapture?()
     }
     
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+    nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard error == nil, let photoData = photo.fileDataRepresentation() else { return }
         let context = self.ciContext
         let location = self.currentLocation

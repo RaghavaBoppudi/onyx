@@ -1,6 +1,6 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 
-struct CameraHardware {
+struct CameraHardware: Sendable {
     static func availableLenses(for position: AVCaptureDevice.Position) -> [Lens] {
         var discovered: [Lens] = []
         if position == .back {

@@ -78,9 +78,9 @@ struct ContentView: View {
     }
     
     private var lensToggleIsland: some View {
-        let buttonWidth: CGFloat = 52
-        let buttonHeight: CGFloat = 44
-        let spacing: CGFloat = 8
+        let buttonWidth: CGFloat = 64
+        let buttonHeight: CGFloat = 48
+        let spacing: CGFloat = 12
         let stride = buttonWidth + spacing
         let totalCount = viewModel.availableLenses.count
         
@@ -95,18 +95,16 @@ struct ContentView: View {
         let dragDirectionOffset = isDragging ? (dragOffset > 0 ? stretch / 2 : -stretch / 2) : 0
         
         return ZStack {
-            // Background Track
             if #available(iOS 26.0, *) {
                 Capsule()
-                    .fill(Color.black.opacity(0.4))
+                    .fill(Color.clear)
                     .glassEffect(.clear, in: Capsule())
             } else {
                 Capsule()
-                    .fill(Color.black.opacity(0.3))
+                    .fill(Color.clear)
                     .background(.ultraThinMaterial, in: Capsule())
             }
             
-            // Text layer rendered underneath the glass for refraction
             HStack(spacing: spacing) {
                 ForEach(0..<totalCount, id: \.self) { index in
                     let lens = viewModel.availableLenses[index]
@@ -128,7 +126,6 @@ struct ContentView: View {
                 }
             }
             
-            // Active Liquid Droplet rendered on top
             if #available(iOS 26.0, *) {
                 Capsule()
                     .fill(Color.clear)
@@ -152,8 +149,8 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .fixedSize()
         .scaleEffect(isDragging ? 0.96 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isDragging)
@@ -232,25 +229,55 @@ struct ContentView: View {
         }
     }
     
+    private var superModeToggle: some View {
+        Button(action: {
+            hapticGenerator.impactOccurred()
+            viewModel.isSuperModeActive.toggle()
+        }) {
+            Text(viewModel.isSuperModeActive ? "48MP" : "12MP")
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundColor(viewModel.isSuperModeActive ? .black : .white)
+                .frame(width: 60)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(viewModel.isSuperModeActive ? Color.white : Color.white.opacity(0.15))
+                )
+                .rotationEffect(iconOrientation)
+        }
+    }
+    
     private var bottomControls: some View {
         HStack(spacing: 0) {
-            Spacer()
-                .frame(maxWidth: .infinity)
+            Group {
+                if viewModel.cameraPosition == .back {
+                    superModeToggle
+                } else {
+                    Color.clear.frame(height: 1)
+                }
+            }
+            .frame(maxWidth: .infinity)
             
-            ShutterButton(action: initiateCapture, isCapturing: viewModel.isCapturing)
+            ShutterButton(action: initiateCapture)
+                .frame(width: 88)
             
             Button(action: {
                 hapticGenerator.impactOccurred()
                 hapticGenerator.prepare()
                 viewModel.toggleCameraPosition()
             }) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 24, weight: .light))
-                    .foregroundColor(Color.white.opacity(0.65))
+                Text(viewModel.cameraPosition == .back ? "FRONT" : "BACK")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(width: 60)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.15))
+                    )
                     .rotationEffect(iconOrientation)
-                    .frame(maxWidth: .infinity, minHeight: 60)
-                    .contentShape(Rectangle())
             }
+            .frame(maxWidth: .infinity)
         }
         .padding(.bottom, 48)
     }
