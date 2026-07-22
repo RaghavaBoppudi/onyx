@@ -7,6 +7,8 @@ struct ContentView: View {
     @State private var iconOrientation: Angle = .zero
     @Environment(\.scenePhase) private var scenePhase
     
+    @Namespace private var lensAnimation
+    
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     
     var body: some View {
@@ -56,15 +58,57 @@ struct ContentView: View {
             
             if let url = viewModel.scannedURL {
                 qrPill(for: url)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 80)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     .zIndex(1)
+            }
+            
+            if viewModel.availableLenses.count > 1 {
+                if #available(iOS 26.0, *) {
+                    lensToggleIsland
+                        .glassEffect(.clear, in: Capsule())
+                        .padding(.bottom, 16)
+                } else {
+                    lensToggleIsland
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 16)
+                }
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.scannedURL)
         .aspectRatio(3.0 / 4.0, contentMode: .fit)
         .frame(width: geometry.size.width)
         .clipped()
+    }
+    
+    private var lensToggleIsland: some View {
+        HStack(spacing: 6) {
+            ForEach(viewModel.availableLenses, id: \.label) { lens in
+                Button(action: {
+                    guard viewModel.currentLens != lens else { return }
+                    hapticGenerator.impactOccurred()
+                    viewModel.selectLens(lens)
+                }) {
+                    Text(lens.label)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(viewModel.currentLens == lens ? .black : .white)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            ZStack {
+                                if viewModel.currentLens == lens {
+                                    Circle()
+                                        .fill(Color.white)
+                                        .matchedGeometryEffect(id: "activeLensIndicator", in: lensAnimation)
+                                }
+                            }
+                        )
+                        .contentShape(Circle())
+                        .rotationEffect(iconOrientation)
+                }
+            }
+        }
+        .padding(6)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: viewModel.currentLens)
     }
     
     @ViewBuilder
@@ -92,19 +136,8 @@ struct ContentView: View {
     
     private var bottomControls: some View {
         HStack(spacing: 0) {
-            Button(action: {
-                hapticGenerator.impactOccurred()
-                hapticGenerator.prepare()
-                cycleLens()
-            }) {
-                Text(viewModel.currentLens?.label ?? "")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(.white)
-                    .rotationEffect(iconOrientation)
-                    .frame(maxWidth: .infinity, minHeight: 60)
-                    .contentShape(Rectangle())
-            }
-            .opacity(viewModel.availableLenses.count > 1 ? 1.0 : 0.0)
+            Spacer()
+                .frame(maxWidth: .infinity)
             
             ShutterButton(action: initiateCapture, isCapturing: viewModel.isCapturing)
             
@@ -140,15 +173,6 @@ struct ContentView: View {
                 break
             }
         }
-    }
-    
-    private func cycleLens() {
-        let lenses = viewModel.availableLenses
-        guard lenses.count > 1, let current = viewModel.currentLens,
-              let currentIndex = lenses.firstIndex(of: current) else { return }
-        
-        let nextIndex = (currentIndex + 1) % lenses.count
-        viewModel.selectLens(lenses[nextIndex])
     }
     
     private func initiateCapture() {

@@ -1,34 +1,45 @@
 import SwiftUI
 
-struct ShutterButtonStyle: ButtonStyle {
-    var isCapturing: Bool
-    
-    func makeBody(configuration: Configuration) -> some View {
-        ZStack {
-            Circle()
-                .strokeBorder(Color.white, lineWidth: 3)
-                .frame(width: configuration.isPressed || isCapturing ? 80 : 88, height: configuration.isPressed || isCapturing ? 80 : 88)
-                .opacity(isCapturing ? 0.5 : 1.0)
-            Circle()
-                .fill(Theme.accent)
-                .frame(width: 72, height: 72)
-                .opacity(isCapturing ? 0.5 : 1.0)
-        }
-        .frame(width: 88, height: 88)
-        .animation(.spring(response: 0.15, dampingFraction: 0.65), value: configuration.isPressed)
-        .animation(.easeInOut(duration: 0.1), value: isCapturing)
-    }
-}
-
 struct ShutterButton: View {
     let action: () -> Void
     let isCapturing: Bool
     
+    @GestureState private var isPressed: Bool = false
+    private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
+    
     var body: some View {
-        Button(action: action) {
-            Color.clear
+        ZStack {
+            // Outer ring remains completely static
+            Circle()
+                .strokeBorder(Color.white, lineWidth: 3)
+                .frame(width: 88, height: 88)
+            
+            // Inner core with reduced travel distance
+            Circle()
+                .fill(Theme.accent)
+                .frame(width: 72, height: 72)
+                .scaleEffect(isPressed || isCapturing ? 0.93 : 1.0)
+                .opacity(isCapturing ? 0.5 : 1.0)
         }
-        .buttonStyle(ShutterButtonStyle(isCapturing: isCapturing))
+        .frame(width: 88, height: 88)
+        .contentShape(Circle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .updating($isPressed) { _, state, _ in
+                    state = true
+                }
+                .onChanged { _ in
+                    hapticGenerator.prepare()
+                    hapticGenerator.impactOccurred()
+                }
+        )
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                action()
+            }
+        )
         .disabled(isCapturing)
+        .animation(.easeInOut(duration: 0.05), value: isPressed)
+        .animation(.easeInOut(duration: 0.08), value: isCapturing)
     }
 }

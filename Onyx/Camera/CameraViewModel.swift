@@ -93,8 +93,12 @@ final class CameraViewModel: ObservableObject {
     func capturePhoto() {
         guard !isCapturing else { return }
         isCapturing = true
-        Task {
+        
+        Task.detached(priority: .userInitiated) { [engine] in
             await engine.capturePhoto()
+        }
+        
+        Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             isCapturing = false
         }
