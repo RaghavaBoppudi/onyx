@@ -9,17 +9,46 @@ struct ShutterButton: View {
     
     var body: some View {
         ZStack {
-            // Outer ring remains completely static
-            Circle()
-                .strokeBorder(Color.white, lineWidth: 3)
-                .frame(width: 88, height: 88)
+            // Glass outer ring
+            if #available(iOS 26.0, *) {
+                Circle()
+                    .fill(Color.clear)
+                    .glassEffect(.clear, in: Circle())
+                    .overlay(
+                        Circle().strokeBorder(Color.white.opacity(0.4), lineWidth: 0.5)
+                    )
+                    .frame(width: 88, height: 88)
+                    .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+            } else {
+                Circle()
+                    .fill(Color.white.opacity(0.25))
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(
+                        Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5)
+                    )
+                    .frame(width: 88, height: 88)
+                    .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 2)
+            }
             
-            // Inner core with reduced travel distance
-            Circle()
-                .fill(Theme.accent)
-                .frame(width: 72, height: 72)
-                .scaleEffect(isPressed || isCapturing ? 0.93 : 1.0)
-                .opacity(isCapturing ? 0.5 : 1.0)
+            // Inner Core
+            ZStack {
+                // Solid Base
+                Circle()
+                    .fill(Color(white: 0.15))
+                
+                // Liquid Glass Specular Highlight
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.white.opacity(0.35), Color.clear]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            .frame(width: 72, height: 72)
+            .scaleEffect(isPressed || isCapturing ? 0.93 : 1.0)
+            .opacity(isCapturing ? 0.5 : 1.0)
         }
         .frame(width: 88, height: 88)
         .contentShape(Circle())

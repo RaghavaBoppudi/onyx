@@ -7,7 +7,9 @@ struct ContentView: View {
     @State private var iconOrientation: Angle = .zero
     @Environment(\.scenePhase) private var scenePhase
     
-    @Namespace private var lensAnimation
+    @State private var dragOffset: CGFloat = 0
+    @State private var isDragging: Bool = false
+    @State private var localCurrentLensLabel: String?
     
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     
@@ -29,6 +31,7 @@ struct ContentView: View {
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             hapticGenerator.prepare()
             await viewModel.start()
+            localCurrentLensLabel = viewModel.currentLens?.label
             updateIconOrientation()
         }
         .onDisappear {
@@ -64,15 +67,8 @@ struct ContentView: View {
             }
             
             if viewModel.availableLenses.count > 1 {
-                if #available(iOS 26.0, *) {
-                    lensToggleIsland
-                        .glassEffect(.clear, in: Capsule())
-                        .padding(.bottom, 16)
-                } else {
-                    lensToggleIsland
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(.bottom, 16)
-                }
+                lensToggleIsland
+                    .padding(.bottom, 16)
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.scannedURL)
@@ -82,33 +78,135 @@ struct ContentView: View {
     }
     
     private var lensToggleIsland: some View {
-        HStack(spacing: 6) {
-            ForEach(viewModel.availableLenses, id: \.label) { lens in
-                Button(action: {
-                    guard viewModel.currentLens != lens else { return }
-                    hapticGenerator.impactOccurred()
-                    viewModel.selectLens(lens)
-                }) {
+        let buttonWidth: CGFloat = 52
+        let buttonHeight: CGFloat = 44
+        let spacing: CGFloat = 8
+        let stride = buttonWidth + spacing
+        let totalCount = viewModel.availableLenses.count
+        
+        let activeLabel = localCurrentLensLabel ?? viewModel.currentLens?.label ?? viewModel.availableLenses.first?.label ?? ""
+        let currentIndex = viewModel.availableLenses.firstIndex(where: { $0.label == activeLabel }) ?? 0
+        
+        let middleIndex = CGFloat(totalCount - 1) / 2.0
+        let baseOffset = (CGFloat(currentIndex) - middleIndex) * stride
+        
+        let stretch = isDragging ? min(abs(dragOffset) * 0.4, 20) : 0
+        let indicatorWidth = buttonWidth + stretch
+        let dragDirectionOffset = isDragging ? (dragOffset > 0 ? stretch / 2 : -stretch / 2) : 0
+        
+        return ZStack {
+            // Background Track
+            if #available(iOS 26.0, *) {
+                Capsule()
+                    .fill(Color.black.opacity(0.4))
+                    .glassEffect(.clear, in: Capsule())
+            } else {
+                Capsule()
+                    .fill(Color.black.opacity(0.3))
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+            
+            // Text layer rendered underneath the glass for refraction
+            HStack(spacing: spacing) {
+                ForEach(0..<totalCount, id: \.self) { index in
+                    let lens = viewModel.availableLenses[index]
                     Text(lens.label)
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(viewModel.currentLens == lens ? .black : .white)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            ZStack {
-                                if viewModel.currentLens == lens {
-                                    Circle()
-                                        .fill(Color.white)
-                                        .matchedGeometryEffect(id: "activeLensIndicator", in: lensAnimation)
-                                }
-                            }
-                        )
-                        .contentShape(Circle())
+                        .foregroundColor(currentIndex == index ? .white : .white.opacity(0.6))
+                        .frame(width: buttonWidth, height: buttonHeight)
+                        .contentShape(Rectangle())
                         .rotationEffect(iconOrientation)
+                        .onTapGesture {
+                            if currentIndex != index {
+                                hapticGenerator.impactOccurred()
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                                    localCurrentLensLabel = lens.label
+                                }
+                                viewModel.selectLens(lens)
+                            }
+                        }
                 }
             }
+            
+            // Active Liquid Droplet rendered on top
+            if #available(iOS 26.0, *) {
+                Capsule()
+                    .fill(Color.clear)
+                    .glassEffect(.clear, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(Color.white.opacity(0.4), lineWidth: 0.5)
+                    )
+                    .frame(width: indicatorWidth, height: buttonHeight)
+                    .offset(x: baseOffset + dragOffset + dragDirectionOffset)
+                    .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+                    .scaleEffect(isDragging ? 1.05 : 1.0)
+                    .allowsHitTesting(false)
+            } else {
+                Capsule()
+                    .fill(Color.white.opacity(0.25))
+                    .frame(width: indicatorWidth, height: buttonHeight)
+                    .offset(x: baseOffset + dragOffset + dragDirectionOffset)
+                    .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 2)
+                    .scaleEffect(isDragging ? 1.05 : 1.0)
+                    .allowsHitTesting(false)
+            }
         }
-        .padding(6)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: viewModel.currentLens)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .fixedSize()
+        .scaleEffect(isDragging ? 0.96 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isDragging)
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 8)
+                .onChanged { value in
+                    if !isDragging {
+                        hapticGenerator.prepare()
+                        withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                            isDragging = true
+                        }
+                    }
+                    
+                    let minDrag = (0 - CGFloat(currentIndex)) * stride
+                    let maxDrag = (CGFloat(totalCount - 1) - CGFloat(currentIndex)) * stride
+                    let clampedDrag = max(minDrag, min(maxDrag, value.translation.width))
+                    
+                    withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.86)) {
+                        dragOffset = clampedDrag
+                    }
+                }
+                .onEnded { _ in
+                    let indexOffset = round(dragOffset / stride)
+                    let newIndex = Int(max(0, min(CGFloat(totalCount - 1), CGFloat(currentIndex) + indexOffset)))
+                    let targetLens = viewModel.availableLenses[newIndex]
+                    
+                    let targetLabel = targetLens.label
+                    let changed = activeLabel != targetLabel
+                    
+                    if changed {
+                        hapticGenerator.impactOccurred()
+                    }
+                    
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                        if changed {
+                            localCurrentLensLabel = targetLabel
+                        }
+                        dragOffset = 0
+                        isDragging = false
+                    }
+                    
+                    if changed {
+                        DispatchQueue.main.async {
+                            viewModel.selectLens(targetLens)
+                        }
+                    }
+                }
+        )
+        .onChange(of: viewModel.currentLens) { _, newValue in
+            if !isDragging {
+                localCurrentLensLabel = newValue?.label
+            }
+        }
     }
     
     @ViewBuilder
@@ -146,9 +244,9 @@ struct ContentView: View {
                 hapticGenerator.prepare()
                 viewModel.toggleCameraPosition()
             }) {
-                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                    .font(.system(size: 24, weight: .regular))
-                    .foregroundColor(.white)
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 24, weight: .light))
+                    .foregroundColor(Color.white.opacity(0.65))
                     .rotationEffect(iconOrientation)
                     .frame(maxWidth: .infinity, minHeight: 60)
                     .contentShape(Rectangle())
