@@ -121,12 +121,12 @@ actor CameraEngine {
     }
     
     private func configurePhotoOutput() {
-        if session.canAddOutput(photoOutput) {
-            session.addOutput(photoOutput)
-            // Required to expose RAW formats to the output pipeline
-            photoOutput.isAppleProRAWEnabled = photoOutput.isAppleProRAWSupported
+            if session.canAddOutput(photoOutput) {
+                session.addOutput(photoOutput)
+                // Explicitly disable ProRAW to force standard, unconditioned Bayer RAW
+                photoOutput.isAppleProRAWEnabled = false
+            }
         }
-    }
     
     private func configureMetadataOutput() {
         if session.canAddOutput(metadataOutput) {

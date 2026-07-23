@@ -16,7 +16,6 @@ private struct ShutterButtonStyle: ButtonStyle {
     let hapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
     private enum Metrics {
-        // Scaled up to 100 points to match the visual weight of the lens island
         static let baseSize: CGFloat = 100
         static let midSize: CGFloat = 78
         static let topSize: CGFloat = 56
@@ -49,7 +48,9 @@ private struct ShutterButtonStyle: ButtonStyle {
             if isPressed {
                 hapticGenerator.prepare()
                 hapticGenerator.impactOccurred()
-                action()
+                Task { @MainActor in
+                    action()
+                }
             }
         }
     }
