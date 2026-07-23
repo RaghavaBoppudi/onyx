@@ -4,14 +4,16 @@ struct ShutterButton: View {
     let action: () -> Void
     
     var body: some View {
-        Button(action: action) {
+        // Provide an empty closure to prevent the default touch-up-inside behavior
+        Button(action: {}) {
             Color.clear
         }
-        .buttonStyle(ShutterButtonStyle())
+        .buttonStyle(ShutterButtonStyle(action: action))
     }
 }
 
 private struct ShutterButtonStyle: ButtonStyle {
+    let action: () -> Void
     let hapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
     private enum Metrics {
@@ -48,8 +50,10 @@ private struct ShutterButtonStyle: ButtonStyle {
         .contentShape(Circle())
         .onChange(of: configuration.isPressed) { _, isPressed in
             if isPressed {
+                // Fire haptics and capture immediately on touch down
                 hapticGenerator.prepare()
                 hapticGenerator.impactOccurred()
+                action()
             }
         }
     }

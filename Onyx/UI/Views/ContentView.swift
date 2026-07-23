@@ -93,6 +93,7 @@ struct ContentView: View {
         let stretch = isDragging ? min(abs(dragOffset) * 0.4, 20) : 0
         let indicatorWidth = buttonWidth + stretch
         let dragDirectionOffset = isDragging ? (dragOffset > 0 ? stretch / 2 : -stretch / 2) : 0
+        let indicatorHeight = buttonHeight + 6
         
         return ZStack {
             if #available(iOS 26.0, *) {
@@ -134,25 +135,22 @@ struct ContentView: View {
                         Capsule()
                             .strokeBorder(Color.white.opacity(0.4), lineWidth: 0.5)
                     )
-                    .frame(width: indicatorWidth, height: buttonHeight)
+                    .frame(width: indicatorWidth, height: indicatorHeight)
                     .offset(x: baseOffset + dragOffset + dragDirectionOffset)
                     .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
-                    .scaleEffect(isDragging ? 1.05 : 1.0)
                     .allowsHitTesting(false)
             } else {
                 Capsule()
                     .fill(Color.white.opacity(0.25))
-                    .frame(width: indicatorWidth, height: buttonHeight)
+                    .frame(width: indicatorWidth, height: indicatorHeight)
                     .offset(x: baseOffset + dragOffset + dragDirectionOffset)
                     .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 2)
-                    .scaleEffect(isDragging ? 1.05 : 1.0)
                     .allowsHitTesting(false)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .fixedSize()
-        .scaleEffect(isDragging ? 0.96 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isDragging)
         .highPriorityGesture(
             DragGesture(minimumDistance: 8)
@@ -184,7 +182,7 @@ struct ContentView: View {
                         hapticGenerator.impactOccurred()
                     }
                     
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) {
                         if changed {
                             localCurrentLensLabel = targetLabel
                         }
@@ -229,55 +227,43 @@ struct ContentView: View {
         }
     }
     
-    private var superModeToggle: some View {
-        Button(action: {
-            hapticGenerator.impactOccurred()
-            viewModel.isSuperModeActive.toggle()
-        }) {
-            Text(viewModel.isSuperModeActive ? "48MP" : "12MP")
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .foregroundColor(viewModel.isSuperModeActive ? .black : .white)
-                .frame(width: 60)
-                .padding(.vertical, 10)
-                .background(
-                    Capsule()
-                        .fill(viewModel.isSuperModeActive ? Color.white : Color.white.opacity(0.15))
-                )
-                .rotationEffect(iconOrientation)
-        }
-    }
-    
     private var bottomControls: some View {
-        HStack(spacing: 0) {
-            Group {
-                if viewModel.cameraPosition == .back {
-                    superModeToggle
-                } else {
-                    Color.clear.frame(height: 1)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            
+        ZStack {
+            // Absolute Center Anchor - Decoupled from the side stack geometry
             ShutterButton(action: initiateCapture)
                 .frame(width: 88)
             
-            Button(action: {
-                hapticGenerator.impactOccurred()
-                hapticGenerator.prepare()
-                viewModel.toggleCameraPosition()
-            }) {
-                Text(viewModel.cameraPosition == .back ? "FRONT" : "BACK")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(width: 60)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.15))
-                    )
-                    .rotationEffect(iconOrientation)
+            // Side Controls Layer
+            HStack(spacing: 0) {
+                // Left Zone
+                Spacer()
+                    .frame(maxWidth: .infinity)
+                
+                // Center Gap - Prevents side touches from blocking the shutter button
+                Spacer()
+                    .frame(width: 88)
+                
+                // Right Zone
+                ZStack {
+                    Button(action: {
+                        hapticGenerator.impactOccurred()
+                        hapticGenerator.prepare()
+                        viewModel.toggleCameraPosition()
+                    }) {
+                        Text(viewModel.cameraPosition == .back ? "FRONT" : "BACK")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(width: 60)
+                            .padding(.vertical, 10)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.15))
+                            )
+                            .rotationEffect(iconOrientation)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
         }
         .padding(.bottom, 48)
     }

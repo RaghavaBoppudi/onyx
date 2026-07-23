@@ -11,7 +11,6 @@ final class CameraViewModel: ObservableObject {
     @Published var isCapturing = false
     @Published var isFlashing = false
     @Published var scannedURL: URL?
-    @Published var isSuperModeActive = false
     
     private let engine = CameraEngine()
     private var qrClearTask: Task<Void, Never>?
@@ -72,10 +71,6 @@ final class CameraViewModel: ObservableObject {
             let newPosition: AVCaptureDevice.Position = cameraPosition == .back ? .front : .back
             cameraPosition = newPosition
             
-            if newPosition == .front {
-                isSuperModeActive = false
-            }
-            
             if let newLens = await engine.switchCameraPosition(to: newPosition) {
                 currentLens = newLens
                 availableLenses = await engine.availableLenses
@@ -100,10 +95,8 @@ final class CameraViewModel: ObservableObject {
         guard !isCapturing else { return }
         isCapturing = true
         
-        let superMode = isSuperModeActive
-        
         Task.detached(priority: .userInitiated) { [engine] in
-            await engine.capturePhoto(isSuperModeActive: superMode)
+            await engine.capturePhoto()
         }
         
         Task {

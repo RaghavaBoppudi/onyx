@@ -22,7 +22,6 @@ actor CameraEngine {
     private var isConfigured = false
 
     init() {
-        // Must be set immediately to prevent AVAudioSession from locking the main thread later
         session.automaticallyConfiguresApplicationAudioSession = false
     }
 
@@ -71,7 +70,6 @@ actor CameraEngine {
             updatePhotoOutputDimensions(for: device)
         }
         
-        // Explicitly detach to prevent blocking the main thread and triggering the AVAudioSession warning
         Task.detached { [session] in
             session.startRunning()
         }
@@ -179,26 +177,6 @@ actor CameraEngine {
         do {
             try device.lockForConfiguration()
             
-            if device.position == .back {
-                if #available(iOS 16.0, *) {
-                    var bestFormat = device.activeFormat
-                    var maxPixels: Int32 = 0
-                    
-                    for format in device.formats {
-                        let dims = format.supportedMaxPhotoDimensions.last ?? CMVideoDimensions(width: 0, height: 0)
-                        let pixels = dims.width * dims.height
-                        if pixels > maxPixels {
-                            maxPixels = pixels
-                            bestFormat = format
-                        }
-                    }
-                    
-                    if device.activeFormat != bestFormat {
-                        device.activeFormat = bestFormat
-                    }
-                }
-            }
-            
             if device.isFocusPointOfInterestSupported {
                 device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
             }
@@ -243,7 +221,7 @@ actor CameraEngine {
         }
     }
     
-    func capturePhoto(isSuperModeActive: Bool) {
+    func capturePhoto() {
         if let photoConnection = photoOutput.connection(with: .video),
            let coordinator = rotationCoordinator {
             let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
@@ -252,28 +230,12 @@ actor CameraEngine {
             }
         }
         
-        let settings: AVCapturePhotoSettings
-        
-        if isSuperModeActive {
-            settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
-            if #available(iOS 16.0, *) {
-                settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
-            }
-            settings.photoQualityPrioritization = .balanced
-        } else {
-            if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
-                settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
-            } else {
-                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
-            }
-            settings.photoQualityPrioritization = .speed
-        }
-        
+        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+        settings.photoQualityPrioritization = .quality
         settings.isAutoRedEyeReductionEnabled = false
         settings.flashMode = .off
         
         captureDelegate.currentLocation = locationProvider.currentLocation
-        
         photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
     }
 }
@@ -336,8 +298,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         guard error == nil, let photoData = photo.fileDataRepresentation() else { return }
         let context = self.ciContext
         let location = self.currentLocation
-        let isRaw = photo.isRawPhoto
         
-        Task { await PhotoProcessor.processAndSave(photoData: photoData, isRaw: isRaw, location: location, context: context) }
+        Task { await PhotoProcessor.processAndSave(photoData: photoData, location: location, context: context) }
     }
 }
