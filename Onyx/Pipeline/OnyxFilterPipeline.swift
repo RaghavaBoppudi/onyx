@@ -14,6 +14,7 @@ struct OnyxFilterPipeline: Sendable {
         
         let curveFilter = CIFilter.toneCurve()
         curveFilter.inputImage = monoImage
+        
         curveFilter.point0 = CGPoint(x: 0.0, y: 0.02)
         curveFilter.point1 = CGPoint(x: 0.25, y: 0.14)
         curveFilter.point2 = CGPoint(x: 0.50, y: 0.45)

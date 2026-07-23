@@ -21,21 +21,17 @@ final class CameraViewModel: ObservableObject {
     
     func start() async {
         await engine.setOnCapture { @Sendable [weak self] in
-            Task { @MainActor [weak self] in
-                self?.triggerFlash()
-            }
+            Task { @MainActor [weak self] in self?.triggerFlash() }
         }
         
         await engine.setOnQRCodeScanned { @Sendable [weak self] stringValue in
-            Task { @MainActor [weak self] in
-                self?.processQRCode(stringValue)
-            }
+            Task { @MainActor [weak self] in self?.processQRCode(stringValue) }
         }
         
-        let authorized = await engine.start()
-        guard authorized else { return }
-        self.availableLenses = await engine.availableLenses
-        self.currentLens = await engine.currentLens
+        if await engine.start() {
+            self.availableLenses = await engine.availableLenses
+            self.currentLens = await engine.currentLens
+        }
     }
     
     func stop() async {
@@ -45,48 +41,45 @@ final class CameraViewModel: ObservableObject {
     private func triggerFlash() {
         isFlashing = true
         Task {
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            try? await Task.sleep(for: .milliseconds(100))
             isFlashing = false
         }
     }
     
     private func processQRCode(_ value: String) {
-        guard let url = URL(string: value),
-              let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme) else { return }
-        
+        guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased()) else { return }
         scannedURL = url
         
         qrClearTask?.cancel()
         qrClearTask = Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
             scannedURL = nil
         }
     }
     
     func toggleCameraPosition() {
+        isSwitchingLens = true
+        cameraPosition = cameraPosition == .back ? .front : .back
+        
         Task {
-            isSwitchingLens = true
-            let newPosition: AVCaptureDevice.Position = cameraPosition == .back ? .front : .back
-            cameraPosition = newPosition
-            
-            if let newLens = await engine.switchCameraPosition(to: newPosition) {
+            if let newLens = await engine.switchCameraPosition(to: cameraPosition) {
                 currentLens = newLens
                 availableLenses = await engine.availableLenses
             }
-            try? await Task.sleep(nanoseconds: 150_000_000)
+            // Await actual hardware completion, no arbitrary sleeps
             isSwitchingLens = false
         }
     }
     
     func selectLens(_ lens: Lens) {
         guard lens != currentLens else { return }
+        isSwitchingLens = true
+        currentLens = lens
+        
         Task {
-            isSwitchingLens = true
-            currentLens = lens
             await engine.selectLens(lens)
-            try? await Task.sleep(nanoseconds: 150_000_000)
+            // Await actual hardware completion, no arbitrary sleeps
             isSwitchingLens = false
         }
     }
@@ -100,7 +93,7 @@ final class CameraViewModel: ObservableObject {
         }
         
         Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(for: .milliseconds(300))
             isCapturing = false
         }
     }

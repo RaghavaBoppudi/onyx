@@ -32,8 +32,18 @@ struct PhotoProcessor: Sendable {
         guard status == .authorized || status == .limited else { return }
 
         Task.detached(priority: .userInitiated) {
-            guard let baseImage = CIImage(data: photoData) else { return }
+            // Decode the DNG RAW payload directly
+            guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
             
+            // Force Apple's ISP to bypass all automatic processing algorithms
+            rawFilter.luminanceNoiseReductionAmount = 0.0
+            rawFilter.colorNoiseReductionAmount = 0.0
+            rawFilter.sharpnessAmount = 0.0
+            rawFilter.extendedDynamicRangeAmount = 0.0
+            rawFilter.localToneMapAmount = 0.0
+            rawFilter.boostAmount = 0.0
+            
+            guard let baseImage = rawFilter.outputImage else { return }
             let finalImage = OnyxFilterPipeline.apply(to: baseImage)
             
             guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),

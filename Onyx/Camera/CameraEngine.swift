@@ -123,7 +123,8 @@ actor CameraEngine {
     private func configurePhotoOutput() {
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
-            photoOutput.maxPhotoQualityPrioritization = .quality
+            // Required to expose RAW formats to the output pipeline
+            photoOutput.isAppleProRAWEnabled = photoOutput.isAppleProRAWSupported
         }
     }
     
@@ -230,8 +231,12 @@ actor CameraEngine {
             }
         }
         
-        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
-        settings.photoQualityPrioritization = .quality
+        // Grab the uncompressed Bayer RAW format
+        guard let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first else {
+            return
+        }
+        
+        let settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
         settings.isAutoRedEyeReductionEnabled = false
         settings.flashMode = .off
         

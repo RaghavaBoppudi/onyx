@@ -4,7 +4,6 @@ struct ShutterButton: View {
     let action: () -> Void
     
     var body: some View {
-        // Provide an empty closure to prevent the default touch-up-inside behavior
         Button(action: {}) {
             Color.clear
         }
@@ -17,9 +16,10 @@ private struct ShutterButtonStyle: ButtonStyle {
     let hapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
     private enum Metrics {
-        static let baseSize: CGFloat = 88
-        static let midSize: CGFloat = 68
-        static let topSize: CGFloat = 48
+        // Scaled up to 100 points to match the visual weight of the lens island
+        static let baseSize: CGFloat = 100
+        static let midSize: CGFloat = 78
+        static let topSize: CGFloat = 56
         
         static let baseScale: CGFloat = 0.88
         static let midScale: CGFloat = 0.82
@@ -28,19 +28,16 @@ private struct ShutterButtonStyle: ButtonStyle {
     
     func makeBody(configuration: Configuration) -> some View {
         ZStack {
-            // Bottom Layer
             LayerCircle(gradient: [Color(red: 0.5, green: 0.1, blue: 0.0), Color(red: 0.6, green: 0.2, blue: 0.0)])
                 .frame(width: Metrics.baseSize, height: Metrics.baseSize)
                 .scaleEffect(configuration.isPressed ? Metrics.baseScale : 1.0)
                 .animation(.spring(response: 0.35, dampingFraction: 0.5), value: configuration.isPressed)
             
-            // Middle Layer
             LayerCircle(gradient: [Color(red: 0.8, green: 0.15, blue: 0.05), Color(red: 0.9, green: 0.45, blue: 0.0)])
                 .frame(width: Metrics.midSize, height: Metrics.midSize)
                 .scaleEffect(configuration.isPressed ? Metrics.midScale : 1.0)
                 .animation(.spring(response: 0.22, dampingFraction: 0.55), value: configuration.isPressed)
             
-            // Top Layer
             LayerCircle(gradient: [Color(red: 1.0, green: 0.2, blue: 0.13), Color(red: 1.0, green: 0.6, blue: 0.0)])
                 .frame(width: Metrics.topSize, height: Metrics.topSize)
                 .scaleEffect(configuration.isPressed ? Metrics.topScale : 1.0)
@@ -50,7 +47,6 @@ private struct ShutterButtonStyle: ButtonStyle {
         .contentShape(Circle())
         .onChange(of: configuration.isPressed) { _, isPressed in
             if isPressed {
-                // Fire haptics and capture immediately on touch down
                 hapticGenerator.prepare()
                 hapticGenerator.impactOccurred()
                 action()
