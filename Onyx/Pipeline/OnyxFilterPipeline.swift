@@ -2,7 +2,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 
 struct OnyxFilterPipeline: Sendable {
-    nonisolated static func apply(to image: CIImage) -> CIImage {
+    nonisolated static func apply(to image: CIImage, isZeroProcessed: Bool = true) -> CIImage {
         let monoFilter = CIFilter.colorMatrix()
         monoFilter.inputImage = image
         
@@ -16,11 +16,19 @@ struct OnyxFilterPipeline: Sendable {
         let curveFilter = CIFilter.toneCurve()
         curveFilter.inputImage = monoImage
         
-        curveFilter.point0 = CGPoint(x: 0.0, y: 0.02)
-        curveFilter.point1 = CGPoint(x: 0.25, y: 0.14)
-        curveFilter.point2 = CGPoint(x: 0.50, y: 0.45)
-        curveFilter.point3 = CGPoint(x: 0.75, y: 0.65)
-        curveFilter.point4 = CGPoint(x: 1.0, y: 0.82)
+        if isZeroProcessed {
+            curveFilter.point0 = CGPoint(x: 0.0, y: 0.02)
+            curveFilter.point1 = CGPoint(x: 0.25, y: 0.14)
+            curveFilter.point2 = CGPoint(x: 0.50, y: 0.45)
+            curveFilter.point3 = CGPoint(x: 0.75, y: 0.65)
+            curveFilter.point4 = CGPoint(x: 1.0, y: 0.82)
+        } else {
+            curveFilter.point0 = CGPoint(x: 0.0, y: 0.0)
+            curveFilter.point1 = CGPoint(x: 0.25, y: 0.10)
+            curveFilter.point2 = CGPoint(x: 0.50, y: 0.40)
+            curveFilter.point3 = CGPoint(x: 0.75, y: 0.75)
+            curveFilter.point4 = CGPoint(x: 1.0, y: 0.95)
+        }
         
         return curveFilter.outputImage ?? monoImage
     }

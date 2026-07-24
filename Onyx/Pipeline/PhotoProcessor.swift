@@ -23,7 +23,7 @@ struct PhotoProcessor: Sendable {
         return album
     }
     
-    static func processAndSave(photoData: Data, location: CLLocation?, context: CIContext) async {
+    static func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, isZeroProcessed: Bool) async {
         var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if status == .notDetermined {
             status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
@@ -42,7 +42,7 @@ struct PhotoProcessor: Sendable {
             rawFilter.boostAmount = 0.0
             
             guard let baseImage = rawFilter.outputImage else { return }
-            let finalImage = OnyxFilterPipeline.apply(to: baseImage)
+            let finalImage = OnyxFilterPipeline.apply(to: baseImage, isZeroProcessed: isZeroProcessed)
             
             guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
                   let finalData = context.jpegRepresentation(

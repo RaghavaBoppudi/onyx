@@ -7,7 +7,7 @@ import os
 struct WeakReceiverBox: Sendable { weak var receiver: FrameReceiver? }
 
 actor CameraEngine {
-    let session = AVCaptureSession()
+    private var session: AVCaptureSession!
     private let videoOutput = AVCaptureVideoDataOutput()
     private let photoOutput = AVCapturePhotoOutput()
     private let metadataOutput = AVCaptureMetadataOutput()
@@ -16,14 +16,11 @@ actor CameraEngine {
     
     var availableLenses: [Lens] = []
     var currentLens: Lens?
+    var useZeroProcessing: Bool = true
     
     private var deviceInput: AVCaptureDeviceInput?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
-
-    init() {
-        session.automaticallyConfiguresApplicationAudioSession = false
-    }
 
     func setFrameReceiver(_ receiver: FrameReceiver?) {
         captureDelegate.frameReceiver = receiver
@@ -37,6 +34,22 @@ actor CameraEngine {
         captureDelegate.onQRCodeScanned = callback
     }
     
+    func setProcessingPipeline(isZeroProcessed: Bool) {
+            self.useZeroProcessing = isZeroProcessed
+            captureDelegate.isCapturingZeroProcessed = isZeroProcessed
+            
+            guard let device = deviceInput?.device else { return }
+            
+            do {
+                try device.lockForConfiguration()
+                let targetBias: Float = isZeroProcessed ? -0.5 : 0.0
+                device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias)), completionHandler: nil)
+                device.unlockForConfiguration()
+            } catch {
+                print("Failed to lock device for exposure bias update.")
+            }
+        }
+    
     func start() async -> Bool {
         let authStatus = AVCaptureDevice.authorizationStatus(for: .video)
         if authStatus == .notDetermined {
@@ -46,9 +59,14 @@ actor CameraEngine {
             return false
         }
         
+        if session == nil {
+            session = AVCaptureSession()
+            session.automaticallyConfiguresApplicationAudioSession = false
+        }
+        
         guard !isConfigured else {
             Task.detached { [session] in
-                if !session.isRunning { session.startRunning() }
+                if let s = session, !s.isRunning { s.startRunning() }
             }
             return true
         }
@@ -71,7 +89,7 @@ actor CameraEngine {
         }
         
         Task.detached { [session] in
-            session.startRunning()
+            session?.startRunning()
         }
         
         isConfigured = true
@@ -81,7 +99,7 @@ actor CameraEngine {
     
     func stop() {
         Task.detached { [session] in
-            if session.isRunning { session.stopRunning() }
+            if let s = session, s.isRunning { s.stopRunning() }
         }
     }
     
@@ -121,12 +139,13 @@ actor CameraEngine {
     }
     
     private func configurePhotoOutput() {
-            if session.canAddOutput(photoOutput) {
-                session.addOutput(photoOutput)
-                // Explicitly disable ProRAW to force standard, unconditioned Bayer RAW
-                photoOutput.isAppleProRAWEnabled = false
+        if session.canAddOutput(photoOutput) {
+            session.addOutput(photoOutput)
+            if photoOutput.isAppleProRAWSupported {
+                photoOutput.isAppleProRAWEnabled = true
             }
         }
+    }
     
     private func configureMetadataOutput() {
         if session.canAddOutput(metadataOutput) {
@@ -172,6 +191,12 @@ actor CameraEngine {
         session.commitConfiguration()
         
         updatePhotoOutputDimensions(for: newDevice)
+        
+        if photoOutput.isAppleProRAWSupported {
+            photoOutput.isAppleProRAWEnabled = true
+        } else {
+            photoOutput.isAppleProRAWEnabled = false
+        }
     }
     
     private func applySettings(to device: AVCaptureDevice) {
@@ -198,17 +223,13 @@ actor CameraEngine {
                 device.exposureMode = .autoExpose
             }
             
-            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, -0.5)), completionHandler: nil)
+            let targetBias: Float = useZeroProcessing ? -0.5 : 0.0
+            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias)), completionHandler: nil)
             device.isSubjectAreaChangeMonitoringEnabled = false
             
             if device.position == .front {
                 device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
                 device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
-            } else {
-                if let bestRange = device.activeFormat.videoSupportedFrameRateRanges.max(by: { $0.maxFrameRate < $1.maxFrameRate }) {
-                    device.activeVideoMaxFrameDuration = bestRange.minFrameDuration
-                    device.activeVideoMinFrameDuration = bestRange.minFrameDuration
-                }
             }
             
             device.unlockForConfiguration()
@@ -231,16 +252,32 @@ actor CameraEngine {
             }
         }
         
-        // Grab the uncompressed Bayer RAW format
-        guard let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first else {
-            return
+        let pixelFormat: OSType
+        
+        if useZeroProcessing {
+            guard let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else {
+                print("Error: Bayer RAW is not available on this lens.")
+                return
+            }
+            pixelFormat = bayerFormat
+        } else {
+            if let proRawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) }) {
+                pixelFormat = proRawFormat
+            } else if let fallbackBayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) {
+                print("ProRAW unsupported on current lens. Falling back to Bayer RAW.")
+                pixelFormat = fallbackBayerFormat
+            } else {
+                print("Error: No RAW formats supported on this lens.")
+                return
+            }
         }
         
-        let settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
+        let settings = AVCapturePhotoSettings(rawPixelFormatType: pixelFormat)
         settings.isAutoRedEyeReductionEnabled = false
         settings.flashMode = .off
         
         captureDelegate.currentLocation = locationProvider.currentLocation
+        captureDelegate.isCapturingZeroProcessed = useZeroProcessing
         photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
     }
 }
@@ -250,6 +287,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _currentLocation = OSAllocatedUnfairLock(initialState: CLLocation?(nil))
     private let _onCapture = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
+    private let _isCapturingZeroProcessed = OSAllocatedUnfairLock(initialState: true)
     
     var onCapture: (@Sendable () -> Void)? {
         get { _onCapture.withLock { $0 } }
@@ -271,6 +309,11 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         set { _currentLocation.withLock { $0 = newValue } }
     }
     
+    var isCapturingZeroProcessed: Bool {
+        get { _isCapturingZeroProcessed.withLock { $0 } }
+        set { _isCapturingZeroProcessed.withLock { $0 = newValue } }
+    }
+    
     let ciContext = MTLCreateSystemDefaultDevice().map {
         CIContext(mtlDevice: $0, options: [.cacheIntermediates: false, .priorityRequestLow: false])
     } ?? CIContext(options: [.cacheIntermediates: false])
@@ -283,7 +326,8 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         autoreleasepool {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
-            let finalImage = OnyxFilterPipeline.apply(to: rawImage)
+            
+            let finalImage = OnyxFilterPipeline.apply(to: rawImage, isZeroProcessed: true)
             frameReceiver?.receive(image: finalImage)
         }
     }
@@ -303,7 +347,8 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         guard error == nil, let photoData = photo.fileDataRepresentation() else { return }
         let context = self.ciContext
         let location = self.currentLocation
+        let zeroProcessed = self.isCapturingZeroProcessed
         
-        Task { await PhotoProcessor.processAndSave(photoData: photoData, location: location, context: context) }
+        Task { await PhotoProcessor.processAndSave(photoData: photoData, location: location, context: context, isZeroProcessed: zeroProcessed) }
     }
 }

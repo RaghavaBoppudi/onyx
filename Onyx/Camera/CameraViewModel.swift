@@ -97,4 +97,10 @@ final class CameraViewModel: ObservableObject {
             isCapturing = false
         }
     }
+    
+    func setProcessingPipeline(isZeroProcessed: Bool) {
+        Task {
+            await engine.setProcessingPipeline(isZeroProcessed: isZeroProcessed)
+        }
+    }
 }

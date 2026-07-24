@@ -37,6 +37,7 @@ struct ContentView: View {
     
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging: Bool = false
+    @State private var useZeroProcessing: Bool = true
     
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     
@@ -222,31 +223,50 @@ struct ContentView: View {
     }
     
     private var bottomControls: some View {
-        ZStack {
+        HStack(spacing: 0) {
+            ZStack {
+                Button(action: {
+                    hapticGenerator.impactOccurred()
+                    useZeroProcessing.toggle()
+                    viewModel.setProcessingPipeline(isZeroProcessed: useZeroProcessing)
+                }) {
+                    Capsule()
+                        .fill(Color.white)
+                        .frame(width: 64, height: 32)
+                        .overlay(
+                            Text(useZeroProcessing ? "ZERO" : "SMART")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.black)
+                                .rotationEffect(iconOrientation)
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity)
+            
             ShutterButton(action: initiateCapture)
                 .frame(width: 100)
             
-            HStack(spacing: 0) {
-                Spacer().frame(maxWidth: .infinity)
-                Spacer().frame(width: 100)
-                
-                ZStack {
-                    Button(action: {
-                        hapticGenerator.impactOccurred()
-                        viewModel.toggleCameraPosition()
-                    }) {
-                        Image(systemName: "camera.rotate.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 50, height: 50)
-                            .background(Circle().fill(Color.white.opacity(0.15)))
-                            .rotationEffect(iconOrientation)
-                    }
+            ZStack {
+                Button(action: {
+                    hapticGenerator.impactOccurred()
+                    viewModel.toggleCameraPosition()
+                }) {
+                    Capsule()
+                        .fill(Color.white)
+                        .frame(width: 64, height: 32)
+                        .overlay(
+                            Image(systemName: "camera.rotate.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.black)
+                                .rotationEffect(iconOrientation)
+                        )
                 }
-                .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity)
         }
+        .padding(.horizontal, 16)
         .padding(.bottom, 48)
+        .background(Color.black)
     }
     
     private func updateIconOrientation() {
