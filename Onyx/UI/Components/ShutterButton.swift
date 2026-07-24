@@ -16,12 +16,12 @@ private struct ShutterButtonStyle: ButtonStyle {
     let hapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
     private enum Metrics {
-        static let baseSize: CGFloat = 100
-        static let midSize: CGFloat = 78
+        static let baseSize: CGFloat = 104
+        static let midSize: CGFloat = 80
         static let topSize: CGFloat = 56
         
-        static let baseScale: CGFloat = 0.88
-        static let midScale: CGFloat = 0.82
+        static let baseScale: CGFloat = 0.90
+        static let midScale: CGFloat = 0.80
         static let topScale: CGFloat = 0.70
     }
     

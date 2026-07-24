@@ -21,6 +21,8 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate, @unchecked Se
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        currentLocation = locations.last
+        Task { @MainActor in
+            self.currentLocation = locations.last
+        }
     }
 }

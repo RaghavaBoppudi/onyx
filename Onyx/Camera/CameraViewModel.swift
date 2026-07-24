@@ -12,6 +12,10 @@ final class CameraViewModel: ObservableObject {
     @Published var isFlashing = false
     @Published var scannedURL: URL?
     
+    // UI State defaults to Zero processing
+    @Published var useZeroProcessing: Bool = true
+    @Published var iconOrientation: Angle = .zero
+    
     private let engine = CameraEngine()
     private var qrClearTask: Task<Void, Never>?
     
@@ -20,6 +24,9 @@ final class CameraViewModel: ObservableObject {
     }
     
     func start() async {
+        // Sync the engine's state with the ViewModel's default on launch
+        await engine.setProcessingPipeline(isZeroProcessed: self.useZeroProcessing)
+        
         await engine.setOnCapture { @Sendable [weak self] in
             Task { @MainActor [weak self] in self?.triggerFlash() }
         }
@@ -67,7 +74,6 @@ final class CameraViewModel: ObservableObject {
                 currentLens = newLens
                 availableLenses = await engine.availableLenses
             }
-            // Await actual hardware completion, no arbitrary sleeps
             isSwitchingLens = false
         }
     }
@@ -79,7 +85,6 @@ final class CameraViewModel: ObservableObject {
         
         Task {
             await engine.selectLens(lens)
-            // Await actual hardware completion, no arbitrary sleeps
             isSwitchingLens = false
         }
     }
@@ -102,5 +107,9 @@ final class CameraViewModel: ObservableObject {
         Task {
             await engine.setProcessingPipeline(isZeroProcessed: isZeroProcessed)
         }
+    }
+    
+    func togglePipeline() {
+        setProcessingPipeline(isZeroProcessed: useZeroProcessing)
     }
 }

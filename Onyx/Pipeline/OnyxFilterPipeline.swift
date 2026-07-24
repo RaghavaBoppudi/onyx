@@ -17,11 +17,13 @@ struct OnyxFilterPipeline: Sendable {
         curveFilter.inputImage = monoImage
         
         if isZeroProcessed {
-            curveFilter.point0 = CGPoint(x: 0.0, y: 0.02)
-            curveFilter.point1 = CGPoint(x: 0.25, y: 0.14)
-            curveFilter.point2 = CGPoint(x: 0.50, y: 0.45)
-            curveFilter.point3 = CGPoint(x: 0.75, y: 0.65)
-            curveFilter.point4 = CGPoint(x: 1.0, y: 0.82)
+            if isZeroProcessed {
+                curveFilter.point0 = CGPoint(x: 0.0, y: 0.0)
+                curveFilter.point1 = CGPoint(x: 0.25, y: 0.07)
+                curveFilter.point2 = CGPoint(x: 0.50, y: 0.32)
+                curveFilter.point3 = CGPoint(x: 0.75, y: 0.68)
+                curveFilter.point4 = CGPoint(x: 1.0, y: 0.90)
+            }
         } else {
             curveFilter.point0 = CGPoint(x: 0.0, y: 0.0)
             curveFilter.point1 = CGPoint(x: 0.25, y: 0.10)

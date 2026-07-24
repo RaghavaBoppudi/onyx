@@ -35,20 +35,20 @@ actor CameraEngine {
     }
     
     func setProcessingPipeline(isZeroProcessed: Bool) {
-            self.useZeroProcessing = isZeroProcessed
-            captureDelegate.isCapturingZeroProcessed = isZeroProcessed
-            
-            guard let device = deviceInput?.device else { return }
-            
-            do {
-                try device.lockForConfiguration()
-                let targetBias: Float = isZeroProcessed ? -0.5 : 0.0
-                device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias)), completionHandler: nil)
-                device.unlockForConfiguration()
-            } catch {
-                print("Failed to lock device for exposure bias update.")
-            }
+        self.useZeroProcessing = isZeroProcessed
+        captureDelegate.isCapturingZeroProcessed = isZeroProcessed
+        
+        guard let device = deviceInput?.device else { return }
+        
+        do {
+            try device.lockForConfiguration()
+            let targetBias: Float = isZeroProcessed ? -0.5 : 0.0
+            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias)), completionHandler: nil)
+            device.unlockForConfiguration()
+        } catch {
+            print("Failed to lock device for exposure bias update.")
         }
+    }
     
     func start() async -> Bool {
         let authStatus = AVCaptureDevice.authorizationStatus(for: .video)
@@ -327,7 +327,8 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
             
-            let finalImage = OnyxFilterPipeline.apply(to: rawImage, isZeroProcessed: true)
+            // Replaces the hardcoded `true` with dynamic delegate state reading
+            let finalImage = OnyxFilterPipeline.apply(to: rawImage, isZeroProcessed: self.isCapturingZeroProcessed)
             frameReceiver?.receive(image: finalImage)
         }
     }
