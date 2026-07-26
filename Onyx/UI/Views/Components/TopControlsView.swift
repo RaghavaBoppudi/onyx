@@ -1,71 +1,35 @@
 import SwiftUI
 
-struct PipelineToggleView: View {
-    @Binding var useZeroProcessing: Bool
-    let iconOrientation: Angle
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: {
-            useZeroProcessing.toggle()
-            action()
-        }) {
-            Capsule()
-                .fill(Color.white)
-                .frame(width: 64, height: 32)
-                .overlay(
-                    Text(useZeroProcessing ? "ZERO" : "SMART")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.black)
-                        .rotationEffect(iconOrientation)
-                )
-        }
-    }
-}
-
-struct CameraPositionToggleView: View {
-    let iconOrientation: Angle
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            Capsule()
-                .fill(Color.white)
-                .frame(width: 64, height: 32)
-                .overlay(
-                    Image(systemName: "camera.rotate.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.black)
-                        .rotationEffect(iconOrientation)
-                )
-        }
-    }
-}
-
 struct TopControlsView: View {
-    @Binding var useZeroProcessing: Bool
+    @Binding var isSettingsOpen: Bool
     let iconOrientation: Angle
-    let onPipelineToggle: () -> Void
-    let onCameraPositionToggle: () -> Void
+    
+    // Strict metrics to prevent arbitrary sizing
+    private let buttonWidth: CGFloat = 64
+    private let buttonHeight: CGFloat = 40
     
     var body: some View {
         HStack {
-            PipelineToggleView(
-                useZeroProcessing: $useZeroProcessing,
-                iconOrientation: iconOrientation,
-                action: onPipelineToggle
-            )
+            Button(action: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    isSettingsOpen.toggle()
+                }
+            }) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(isSettingsOpen ? .white : .black)
+                    .frame(width: buttonWidth, height: buttonHeight)
+                    .background(
+                        Capsule()
+                            .fill(isSettingsOpen ? Theme.accent : Color.white)
+                    )
+                    .rotationEffect(iconOrientation)
+            }
             
             Spacer()
-            
-            CameraPositionToggleView(
-                iconOrientation: iconOrientation,
-                action: onCameraPositionToggle
-            )
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 16)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 32)
+        .padding(.vertical, 12)
         .background(Color.black)
     }
 }

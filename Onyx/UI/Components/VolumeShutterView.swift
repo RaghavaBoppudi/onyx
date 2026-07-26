@@ -59,11 +59,15 @@ struct VolumeShutterView: UIViewRepresentable {
         }
         
         @objc private func suspendAudio() {
-            try? audioSession.setActive(false)
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? self.audioSession.setActive(false)
+            }
         }
         
         @objc private func resumeAudio() {
-            try? audioSession.setActive(true)
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? self.audioSession.setActive(true)
+            }
         }
         
         deinit {

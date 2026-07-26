@@ -13,8 +13,8 @@ struct LensSelectorView: View {
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     
     var body: some View {
-        let buttonWidth: CGFloat = 64
-        let buttonHeight: CGFloat = 48
+        let buttonWidth: CGFloat = 52
+        let buttonHeight: CGFloat = 36
         let itemSpacing: CGFloat = 8
         let stride = buttonWidth + itemSpacing
         let totalCount = availableLenses.count
@@ -26,29 +26,28 @@ struct LensSelectorView: View {
                 ForEach(0..<totalCount, id: \.self) { index in
                     let lens = availableLenses[index]
                     Text(lens.label)
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundColor(currentIndex == index ? .white : .white.opacity(0.5))
                         .frame(width: buttonWidth, height: buttonHeight)
                         .contentShape(Rectangle())
                         .rotationEffect(iconOrientation)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
             .background(
                 Capsule()
-                    .fill(Color.clear)
+                    .fill(Color.black.opacity(0.4))
                     .liquidGlass(isBordered: false)
             )
             .scaleEffect(isInteracting ? 0.96 : 1.0)
             
             Capsule()
-                .fill(Color.clear)
+                .fill(Color.black.opacity(0.4))
                 .liquidGlass(isBordered: true)
-                .frame(width: buttonWidth + 16, height: buttonHeight + 16)
+                .frame(width: buttonWidth + 12, height: buttonHeight + 12)
                 .offset(x: baseOffset + dragOffset)
-                .scaleEffect(isInteracting ? 1.08 : 1.0)
-                .shadow(color: .black.opacity(isInteracting ? 0.3 : 0.15), radius: 8, x: 0, y: 4)
+                .scaleEffect(x: 1.0, y: isInteracting ? 1.2 : 1.0)
                 .allowsHitTesting(false)
         }
         .fixedSize()

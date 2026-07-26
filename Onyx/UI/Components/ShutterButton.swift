@@ -19,28 +19,27 @@ private struct ShutterButtonStyle: ButtonStyle {
         static let baseSize: CGFloat = 104
         static let midSize: CGFloat = 80
         static let topSize: CGFloat = 56
-        
-        static let baseScale: CGFloat = 0.90
-        static let midScale: CGFloat = 0.80
-        static let topScale: CGFloat = 0.70
     }
     
     func makeBody(configuration: Configuration) -> some View {
         ZStack {
-            LayerCircle(gradient: [Color(red: 0.5, green: 0.1, blue: 0.0), Color(red: 0.6, green: 0.2, blue: 0.0)])
+            Circle()
+                .fill(Theme.accent.opacity(0.4))
                 .frame(width: Metrics.baseSize, height: Metrics.baseSize)
-                .scaleEffect(configuration.isPressed ? Metrics.baseScale : 1.0)
-                .animation(.spring(response: 0.35, dampingFraction: 0.5), value: configuration.isPressed)
+                .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
+                .animation(.spring(response: 0.40, dampingFraction: 0.6), value: configuration.isPressed)
             
-            LayerCircle(gradient: [Color(red: 0.8, green: 0.15, blue: 0.05), Color(red: 0.9, green: 0.45, blue: 0.0)])
+            Circle()
+                .fill(Theme.accent.opacity(0.7))
                 .frame(width: Metrics.midSize, height: Metrics.midSize)
-                .scaleEffect(configuration.isPressed ? Metrics.midScale : 1.0)
-                .animation(.spring(response: 0.22, dampingFraction: 0.55), value: configuration.isPressed)
+                .scaleEffect(configuration.isPressed ? 0.80 : 1.0)
+                .animation(.spring(response: 0.28, dampingFraction: 0.65), value: configuration.isPressed)
             
-            LayerCircle(gradient: [Color(red: 1.0, green: 0.2, blue: 0.13), Color(red: 1.0, green: 0.6, blue: 0.0)])
+            Circle()
+                .fill(Theme.accent)
                 .frame(width: Metrics.topSize, height: Metrics.topSize)
-                .scaleEffect(configuration.isPressed ? Metrics.topScale : 1.0)
-                .animation(.spring(response: 0.12, dampingFraction: 0.6), value: configuration.isPressed)
+                .scaleEffect(configuration.isPressed ? 0.70 : 1.0)
+                .animation(.spring(response: 0.15, dampingFraction: 0.7), value: configuration.isPressed)
         }
         .frame(width: Metrics.baseSize, height: Metrics.baseSize)
         .contentShape(Circle())
@@ -48,26 +47,8 @@ private struct ShutterButtonStyle: ButtonStyle {
             if isPressed {
                 hapticGenerator.prepare()
                 hapticGenerator.impactOccurred()
-                Task { @MainActor in
-                    action()
-                }
+                Task { @MainActor in action() }
             }
         }
-    }
-}
-
-private struct LayerCircle: View {
-    let gradient: [Color]
-    
-    var body: some View {
-        Circle()
-            .fill(
-                LinearGradient(
-                    gradient: Gradient(colors: gradient),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .shadow(color: .black.opacity(0.6), radius: 3, x: 0, y: 1)
     }
 }

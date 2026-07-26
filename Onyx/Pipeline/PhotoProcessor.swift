@@ -23,40 +23,46 @@ struct PhotoProcessor: Sendable {
         return album
     }
     
-    static func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, isZeroProcessed: Bool) async {
+    static func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, isTelephoto: Bool, iso: Float) async {
         var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        if status == .notDetermined {
-            status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-        }
-        
+        if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
         guard status == .authorized || status == .limited else { return }
 
         Task.detached(priority: .userInitiated) {
-            guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
+            let dataToSave: Data
             
-            rawFilter.luminanceNoiseReductionAmount = 0.0
-            rawFilter.colorNoiseReductionAmount = 0.0
-            rawFilter.sharpnessAmount = 0.15
-            rawFilter.extendedDynamicRangeAmount = 0.0
-            rawFilter.localToneMapAmount = 0.0
-            rawFilter.boostAmount = 0.0
-            
-            guard let baseImage = rawFilter.outputImage else { return }
-            let finalImage = OnyxFilterPipeline.apply(to: baseImage, isZeroProcessed: isZeroProcessed)
-            
-            guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-                  let finalData = context.jpegRepresentation(
-                      of: finalImage,
-                      colorSpace: colorSpace,
-                      options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
-                  ) else { return }
+            if mode == .auto {
+                dataToSave = photoData
+            } else {
+                guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
+                
+                rawFilter.luminanceNoiseReductionAmount = 0.0
+                rawFilter.colorNoiseReductionAmount = 0.0
+                rawFilter.sharpnessAmount = 0.1
+                rawFilter.extendedDynamicRangeAmount = 0.0
+                rawFilter.localToneMapAmount = 0.0
+                rawFilter.boostAmount = 0.0
+                
+                guard let baseImage = rawFilter.outputImage else { return }
+                
+                let finalImage = OnyxFilterPipeline.apply(to: baseImage, mode: mode, isTelephoto: isTelephoto, iso: iso)
+                
+                guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                      let renderedData = context.heifRepresentation(
+                          of: finalImage,
+                          format: .RGBA8,
+                          colorSpace: colorSpace,
+                          options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
+                      ) else { return }
+                
+                dataToSave = renderedData
+            }
             
             do {
                 let album = try await getOrCreateOnyxAlbum()
                 try await PHPhotoLibrary.shared().performChanges {
                     let assetRequest = PHAssetCreationRequest.forAsset()
-                    
-                    assetRequest.addResource(with: .photo, data: finalData, options: nil)
+                    assetRequest.addResource(with: .photo, data: dataToSave, options: nil)
                     if let location = location { assetRequest.location = location }
                     
                     guard let assetPlaceholder = assetRequest.placeholderForCreatedAsset else { return }

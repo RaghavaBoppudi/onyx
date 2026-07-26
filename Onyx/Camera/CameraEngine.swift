@@ -16,11 +16,14 @@ actor CameraEngine {
     
     var availableLenses: [Lens] = []
     var currentLens: Lens?
-    var useZeroProcessing: Bool = true
+    var currentMode: ProcessingMode = .zero
+    
+    var exposureCompensation: Float = -0.3
     
     private var deviceInput: AVCaptureDeviceInput?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
+    private var notificationTask: Task<Void, Never>?
 
     func setFrameReceiver(_ receiver: FrameReceiver?) {
         captureDelegate.frameReceiver = receiver
@@ -34,19 +37,71 @@ actor CameraEngine {
         captureDelegate.onQRCodeScanned = callback
     }
     
-    func setProcessingPipeline(isZeroProcessed: Bool) {
-        self.useZeroProcessing = isZeroProcessed
-        captureDelegate.isCapturingZeroProcessed = isZeroProcessed
-        
+    func setProcessingPipeline(mode: ProcessingMode) {
+        self.currentMode = mode
+        captureDelegate.processingMode = mode
+        self.exposureCompensation = (mode == .auto) ? 0.0 : -0.3
+        applyCurrentExposureBias()
+    }
+    
+    func setExposureBias(_ bias: Float) {
+        self.exposureCompensation = bias
+        applyCurrentExposureBias()
+    }
+    
+    private func applyCurrentExposureBias() {
         guard let device = deviceInput?.device else { return }
-        
         do {
             try device.lockForConfiguration()
-            let targetBias: Float = isZeroProcessed ? -0.5 : 0.0
-            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias)), completionHandler: nil)
+            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, exposureCompensation)), completionHandler: nil)
             device.unlockForConfiguration()
         } catch {
             print("Failed to lock device for exposure bias update.")
+        }
+    }
+    
+    func setFocus(point: CGPoint) {
+        guard let device = deviceInput?.device else { return }
+        do {
+            try device.lockForConfiguration()
+            if device.isFocusPointOfInterestSupported && device.isFocusModeSupported(.autoFocus) {
+                device.focusPointOfInterest = point
+                device.focusMode = .autoFocus
+            }
+            if device.isExposurePointOfInterestSupported && device.isExposureModeSupported(.autoExpose) {
+                device.exposurePointOfInterest = point
+                device.exposureMode = .autoExpose
+            }
+            if device.isWhiteBalanceModeSupported(.locked) {
+                device.whiteBalanceMode = .locked
+            }
+            device.isSubjectAreaChangeMonitoringEnabled = true
+            device.unlockForConfiguration()
+        } catch {
+            print("Failed to lock device for focus update.")
+        }
+    }
+    
+    private func resetFocusToContinuous() {
+        guard let device = deviceInput?.device else { return }
+        do {
+            try device.lockForConfiguration()
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+            }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+            }
+            device.isSubjectAreaChangeMonitoringEnabled = true
+            device.unlockForConfiguration()
+        } catch {
+            print("Failed to lock device for continuous focus reset.")
         }
     }
     
@@ -73,6 +128,12 @@ actor CameraEngine {
         
         availableLenses = CameraHardware.availableLenses(for: .back)
         currentLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera }) ?? availableLenses.first
+        captureDelegate.isTelephoto = (currentLens?.type == .builtInTelephotoCamera)
+        
+        let engineRef = self
+        captureDelegate.onBiasChange = { newBias in
+            Task { await engineRef.setExposureBias(newBias) }
+        }
         
         session.beginConfiguration()
         session.sessionPreset = .photo
@@ -88,16 +149,24 @@ actor CameraEngine {
             updatePhotoOutputDimensions(for: device)
         }
         
+        notificationTask?.cancel()
+        notificationTask = Task {
+            for await _ in NotificationCenter.default.notifications(named: .AVCaptureDeviceSubjectAreaDidChange) {
+                resetFocusToContinuous()
+            }
+        }
+        
         Task.detached { [session] in
             session?.startRunning()
         }
         
         isConfigured = true
-        
         return true
     }
     
     func stop() {
+        notificationTask?.cancel()
+        notificationTask = nil
         Task.detached { [session] in
             if let s = session, s.isRunning { s.stopRunning() }
         }
@@ -118,32 +187,21 @@ actor CameraEngine {
     private func configureVideoOutput() {
         videoOutput.setSampleBufferDelegate(captureDelegate, queue: DispatchQueue(label: "com.onyx.videoQueue", qos: .userInteractive))
         videoOutput.alwaysDiscardsLateVideoFrames = true
-        
-        if session.canAddOutput(videoOutput) {
-            session.addOutput(videoOutput)
-        }
+        if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
         
         guard let device = deviceInput?.device else { return }
-        
         if let connection = videoOutput.connection(with: .video) {
             let portraitAngle: CGFloat = (device.position == .front) ? 0.0 : 90.0
-            if connection.isVideoRotationAngleSupported(portraitAngle) {
-                connection.videoRotationAngle = portraitAngle
-            }
-            if connection.isVideoMirroringSupported {
-                connection.isVideoMirrored = (device.position == .front)
-            }
+            if connection.isVideoRotationAngleSupported(portraitAngle) { connection.videoRotationAngle = portraitAngle }
+            if connection.isVideoMirroringSupported { connection.isVideoMirrored = (device.position == .front) }
         }
-        
         rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
     }
     
     private func configurePhotoOutput() {
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
-            if photoOutput.isAppleProRAWSupported {
-                photoOutput.isAppleProRAWEnabled = true
-            }
+            if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = true }
         }
     }
     
@@ -166,6 +224,7 @@ actor CameraEngine {
     
     func selectLens(_ lens: Lens) {
         currentLens = lens
+        captureDelegate.isTelephoto = (lens.type == .builtInTelephotoCamera)
         guard let newDevice = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
               let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
               
@@ -178,60 +237,35 @@ actor CameraEngine {
         
         if let connection = videoOutput.connection(with: .video) {
             let portraitAngle: CGFloat = (newDevice.position == .front) ? 0.0 : 90.0
-            if connection.isVideoRotationAngleSupported(portraitAngle) {
-                connection.videoRotationAngle = portraitAngle
-            }
-            if connection.isVideoMirroringSupported {
-                connection.isVideoMirrored = (newDevice.position == .front)
-            }
+            if connection.isVideoRotationAngleSupported(portraitAngle) { connection.videoRotationAngle = portraitAngle }
+            if connection.isVideoMirroringSupported { connection.isVideoMirrored = (newDevice.position == .front) }
         }
         
         rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil)
         applySettings(to: newDevice)
         session.commitConfiguration()
-        
         updatePhotoOutputDimensions(for: newDevice)
         
-        if photoOutput.isAppleProRAWSupported {
-            photoOutput.isAppleProRAWEnabled = true
-        } else {
-            photoOutput.isAppleProRAWEnabled = false
-        }
+        photoOutput.isAppleProRAWEnabled = photoOutput.isAppleProRAWSupported
     }
     
     private func applySettings(to device: AVCaptureDevice) {
         do {
             try device.lockForConfiguration()
+            if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+            if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
             
-            if device.isFocusPointOfInterestSupported {
-                device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
             }
             
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
-            } else if device.isFocusModeSupported(.autoFocus) {
-                device.focusMode = .autoFocus
-            }
-            
-            if device.isExposurePointOfInterestSupported {
-                device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
-            }
-            
-            if device.isExposureModeSupported(.continuousAutoExposure) {
-                device.exposureMode = .continuousAutoExposure
-            } else if device.isExposureModeSupported(.autoExpose) {
-                device.exposureMode = .autoExpose
-            }
-            
-            let targetBias: Float = useZeroProcessing ? -0.5 : 0.0
-            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, targetBias)), completionHandler: nil)
-            device.isSubjectAreaChangeMonitoringEnabled = false
+            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, exposureCompensation)), completionHandler: nil)
+            device.isSubjectAreaChangeMonitoringEnabled = true
             
             if device.position == .front {
                 device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
                 device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
             }
-            
             device.unlockForConfiguration()
         } catch {}
     }
@@ -243,41 +277,31 @@ actor CameraEngine {
         }
     }
     
-    func capturePhoto() {
-        if let photoConnection = photoOutput.connection(with: .video),
-           let coordinator = rotationCoordinator {
+    func capturePhoto(flashEnabled: Bool) {
+        if let photoConnection = photoOutput.connection(with: .video), let coordinator = rotationCoordinator {
             let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
-            if photoConnection.isVideoRotationAngleSupported(captureAngle) {
-                photoConnection.videoRotationAngle = captureAngle
-            }
+            if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
         }
         
-        let pixelFormat: OSType
+        let settings: AVCapturePhotoSettings
+        let isZero = (currentMode == .zero || currentMode == .mono)
         
-        if useZeroProcessing {
-            guard let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else {
-                print("Error: Bayer RAW is not available on this lens.")
-                return
-            }
-            pixelFormat = bayerFormat
+        if isZero {
+            guard let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else { return }
+            settings = AVCapturePhotoSettings(rawPixelFormatType: bayerFormat)
         } else {
-            if let proRawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) }) {
-                pixelFormat = proRawFormat
-            } else if let fallbackBayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) {
-                print("ProRAW unsupported on current lens. Falling back to Bayer RAW.")
-                pixelFormat = fallbackBayerFormat
+            if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
+                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
             } else {
-                print("Error: No RAW formats supported on this lens.")
-                return
+                settings = AVCapturePhotoSettings()
             }
         }
         
-        let settings = AVCapturePhotoSettings(rawPixelFormatType: pixelFormat)
         settings.isAutoRedEyeReductionEnabled = false
-        settings.flashMode = .off
+        settings.flashMode = flashEnabled ? .on : .off
         
         captureDelegate.currentLocation = locationProvider.currentLocation
-        captureDelegate.isCapturingZeroProcessed = useZeroProcessing
+        captureDelegate.processingMode = currentMode
         photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
     }
 }
@@ -287,7 +311,12 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _currentLocation = OSAllocatedUnfairLock(initialState: CLLocation?(nil))
     private let _onCapture = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
-    private let _isCapturingZeroProcessed = OSAllocatedUnfairLock(initialState: true)
+    private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.zero)
+    private let _isTelephoto = OSAllocatedUnfairLock(initialState: false)
+    
+    private let _currentAutoBias = OSAllocatedUnfairLock(initialState: Float(-0.3))
+    private let _lastAdjustmentTime = OSAllocatedUnfairLock(initialState: CMTime.zero)
+    private let _onBiasChange = OSAllocatedUnfairLock(initialState: (@Sendable (Float) -> Void)?(nil))
     
     var onCapture: (@Sendable () -> Void)? {
         get { _onCapture.withLock { $0 } }
@@ -309,26 +338,72 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         set { _currentLocation.withLock { $0 = newValue } }
     }
     
-    var isCapturingZeroProcessed: Bool {
-        get { _isCapturingZeroProcessed.withLock { $0 } }
-        set { _isCapturingZeroProcessed.withLock { $0 = newValue } }
+    var processingMode: ProcessingMode {
+        get { _processingMode.withLock { $0 } }
+        set { _processingMode.withLock { $0 = newValue } }
+    }
+    
+    var isTelephoto: Bool {
+        get { _isTelephoto.withLock { $0 } }
+        set { _isTelephoto.withLock { $0 = newValue } }
+    }
+    
+    var onBiasChange: (@Sendable (Float) -> Void)? {
+        get { _onBiasChange.withLock { $0 } }
+        set { _onBiasChange.withLock { $0 = newValue } }
     }
     
     let ciContext = MTLCreateSystemDefaultDevice().map {
         CIContext(mtlDevice: $0, options: [.cacheIntermediates: false, .priorityRequestLow: false])
     } ?? CIContext(options: [.cacheIntermediates: false])
 
-    nonisolated override init() {
-        super.init()
-    }
+    nonisolated override init() { super.init() }
 
     nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         autoreleasepool {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-            let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
             
-            // Replaces the hardcoded `true` with dynamic delegate state reading
-            let finalImage = OnyxFilterPipeline.apply(to: rawImage, isZeroProcessed: self.isCapturingZeroProcessed)
+            let currentTimestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            
+            var currentISO: Float = 100
+            if let attachments = CMCopyDictionaryOfAttachments(allocator: nil, target: sampleBuffer, attachmentMode: kCMAttachmentMode_ShouldPropagate) as? [String: Any],
+               let exif = attachments["{Exif}"] as? [String: Any],
+               let isoArray = exif["ISOSpeedRatings"] as? [NSNumber],
+               let isoValue = isoArray.first {
+                currentISO = isoValue.floatValue
+            }
+            
+            let currentBias = _currentAutoBias.withLock { $0 }
+            let telephoto = _isTelephoto.withLock { $0 }
+            let mode = _processingMode.withLock { $0 }
+            let lastTime = _lastAdjustmentTime.withLock { $0 }
+            
+            if mode != .auto {
+                let highISOThreshold: Float = telephoto ? 650 : 1000
+                let lowISOThreshold: Float = telephoto ? 200 : 250
+                
+                let isCooldownFinished = lastTime == .zero || (currentTimestamp.seconds - lastTime.seconds) > 1.5
+                
+                if isCooldownFinished {
+                    if currentBias == -0.3 && currentISO > highISOThreshold {
+                        _currentAutoBias.withLock { $0 = 0.0 }
+                        _lastAdjustmentTime.withLock { $0 = currentTimestamp }
+                        onBiasChange?(0.0)
+                    } else if currentBias == 0.0 && currentISO < lowISOThreshold {
+                        _currentAutoBias.withLock { $0 = -0.3 }
+                        _lastAdjustmentTime.withLock { $0 = currentTimestamp }
+                        onBiasChange?(-0.3)
+                    }
+                }
+            } else {
+                if currentBias != 0.0 {
+                    _currentAutoBias.withLock { $0 = 0.0 }
+                    onBiasChange?(0.0)
+                }
+            }
+            
+            let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
+            let finalImage = OnyxFilterPipeline.apply(to: rawImage, mode: mode, isTelephoto: telephoto, iso: currentISO)
             frameReceiver?.receive(image: finalImage)
         }
     }
@@ -336,7 +411,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         guard let qrObject = metadataObjects.first(where: { $0.type == .qr }) as? AVMetadataMachineReadableCodeObject,
               let stringValue = qrObject.stringValue else { return }
-        
         onQRCodeScanned?(stringValue)
     }
     
@@ -346,10 +420,19 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard error == nil, let photoData = photo.fileDataRepresentation() else { return }
+        
+        var capturedISO: Float = 100
+        if let exif = photo.metadata["{Exif}"] as? [String: Any],
+           let isoArray = exif["ISOSpeedRatings"] as? [NSNumber],
+           let isoValue = isoArray.first {
+            capturedISO = isoValue.floatValue
+        }
+        
         let context = self.ciContext
         let location = self.currentLocation
-        let zeroProcessed = self.isCapturingZeroProcessed
+        let mode = self.processingMode
+        let telephoto = self.isTelephoto
         
-        Task { await PhotoProcessor.processAndSave(photoData: photoData, location: location, context: context, isZeroProcessed: zeroProcessed) }
+        Task { await PhotoProcessor.processAndSave(photoData: photoData, location: location, context: context, mode: mode, isTelephoto: telephoto, iso: capturedISO) }
     }
 }

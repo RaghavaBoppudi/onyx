@@ -1,3 +1,4 @@
+// ViewfinderView.swift
 import SwiftUI
 
 struct ViewfinderView: View {
@@ -11,16 +12,30 @@ struct ViewfinderView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             MetalPreview(viewModel: viewModel, isActive: isActive)
-                .blur(radius: viewModel.isSwitchingLens ? 30 : 0)
-                .animation(.easeInOut(duration: 0.15), value: viewModel.isSwitchingLens)
+                .contentShape(Rectangle())
+                .onTapGesture { location in
+                    if viewModel.isSettingsOpen {
+                        withAnimation { viewModel.isSettingsOpen = false }
+                    } else {
+                        let normalizedX = location.y / geometry.size.height
+                        let normalizedY = 1.0 - (location.x / geometry.size.width)
+                        let normalized = CGPoint(x: normalizedX, y: normalizedY)
+                        viewModel.focus(at: location, normalized: normalized)
+                    }
+                }
             
-            Color.black.opacity(viewModel.isFlashing ? 1.0 : 0)
-                .animation(.easeInOut(duration: 0.1), value: viewModel.isFlashing)
+            if let focusPoint = viewModel.focusPointUI {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 6, height: 6)
+                    .position(focusPoint)
+                    .animation(.easeOut(duration: 0.2), value: focusPoint)
+            }
             
             if let url = viewModel.scannedURL {
                 qrPill(for: url)
                     .padding(.bottom, 80)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    .transition(.scale(scale: 0.9))
                     .zIndex(1)
             }
         }
@@ -43,9 +58,9 @@ struct ViewfinderView: View {
             .foregroundColor(.black)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Color.white.opacity(0.85))
+            .background(Color.white)
             .clipShape(Capsule())
-            .shadow(color: .black.opacity(0.3), radius: 5, x: 0, y: 2)
+            .shadow(color: Color(white: 0.0, opacity: 0.3), radius: 5, x: 0, y: 2)
             .rotationEffect(iconOrientation)
         }
     }

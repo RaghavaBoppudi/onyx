@@ -34,6 +34,10 @@ struct MetalPreview: UIViewRepresentable {
         private var commandQueue: MTLCommandQueue?
         private let defaultColorSpace = CGColorSpaceCreateDeviceRGB()
         
+        var currentImage: CIImage? {
+            currentImageLock.withLock { $0 }
+        }
+        
         func configure(with device: MTLDevice) {
             self.context = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
             self.commandQueue = device.makeCommandQueue()

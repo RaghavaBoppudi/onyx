@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import Combine
+import CoreImage
 
 @MainActor
 final class CameraViewModel: ObservableObject {
@@ -12,24 +13,30 @@ final class CameraViewModel: ObservableObject {
     @Published var isFlashing = false
     @Published var scannedURL: URL?
     
-    // UI State defaults to Zero processing
-    @Published var useZeroProcessing: Bool = true
+    @Published var processingMode: ProcessingMode = .zero {
+        didSet { setProcessingPipeline(mode: processingMode) }
+    }
+    @Published var isFlashOn: Bool = false
+    @Published var isSettingsOpen: Bool = false
+    @Published var focusPointUI: CGPoint?
     @Published var iconOrientation: Angle = .zero
+    
+    @Published var cameraSnapshot: CGImage? = nil
+    @Published var flipDegrees: Double = 0.0
+    @Published var isFlipping: Bool = false
     
     private let engine = CameraEngine()
     private var qrClearTask: Task<Void, Never>?
+    private var focusTimer: Timer?
+    private var frameReceiver: FrameReceiver?
     
     func setFrameReceiver(_ receiver: FrameReceiver) async {
+        self.frameReceiver = receiver
         await engine.setFrameReceiver(receiver)
     }
     
     func start() async {
-        // Sync the engine's state with the ViewModel's default on launch
-        await engine.setProcessingPipeline(isZeroProcessed: self.useZeroProcessing)
-        
-        await engine.setOnCapture { @Sendable [weak self] in
-            Task { @MainActor [weak self] in self?.triggerFlash() }
-        }
+        await engine.setProcessingPipeline(mode: self.processingMode)
         
         await engine.setOnQRCodeScanned { @Sendable [weak self] stringValue in
             Task { @MainActor [weak self] in self?.processQRCode(stringValue) }
@@ -66,7 +73,14 @@ final class CameraViewModel: ObservableObject {
     }
     
     func toggleCameraPosition() {
+        guard !isFlipping, let currentCIImage = frameReceiver?.currentImage else { return }
+        
+        let context = CIContext(options: [.cacheIntermediates: false])
+        cameraSnapshot = context.createCGImage(currentCIImage, from: currentCIImage.extent)
+        isFlipping = true
+        flipDegrees = 0.0
         isSwitchingLens = true
+        
         cameraPosition = cameraPosition == .back ? .front : .back
         
         Task {
@@ -74,7 +88,14 @@ final class CameraViewModel: ObservableObject {
                 currentLens = newLens
                 availableLenses = await engine.availableLenses
             }
-            isSwitchingLens = false
+            
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            await MainActor.run {
+                cameraSnapshot = nil
+                isFlipping = false
+                flipDegrees = 0.0
+                isSwitchingLens = false
+            }
         }
     }
     
@@ -92,9 +113,12 @@ final class CameraViewModel: ObservableObject {
     func capturePhoto() {
         guard !isCapturing else { return }
         isCapturing = true
+        let flash = isFlashOn
+        
+        triggerFlash()
         
         Task.detached(priority: .userInitiated) { [engine] in
-            await engine.capturePhoto()
+            await engine.capturePhoto(flashEnabled: flash)
         }
         
         Task {
@@ -103,13 +127,20 @@ final class CameraViewModel: ObservableObject {
         }
     }
     
-    func setProcessingPipeline(isZeroProcessed: Bool) {
+    func setProcessingPipeline(mode: ProcessingMode) {
         Task {
-            await engine.setProcessingPipeline(isZeroProcessed: isZeroProcessed)
+            await engine.setProcessingPipeline(mode: mode)
         }
     }
     
-    func togglePipeline() {
-        setProcessingPipeline(isZeroProcessed: useZeroProcessing)
+    func focus(at uiPoint: CGPoint, normalized: CGPoint) {
+        focusPointUI = uiPoint
+        
+        Task { await engine.setFocus(point: normalized) }
+        
+        focusTimer?.invalidate()
+        focusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            self?.focusPointUI = nil
+        }
     }
 }
