@@ -128,7 +128,7 @@ actor CameraEngine {
         
         availableLenses = CameraHardware.availableLenses(for: .back)
         currentLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera }) ?? availableLenses.first
-        captureDelegate.isTelephoto = (currentLens?.type == .builtInTelephotoCamera)
+        captureDelegate.activeDeviceType = currentLens?.type ?? .builtInWideAngleCamera
         
         let engineRef = self
         captureDelegate.onBiasChange = { newBias in
@@ -224,7 +224,7 @@ actor CameraEngine {
     
     func selectLens(_ lens: Lens) {
         currentLens = lens
-        captureDelegate.isTelephoto = (lens.type == .builtInTelephotoCamera)
+        captureDelegate.activeDeviceType = lens.type
         guard let newDevice = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
               let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
               
@@ -312,7 +312,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _onCapture = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
     private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.zero)
-    private let _isTelephoto = OSAllocatedUnfairLock(initialState: false)
+    private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
     
     private let _currentAutoBias = OSAllocatedUnfairLock(initialState: Float(-0.3))
     private let _lastAdjustmentTime = OSAllocatedUnfairLock(initialState: CMTime.zero)
@@ -343,9 +343,9 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         set { _processingMode.withLock { $0 = newValue } }
     }
     
-    var isTelephoto: Bool {
-        get { _isTelephoto.withLock { $0 } }
-        set { _isTelephoto.withLock { $0 = newValue } }
+    var activeDeviceType: AVCaptureDevice.DeviceType {
+        get { _activeDeviceType.withLock { $0 } }
+        set { _activeDeviceType.withLock { $0 = newValue } }
     }
     
     var onBiasChange: (@Sendable (Float) -> Void)? {
@@ -374,13 +374,14 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
             }
             
             let currentBias = _currentAutoBias.withLock { $0 }
-            let telephoto = _isTelephoto.withLock { $0 }
+            let deviceType = _activeDeviceType.withLock { $0 }
             let mode = _processingMode.withLock { $0 }
             let lastTime = _lastAdjustmentTime.withLock { $0 }
             
             if mode != .auto {
-                let highISOThreshold: Float = telephoto ? 650 : 1000
-                let lowISOThreshold: Float = telephoto ? 200 : 250
+                let isSecondarySensor = (deviceType == .builtInTelephotoCamera || deviceType == .builtInUltraWideCamera)
+                let highISOThreshold: Float = isSecondarySensor ? 650 : 1000
+                let lowISOThreshold: Float = isSecondarySensor ? 200 : 250
                 
                 let isCooldownFinished = lastTime == .zero || (currentTimestamp.seconds - lastTime.seconds) > 1.5
                 
@@ -403,7 +404,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
             }
             
             let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
-            let finalImage = OnyxFilterPipeline.apply(to: rawImage, mode: mode, isTelephoto: telephoto, iso: currentISO)
+            let finalImage = OnyxFilterPipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: currentISO)
             frameReceiver?.receive(image: finalImage)
         }
     }
@@ -431,8 +432,8 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         let context = self.ciContext
         let location = self.currentLocation
         let mode = self.processingMode
-        let telephoto = self.isTelephoto
+        let deviceType = self.activeDeviceType
         
-        Task { await PhotoProcessor.processAndSave(photoData: photoData, location: location, context: context, mode: mode, isTelephoto: telephoto, iso: capturedISO) }
+        Task { await PhotoProcessor.processAndSave(photoData: photoData, location: location, context: context, mode: mode, deviceType: deviceType, iso: capturedISO) }
     }
 }

@@ -1,6 +1,7 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import Foundation
+import AVFoundation
 
 struct OnyxFilterPipeline: Sendable {
     
@@ -45,7 +46,7 @@ struct OnyxFilterPipeline: Sendable {
         return LUTData(data: data, dimension: Float(dimension))
     }()
 
-    nonisolated static func apply(to image: CIImage, mode: ProcessingMode, isTelephoto: Bool = false, iso: Float = 100) -> CIImage {
+    nonisolated static func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
         guard mode != .auto else { return image }
         
         var processingImage = image
@@ -77,7 +78,21 @@ struct OnyxFilterPipeline: Sendable {
         let isLowLight = iso > 400
         
         if mode == .zero || mode == .mono {
-            if isTelephoto {
+            if deviceType == .builtInUltraWideCamera {
+                if isLowLight {
+                    curveFilter.point0 = CGPoint(x: 0.0, y: 0.08)
+                    curveFilter.point1 = CGPoint(x: 0.25, y: 0.32)
+                    curveFilter.point2 = CGPoint(x: 0.50, y: 0.58)
+                    curveFilter.point3 = CGPoint(x: 0.75, y: 0.88)
+                    curveFilter.point4 = CGPoint(x: 0.95, y: 1.0)
+                } else {
+                    curveFilter.point0 = CGPoint(x: 0.0, y: 0.02)
+                    curveFilter.point1 = CGPoint(x: 0.22, y: 0.20)
+                    curveFilter.point2 = CGPoint(x: 0.50, y: 0.52)
+                    curveFilter.point3 = CGPoint(x: 0.75, y: 0.88)
+                    curveFilter.point4 = CGPoint(x: 0.96, y: 1.0)
+                }
+            } else if deviceType == .builtInTelephotoCamera {
                 if isLowLight {
                     curveFilter.point0 = CGPoint(x: 0.0, y: 0.05)
                     curveFilter.point1 = CGPoint(x: 0.25, y: 0.30)

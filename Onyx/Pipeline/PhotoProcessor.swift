@@ -1,6 +1,7 @@
 import CoreImage
 import Photos
 import CoreLocation
+import AVFoundation
 
 struct PhotoProcessor: Sendable {
     private static func getOrCreateOnyxAlbum() async throws -> PHAssetCollection {
@@ -23,7 +24,7 @@ struct PhotoProcessor: Sendable {
         return album
     }
     
-    static func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, isTelephoto: Bool, iso: Float) async {
+    static func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType, iso: Float) async {
         var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
         guard status == .authorized || status == .limited else { return }
@@ -45,7 +46,7 @@ struct PhotoProcessor: Sendable {
                 
                 guard let baseImage = rawFilter.outputImage else { return }
                 
-                let finalImage = OnyxFilterPipeline.apply(to: baseImage, mode: mode, isTelephoto: isTelephoto, iso: iso)
+                let finalImage = OnyxFilterPipeline.apply(to: baseImage, mode: mode, deviceType: deviceType, iso: iso)
                 
                 guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
                       let renderedData = context.heifRepresentation(
