@@ -12,39 +12,56 @@ struct MetalPreview: UIViewRepresentable {
         let mtkView = MTKView(frame: .zero, device: device)
         mtkView.framebufferOnly = false
         mtkView.delegate = context.coordinator
-        mtkView.isPaused = !isActive
-        mtkView.enableSetNeedsDisplay = false
-        mtkView.preferredFramesPerSecond = 60
+        
+        // Switch to manual, demand-based rendering
+        mtkView.enableSetNeedsDisplay = true
+        mtkView.isPaused = true
         mtkView.backgroundColor = .black
         
-        context.coordinator.configure(with: device)
+        context.coordinator.configure(with: device, view: mtkView)
         Task { await viewModel.setFrameReceiver(context.coordinator) }
         return mtkView
     }
     
     func updateUIView(_ uiView: MTKView, context: Context) {
-        uiView.isPaused = !isActive
+        context.coordinator.isActive = isActive
     }
     
     func makeCoordinator() -> Coordinator { Coordinator() }
     
     class Coordinator: NSObject, MTKViewDelegate, FrameReceiver, @unchecked Sendable {
         private let currentImageLock = OSAllocatedUnfairLock(initialState: CIImage?(nil))
+        private let _isActive = OSAllocatedUnfairLock(initialState: true)
+        
         private var context: CIContext?
         private var commandQueue: MTLCommandQueue?
         private let defaultColorSpace = CGColorSpaceCreateDeviceRGB()
+        
+        weak var mtkView: MTKView?
+        
+        var isActive: Bool {
+            get { _isActive.withLock { $0 } }
+            set { _isActive.withLock { $0 = newValue } }
+        }
         
         var currentImage: CIImage? {
             currentImageLock.withLock { $0 }
         }
         
-        func configure(with device: MTLDevice) {
+        func configure(with device: MTLDevice, view: MTKView) {
             self.context = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
             self.commandQueue = device.makeCommandQueue()
+            self.mtkView = view
         }
         
         nonisolated func receive(image: CIImage?) {
+            guard _isActive.withLock({ $0 }) else { return }
             currentImageLock.withLock { $0 = image }
+            
+            // Explicitly request a redraw only when a new frame is received
+            DispatchQueue.main.async { [weak self] in
+                self?.mtkView?.setNeedsDisplay()
+            }
         }
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}

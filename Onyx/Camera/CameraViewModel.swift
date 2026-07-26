@@ -29,6 +29,25 @@ final class CameraViewModel: ObservableObject {
     private var qrClearTask: Task<Void, Never>?
     private var focusTimer: Timer?
     private var frameReceiver: FrameReceiver?
+    private var cancellables = Set<AnyCancellable>()
+    
+    init() {
+        setupLifecycleObservers()
+    }
+    
+    private func setupLifecycleObservers() {
+        NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in
+                Task { await self?.stop() }
+            }
+            .store(in: &cancellables)
+            
+        NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in
+                Task { await self?.start() }
+            }
+            .store(in: &cancellables)
+    }
     
     func setFrameReceiver(_ receiver: FrameReceiver) async {
         self.frameReceiver = receiver
@@ -40,6 +59,10 @@ final class CameraViewModel: ObservableObject {
         
         await engine.setOnQRCodeScanned { @Sendable [weak self] stringValue in
             Task { @MainActor [weak self] in self?.processQRCode(stringValue) }
+        }
+        
+        await engine.setOnCaptureComplete { @Sendable [weak self] in
+            Task { @MainActor [weak self] in self?.isCapturing = false }
         }
         
         if await engine.start() {
@@ -119,11 +142,6 @@ final class CameraViewModel: ObservableObject {
         
         Task.detached(priority: .userInitiated) { [engine] in
             await engine.capturePhoto(flashEnabled: flash)
-        }
-        
-        Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            isCapturing = false
         }
     }
     

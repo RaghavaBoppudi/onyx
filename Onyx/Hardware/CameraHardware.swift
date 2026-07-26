@@ -1,7 +1,7 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 
 struct CameraHardware: Sendable {
-    static func availableLenses(for position: AVCaptureDevice.Position) -> [Lens] {
+    nonisolated static func availableLenses(for position: AVCaptureDevice.Position) -> [Lens] {
         let discoverySession = AVCaptureDevice.DiscoverySession(
             deviceTypes: [
                 .builtInUltraWideCamera,
@@ -33,34 +33,33 @@ struct CameraHardware: Sendable {
                 ))
                 
             case .builtInTelephotoCamera:
-                            let fov = device.activeFormat.videoFieldOfView
-                            let label: String
-                            let eqFocalLength: Float
-                            
-                            if fov < 22.0 {
-                                label = "5x"
-                                eqFocalLength = 120.0
-                            } else if fov < 28.0 {
-                                label = "4x"
-                                eqFocalLength = 100.0
-                            } else {
-                                label = "3x"
-                                eqFocalLength = 77.0
-                            }
-                            
-                            lenses.append(Lens(
-                                type: device.deviceType,
-                                position: position,
-                                label: label,
-                                equivalentFocalLength: eqFocalLength
-                            ))
+                let fov = device.activeFormat.videoFieldOfView
+                let label: String
+                let eqFocalLength: Float
+                
+                if fov < 22.0 {
+                    label = "5x"
+                    eqFocalLength = 120.0
+                } else if fov < 28.0 {
+                    label = "4x"
+                    eqFocalLength = 100.0
+                } else {
+                    label = "3x"
+                    eqFocalLength = 77.0
+                }
+                
+                lenses.append(Lens(
+                    type: device.deviceType,
+                    position: position,
+                    label: label,
+                    equivalentFocalLength: eqFocalLength
+                ))
                 
             default:
                 break
             }
         }
         
-        // Guarantees UI pills are always ordered from widest to tightest
         return lenses.sorted { $0.equivalentFocalLength < $1.equivalentFocalLength }
     }
 }

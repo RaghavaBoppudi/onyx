@@ -24,6 +24,7 @@ actor CameraEngine {
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
     private var notificationTask: Task<Void, Never>?
+    private var pressureObservation: NSKeyValueObservation?
 
     func setFrameReceiver(_ receiver: FrameReceiver?) {
         captureDelegate.frameReceiver = receiver
@@ -31,6 +32,10 @@ actor CameraEngine {
     
     func setOnCapture(_ callback: @escaping @Sendable () -> Void) {
         captureDelegate.onCapture = callback
+    }
+    
+    func setOnCaptureComplete(_ callback: @escaping @Sendable () -> Void) {
+        captureDelegate.onCaptureComplete = callback
     }
     
     func setOnQRCodeScanned(_ callback: @escaping @Sendable (String) -> Void) {
@@ -147,11 +152,12 @@ actor CameraEngine {
         
         if let device = deviceInput?.device {
             updatePhotoOutputDimensions(for: device)
+            observeSystemPressure(for: device)
         }
         
         notificationTask?.cancel()
         notificationTask = Task {
-            for await _ in NotificationCenter.default.notifications(named: .AVCaptureDeviceSubjectAreaDidChange) {
+            for await _ in NotificationCenter.default.notifications(named: AVCaptureDevice.subjectAreaDidChangeNotification) {
                 resetFocusToContinuous()
             }
         }
@@ -167,6 +173,8 @@ actor CameraEngine {
     func stop() {
         notificationTask?.cancel()
         notificationTask = nil
+        pressureObservation?.invalidate()
+        pressureObservation = nil
         Task.detached { [session] in
             if let s = session, s.isRunning { s.stopRunning() }
         }
@@ -245,8 +253,30 @@ actor CameraEngine {
         applySettings(to: newDevice)
         session.commitConfiguration()
         updatePhotoOutputDimensions(for: newDevice)
+        observeSystemPressure(for: newDevice)
         
         photoOutput.isAppleProRAWEnabled = photoOutput.isAppleProRAWSupported
+    }
+    
+    private func observeSystemPressure(for device: AVCaptureDevice) {
+        pressureObservation?.invalidate()
+        pressureObservation = device.observe(\.systemPressureState, options: [.new]) { device, _ in
+            let pressureLevel = device.systemPressureState.level
+            
+            do {
+                try device.lockForConfiguration()
+                if pressureLevel == .serious || pressureLevel == .critical {
+                    device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 20)
+                    device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 20)
+                } else if pressureLevel == .nominal || pressureLevel == .fair {
+                    device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                    device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+                }
+                device.unlockForConfiguration()
+            } catch {
+                print("Failed to lock device for thermal throttling.")
+            }
+        }
     }
     
     private func applySettings(to device: AVCaptureDevice) {
@@ -263,6 +293,9 @@ actor CameraEngine {
             device.isSubjectAreaChangeMonitoringEnabled = true
             
             if device.position == .front {
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+            } else {
                 device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
                 device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
             }
@@ -310,6 +343,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _frameReceiver = OSAllocatedUnfairLock(initialState: WeakReceiverBox(receiver: nil))
     private let _currentLocation = OSAllocatedUnfairLock(initialState: CLLocation?(nil))
     private let _onCapture = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
+    private let _onCaptureComplete = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
     private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.zero)
     private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
@@ -318,37 +352,44 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _lastAdjustmentTime = OSAllocatedUnfairLock(initialState: CMTime.zero)
     private let _onBiasChange = OSAllocatedUnfairLock(initialState: (@Sendable (Float) -> Void)?(nil))
     
-    var onCapture: (@Sendable () -> Void)? {
+    private let _lastScannedQR = OSAllocatedUnfairLock(initialState: (value: "", timestamp: Date.distantPast))
+    
+    nonisolated var onCapture: (@Sendable () -> Void)? {
         get { _onCapture.withLock { $0 } }
         set { _onCapture.withLock { $0 = newValue } }
     }
     
-    var onQRCodeScanned: (@Sendable (String) -> Void)? {
+    nonisolated var onCaptureComplete: (@Sendable () -> Void)? {
+        get { _onCaptureComplete.withLock { $0 } }
+        set { _onCaptureComplete.withLock { $0 = newValue } }
+    }
+    
+    nonisolated var onQRCodeScanned: (@Sendable (String) -> Void)? {
         get { _onQRCodeScanned.withLock { $0 } }
         set { _onQRCodeScanned.withLock { $0 = newValue } }
     }
     
-    var frameReceiver: FrameReceiver? {
+    nonisolated var frameReceiver: FrameReceiver? {
         get { _frameReceiver.withLock { $0.receiver } }
         set { _frameReceiver.withLock { $0.receiver = newValue } }
     }
     
-    var currentLocation: CLLocation? {
+    nonisolated var currentLocation: CLLocation? {
         get { _currentLocation.withLock { $0 } }
         set { _currentLocation.withLock { $0 = newValue } }
     }
     
-    var processingMode: ProcessingMode {
+    nonisolated var processingMode: ProcessingMode {
         get { _processingMode.withLock { $0 } }
         set { _processingMode.withLock { $0 = newValue } }
     }
     
-    var activeDeviceType: AVCaptureDevice.DeviceType {
+    nonisolated var activeDeviceType: AVCaptureDevice.DeviceType {
         get { _activeDeviceType.withLock { $0 } }
         set { _activeDeviceType.withLock { $0 = newValue } }
     }
     
-    var onBiasChange: (@Sendable (Float) -> Void)? {
+    nonisolated var onBiasChange: (@Sendable (Float) -> Void)? {
         get { _onBiasChange.withLock { $0 } }
         set { _onBiasChange.withLock { $0 = newValue } }
     }
@@ -412,7 +453,19 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         guard let qrObject = metadataObjects.first(where: { $0.type == .qr }) as? AVMetadataMachineReadableCodeObject,
               let stringValue = qrObject.stringValue else { return }
-        onQRCodeScanned?(stringValue)
+              
+        let now = Date()
+        let shouldProcess = _lastScannedQR.withLock { state -> Bool in
+            if state.value == stringValue && now.timeIntervalSince(state.timestamp) < 2.0 {
+                return false
+            }
+            state = (value: stringValue, timestamp: now)
+            return true
+        }
+        
+        if shouldProcess {
+            onQRCodeScanned?(stringValue)
+        }
     }
     
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
@@ -420,6 +473,8 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     }
     
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        defer { onCaptureComplete?() }
+        
         guard error == nil, let photoData = photo.fileDataRepresentation() else { return }
         
         var capturedISO: Float = 100

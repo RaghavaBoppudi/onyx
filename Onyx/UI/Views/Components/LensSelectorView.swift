@@ -27,7 +27,7 @@ struct LensSelectorView: View {
                     let lens = availableLenses[index]
                     Text(lens.label)
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(currentIndex == index ? .white : .white.opacity(0.5))
+                        .foregroundColor(currentIndex == index ? .white : .white.opacity(1.0))
                         .frame(width: buttonWidth, height: buttonHeight)
                         .contentShape(Rectangle())
                         .rotationEffect(iconOrientation)
