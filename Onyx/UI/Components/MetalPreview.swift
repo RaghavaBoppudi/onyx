@@ -13,7 +13,6 @@ struct MetalPreview: UIViewRepresentable {
         mtkView.framebufferOnly = false
         mtkView.delegate = context.coordinator
         
-        // Switch to manual, demand-based rendering
         mtkView.enableSetNeedsDisplay = true
         mtkView.isPaused = true
         mtkView.backgroundColor = .black
@@ -35,7 +34,9 @@ struct MetalPreview: UIViewRepresentable {
         
         private var context: CIContext?
         private var commandQueue: MTLCommandQueue?
-        private let defaultColorSpace = CGColorSpaceCreateDeviceRGB()
+        
+        // Precision fix: Target wide color gamut for modern hardware
+        private let defaultColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()
         
         weak var mtkView: MTKView?
         
@@ -58,7 +59,6 @@ struct MetalPreview: UIViewRepresentable {
             guard _isActive.withLock({ $0 }) else { return }
             currentImageLock.withLock { $0 = image }
             
-            // Explicitly request a redraw only when a new frame is received
             DispatchQueue.main.async { [weak self] in
                 self?.mtkView?.setNeedsDisplay()
             }

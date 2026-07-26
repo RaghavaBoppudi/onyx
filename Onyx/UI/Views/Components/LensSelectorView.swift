@@ -13,57 +13,54 @@ struct LensSelectorView: View {
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
     
     var body: some View {
-        let buttonWidth: CGFloat = 52
-        let buttonHeight: CGFloat = 36
-        let itemSpacing: CGFloat = 8
-        let stride = buttonWidth + itemSpacing
+        let stride = Theme.Layout.Lens.buttonWidth + Theme.Layout.Lens.itemSpacing
         let totalCount = availableLenses.count
         let currentIndex = availableLenses.firstIndex(where: { $0 == currentLens }) ?? 0
         let baseOffset = (CGFloat(currentIndex) - (CGFloat(totalCount - 1) / 2.0)) * stride
         
         ZStack {
-            HStack(spacing: itemSpacing) {
+            HStack(spacing: Theme.Layout.Lens.itemSpacing) {
                 ForEach(0..<totalCount, id: \.self) { index in
                     let lens = availableLenses[index]
                     Text(lens.label)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(currentIndex == index ? .white : .white.opacity(1.0))
-                        .frame(width: buttonWidth, height: buttonHeight)
+                        .font(.system(size: Theme.Typography.bodyBold, weight: .bold))
+                        .foregroundColor(currentIndex == index ? Theme.Color.text : Theme.Color.text.opacity(1.0))
+                        .frame(width: Theme.Layout.Lens.buttonWidth, height: Theme.Layout.Lens.buttonHeight)
                         .contentShape(Rectangle())
                         .rotationEffect(iconOrientation)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Theme.Layout.Lens.padding)
+            .padding(.vertical, Theme.Layout.Lens.padding)
             .background(
                 Capsule()
-                    .fill(Color.black.opacity(0.4))
+                    .fill(Theme.Color.glassBackground)
                     .liquidGlass(isBordered: false)
             )
             .scaleEffect(isInteracting ? 0.96 : 1.0)
             
             Capsule()
-                .fill(Color.black.opacity(0.4))
+                .fill(Theme.Color.glassBackground)
                 .liquidGlass(isBordered: true)
-                .frame(width: buttonWidth + 12, height: buttonHeight + 12)
+                .frame(width: Theme.Layout.Lens.buttonWidth + Theme.Layout.Lens.hitTestOversize, height: Theme.Layout.Lens.buttonHeight + Theme.Layout.Lens.hitTestOversize)
                 .offset(x: baseOffset + dragOffset)
                 .scaleEffect(x: 1.0, y: isInteracting ? 1.2 : 1.0)
                 .allowsHitTesting(false)
         }
         .fixedSize()
-        .animation(.spring(response: 0.3, dampingFraction: 0.65, blendDuration: 0.2), value: isDragging)
+        .animation(Theme.Physics.menuTransition, value: isDragging)
         .highPriorityGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
                     if !isInteracting {
                         hapticGenerator.prepare()
-                        withAnimation(.spring(response: 0.2, dampingFraction: 0.65)) {
+                        withAnimation(Theme.Physics.lensTap) {
                             isInteracting = true
                         }
                     }
                     
-                    if abs(value.translation.width) > 8 && !isDragging {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.65)) {
+                    if abs(value.translation.width) > Theme.Layout.Lens.dragThreshold && !isDragging {
+                        withAnimation(Theme.Physics.lensDragStart) {
                             isDragging = true
                         }
                     }
@@ -75,7 +72,7 @@ struct LensSelectorView: View {
                         let rawTranslation = value.translation.width
                         let clampedTranslation = max(minDrag, min(maxDrag, rawTranslation))
                         
-                        withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.8)) {
+                        withAnimation(Theme.Physics.lensDragActive) {
                             dragOffset = clampedTranslation
                         }
                     }
@@ -101,7 +98,7 @@ struct LensSelectorView: View {
                     let currentVisualPosition = baseOffset + dragOffset
                     dragOffset = currentVisualPosition - targetBaseOffset
                     
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                    withAnimation(Theme.Physics.lensDragEnd) {
                         dragOffset = 0
                         isDragging = false
                         isInteracting = false

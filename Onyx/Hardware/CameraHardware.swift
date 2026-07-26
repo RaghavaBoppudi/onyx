@@ -37,7 +37,7 @@ struct CameraHardware: Sendable {
                 let label: String
                 let eqFocalLength: Float
                 
-                if fov < 22.0 {
+                if fov < 18.0 {
                     label = "5x"
                     eqFocalLength = 120.0
                 } else if fov < 28.0 {

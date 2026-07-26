@@ -5,37 +5,36 @@ struct SettingsDropdownView: View {
     @Binding var isOpen: Bool
     
     var body: some View {
-        VStack(alignment: .center, spacing: 16) {
+        VStack(alignment: .center, spacing: Theme.Layout.paddingStandard) {
             HStack(spacing: 0) {
                 ForEach(ProcessingMode.allCases, id: \.self) { mode in
                     Button(action: {
                         selectedMode = mode
                     }) {
                         Text(mode.rawValue)
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: Theme.Typography.bodySmallBold, weight: .bold))
                             .frame(maxWidth: .infinity)
-                            .foregroundColor(selectedMode == mode ? Theme.background : Theme.text)
-                            .padding(.vertical, 8)
+                            .foregroundColor(selectedMode == mode ? Theme.Color.background : Theme.Color.text)
+                            .padding(.vertical, Theme.Layout.paddingSmall)
                             .background(
                                 Capsule()
-                                    .fill(selectedMode == mode ? Theme.accent : Color.clear)
+                                    .fill(selectedMode == mode ? Theme.Color.accent : SwiftUI.Color.clear)
                             )
                     }
                 }
             }
             
             Text(selectedMode.description)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(Theme.text)
+                .font(.system(size: Theme.Typography.bodySemibold, weight: .semibold))
+                .foregroundColor(Theme.Color.text)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, minHeight: 40, alignment: .top)
         }
-        .padding(24)
+        .padding(Theme.Layout.paddingStandard)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.black.opacity(0.4))
-                .liquidGlass(shape: RoundedRectangle(cornerRadius: 24, style: .continuous), isBordered: true)
+            RoundedRectangle(cornerRadius: Theme.Layout.cornerRadius, style: .continuous)
+                .fill(Theme.Color.glassBackground)
+                .liquidGlass(shape: RoundedRectangle(cornerRadius: Theme.Layout.cornerRadius, style: .continuous), isBordered: true)
         )
-        .padding(.horizontal, 16)
     }
 }

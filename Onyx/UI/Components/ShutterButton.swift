@@ -5,7 +5,7 @@ struct ShutterButton: View {
     
     var body: some View {
         Button(action: {}) {
-            Color.clear
+            SwiftUI.Color.clear
         }
         .buttonStyle(ShutterButtonStyle(action: action))
     }
@@ -15,66 +15,45 @@ private struct ShutterButtonStyle: ButtonStyle {
     let action: () -> Void
     let hapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
-    private enum Metrics {
-        static let baseSize: CGFloat = 104
-        static let midSize: CGFloat = 80
-        static let topSize: CGFloat = 56
-    }
-    
-    // A single unified gradient that spans the entire component organically
-    private var globalAssetGradient: LinearGradient {
-        LinearGradient(
-            stops: [
-                .init(color: Color(red: 1.0, green: 0.22, blue: 0.22), location: 0.0),
-                .init(color: Color(red: 0.95, green: 0.42, blue: 0.08), location: 0.4),
-                .init(color: Color(red: 0.45, green: 0.22, blue: 0.02), location: 0.75),
-                .init(color: Color(red: 0.08, green: 0.05, blue: 0.03), location: 1.0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-    
     func makeBody(configuration: Configuration) -> some View {
         ZStack {
-            // Base Tier (Outermost)
+            // Base Tier
             Circle()
-                .fill(globalAssetGradient)
-                .frame(width: Metrics.baseSize, height: Metrics.baseSize)
+                .fill(Theme.Color.Shutter.gradient)
+                .frame(width: Theme.Layout.Shutter.baseSize, height: Theme.Layout.Shutter.baseSize)
                 .overlay(
                     Circle()
-                        .stroke(Color.black.opacity(0.6), lineWidth: 1.0)
+                        .stroke(Theme.Color.Shutter.strokeBase, lineWidth: 1.0)
                 )
-                .shadow(color: Color.black.opacity(0.7), radius: 6, x: 0, y: 4)
+                .shadow(color: Theme.Color.background.opacity(0.7), radius: 6, x: 0, y: 4)
                 .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
-                .animation(.spring(response: 0.40, dampingFraction: 0.6), value: configuration.isPressed)
+                .animation(Theme.Physics.shutterBase, value: configuration.isPressed)
             
             // Middle Tier
             Circle()
-                .fill(globalAssetGradient)
-                .frame(width: Metrics.midSize, height: Metrics.midSize)
+                .fill(Theme.Color.Shutter.gradient)
+                .frame(width: Theme.Layout.Shutter.midSize, height: Theme.Layout.Shutter.midSize)
                 .overlay(
                     Circle()
-                        .stroke(Color.black.opacity(0.5), lineWidth: 1.0)
+                        .stroke(Theme.Color.Shutter.strokeMid, lineWidth: 1.0)
                 )
-                // Soft ambient occlusion shadow cast onto the layer below it
-                .shadow(color: Color.black.opacity(0.5), radius: 4, x: 0, y: 2)
+                .shadow(color: Theme.Color.background.opacity(0.5), radius: 4, x: 0, y: 2)
                 .scaleEffect(configuration.isPressed ? 0.80 : 1.0)
-                .animation(.spring(response: 0.28, dampingFraction: 0.65), value: configuration.isPressed)
+                .animation(Theme.Physics.shutterMid, value: configuration.isPressed)
             
-            // Top Tier (Innermost)
+            // Top Tier
             Circle()
-                .fill(globalAssetGradient)
-                .frame(width: Metrics.topSize, height: Metrics.topSize)
+                .fill(Theme.Color.Shutter.gradient)
+                .frame(width: Theme.Layout.Shutter.topSize, height: Theme.Layout.Shutter.topSize)
                 .overlay(
                     Circle()
-                        .stroke(Color.black.opacity(0.4), lineWidth: 0.8)
+                        .stroke(Theme.Color.Shutter.strokeTop, lineWidth: 0.8)
                 )
-                .shadow(color: Color.black.opacity(0.4), radius: 3, x: 0, y: 1)
+                .shadow(color: Theme.Color.background.opacity(0.4), radius: 3, x: 0, y: 1)
                 .scaleEffect(configuration.isPressed ? 0.70 : 1.0)
-                .animation(.spring(response: 0.15, dampingFraction: 0.7), value: configuration.isPressed)
+                .animation(Theme.Physics.shutterTop, value: configuration.isPressed)
         }
-        .frame(width: Metrics.baseSize, height: Metrics.baseSize)
+        .frame(width: Theme.Layout.Shutter.baseSize, height: Theme.Layout.Shutter.baseSize)
         .contentShape(Circle())
         .onChange(of: configuration.isPressed) { _, isPressed in
             if isPressed {

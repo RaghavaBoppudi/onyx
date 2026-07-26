@@ -9,13 +9,13 @@ struct LiquidGlassModifier<S: InsettableShape>: ViewModifier {
             content
                 .glassEffect(.clear, in: shape)
                 .overlay(
-                    shape.strokeBorder(Color.white.opacity(isBordered ? 0.4 : 0.0), lineWidth: 0.5)
+                    shape.strokeBorder(isBordered ? Theme.Color.glassBorderStrong : SwiftUI.Color.clear, lineWidth: Theme.Layout.borderWidth)
                 )
         } else {
             content
                 .background(.ultraThinMaterial, in: shape)
                 .overlay(
-                    shape.strokeBorder(Color.white.opacity(isBordered ? 0.2 : 0.0), lineWidth: 0.5)
+                    shape.strokeBorder(isBordered ? Theme.Color.glassBorderSubtle : SwiftUI.Color.clear, lineWidth: Theme.Layout.borderWidth)
                 )
         }
     }

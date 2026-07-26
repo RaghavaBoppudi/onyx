@@ -6,24 +6,19 @@ struct BottomControlsView: View {
     let onCameraPositionToggle: () -> Void
     let onShutterPress: () -> Void
     
-    private let buttonWidth: CGFloat = 64
-    private let buttonHeight: CGFloat = 40
-    
     var body: some View {
         HStack(spacing: 0) {
-            
             HStack {
                 Spacer()
                 Button(action: {
                     isFlashOn.toggle()
                 }) {
                     Image(systemName: isFlashOn ? "bolt.fill" : "bolt.slash.fill")
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundColor(isFlashOn ? .white : .black)
-                        .frame(width: buttonWidth, height: buttonHeight)
+                        .font(.system(size: Theme.Typography.iconStandard, weight: .bold))
+                        .foregroundColor(Theme.Color.background)
+                        .frame(width: Theme.Layout.controlWidth, height: Theme.Layout.controlHeight)
                         .background(
-                            Capsule()
-                                .fill(isFlashOn ? Theme.accent : Color.white)
+                            Capsule().fill(Theme.Color.text)
                         )
                         .rotationEffect(iconOrientation)
                 }
@@ -38,12 +33,11 @@ struct BottomControlsView: View {
                 Spacer()
                 Button(action: onCameraPositionToggle) {
                     Image(systemName: "camera.rotate.fill")
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundColor(.black)
-                        .frame(width: buttonWidth, height: buttonHeight)
+                        .font(.system(size: Theme.Typography.iconStandard, weight: .bold))
+                        .foregroundColor(Theme.Color.background)
+                        .frame(width: Theme.Layout.controlWidth, height: Theme.Layout.controlHeight)
                         .background(
-                            Capsule()
-                                .fill(Color.white)
+                            Capsule().fill(Theme.Color.text)
                         )
                         .rotationEffect(iconOrientation)
                 }
@@ -51,7 +45,7 @@ struct BottomControlsView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 16)
-        .background(Color.black)
+        .padding(.horizontal, Theme.Layout.paddingStandard)
+        .background(Theme.Color.background)
     }
 }

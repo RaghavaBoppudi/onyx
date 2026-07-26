@@ -4,32 +4,29 @@ struct TopControlsView: View {
     @Binding var isSettingsOpen: Bool
     let iconOrientation: Angle
     
-    // Strict metrics to prevent arbitrary sizing
-    private let buttonWidth: CGFloat = 64
-    private let buttonHeight: CGFloat = 40
-    
     var body: some View {
         HStack {
             Button(action: {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                withAnimation(Theme.Physics.menuTransition) {
                     isSettingsOpen.toggle()
                 }
             }) {
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(isSettingsOpen ? .white : .black)
-                    .frame(width: buttonWidth, height: buttonHeight)
+                    .font(.system(size: Theme.Typography.iconStandard, weight: .bold))
+                    .foregroundColor(isSettingsOpen ? Theme.Color.background : Theme.Color.text)
+                    .frame(width: Theme.Layout.controlWidth, height: Theme.Layout.controlHeight)
                     .background(
                         Capsule()
-                            .fill(isSettingsOpen ? Theme.accent : Color.white)
+                            .fill(isSettingsOpen ? Theme.Color.accent : Theme.Color.glassBorderSubtle)
                     )
                     .rotationEffect(iconOrientation)
             }
             
             Spacer()
         }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 12)
-        .background(Color.black)
+        .padding(.horizontal, Theme.Layout.paddingLarge)
+        .padding(.top, Theme.Layout.paddingStandard)
+        .padding(.bottom, Theme.Layout.paddingLarge)
+        .background(Theme.Color.background)
     }
 }

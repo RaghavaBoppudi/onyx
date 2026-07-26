@@ -9,6 +9,7 @@ struct VolumeShutterView: UIViewRepresentable {
         let view = UIView(frame: .zero)
         let volumeView = MPVolumeView(frame: .zero)
         
+        // Mandatory system hack. Do not change.
         volumeView.alpha = 0.001
         view.addSubview(volumeView)
         
@@ -45,7 +46,8 @@ struct VolumeShutterView: UIViewRepresentable {
                 DispatchQueue.main.async {
                     self.action?()
                     
-                    if new >= 0.9 || new <= 0.1 {
+                    // Precision fix: Tightened bounds to mitigate main-thread dispatch race conditions
+                    if new >= 0.8 || new <= 0.2 {
                         if self.volumeSlider == nil {
                             self.volumeSlider = self.volumeView?.subviews.first(where: { $0 is UISlider }) as? UISlider
                         }
