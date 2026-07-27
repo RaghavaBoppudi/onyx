@@ -37,6 +37,7 @@ struct PhotoProcessor: Sendable {
             } else {
                 guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
                 
+                // Restored to your exact original linear output parameters
                 rawFilter.luminanceNoiseReductionAmount = 0.0
                 rawFilter.colorNoiseReductionAmount = 0.0
                 rawFilter.sharpnessAmount = 0.1
@@ -46,13 +47,14 @@ struct PhotoProcessor: Sendable {
                 
                 guard let baseImage = rawFilter.outputImage else { return }
                 
-                // Instantiate a single-use pipeline for thread safety in the detached task
                 let pipeline = OnyxFilterPipeline()
                 let finalImage = pipeline.apply(to: baseImage, mode: mode, deviceType: deviceType, iso: iso)
                 
-                guard let colorSpace = CGColorSpace(name: CGColorSpace.displayP3),
-                      let renderedData = try? context.heif10Representation(
+                // Restored to your original sRGB / RGBA8 encoding pipeline
+                guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                      let renderedData = context.heifRepresentation(
                           of: finalImage,
+                          format: .RGBA8,
                           colorSpace: colorSpace,
                           options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
                       ) else { return }

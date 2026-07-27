@@ -70,7 +70,6 @@ actor CameraEngine {
         do {
             try device.lockForConfiguration()
             
-            // Coordinates must be assigned BEFORE the mode to prevent mechanical race conditions
             if device.isFocusPointOfInterestSupported {
                 device.focusPointOfInterest = point
             }
@@ -305,7 +304,6 @@ actor CameraEngine {
         do {
             try device.lockForConfiguration()
             
-            // Explicitly reset the coordinate to prevent stale sensor states from freezing the new lens
             if device.isFocusPointOfInterestSupported {
                 device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
             }
@@ -389,7 +387,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     
     private let _lastScannedQR = OSAllocatedUnfairLock(initialState: (value: "", timestamp: Date.distantPast))
     
-    // Persistent filter pipeline for the live video feed
+    // The persistent pipeline instance required to prevent the allocation crash and frame drops
     private let filterPipeline = OnyxFilterPipeline()
     
     nonisolated var onCapture: (@Sendable () -> Void)? {
@@ -432,15 +430,10 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         set { _onBiasChange.withLock { $0 = newValue } }
     }
     
+    // Reverted to your original standard 8-bit default color space
     let ciContext = MTLCreateSystemDefaultDevice().map {
-            let space = CGColorSpace(name: CGColorSpace.extendedSRGB) ?? CGColorSpaceCreateDeviceRGB()
-            return CIContext(mtlDevice: $0, options: [
-                .cacheIntermediates: false,
-                .priorityRequestLow: false,
-                .workingColorSpace: space,
-                .workingFormat: CIFormat.RGBAh
-            ])
-        } ?? CIContext(options: [.cacheIntermediates: false])
+        CIContext(mtlDevice: $0, options: [.cacheIntermediates: false, .priorityRequestLow: false])
+    } ?? CIContext(options: [.cacheIntermediates: false])
 
     nonisolated override init() { super.init() }
 
@@ -489,6 +482,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
             }
             
             let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
+
             let finalImage = filterPipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: currentISO)
             frameReceiver?.receive(image: finalImage)
         }

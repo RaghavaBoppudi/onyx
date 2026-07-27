@@ -10,7 +10,6 @@ final class OnyxFilterPipeline: @unchecked Sendable {
         let dimension: Float
     }
     
-    // The LUT data remains static to guarantee it is loaded into memory exactly once
     private nonisolated static let sharedLUT: LUTData? = {
         guard let url = Bundle.main.url(forResource: "NaturalLUT", withExtension: "cube"),
               let content = try? String(contentsOf: url, encoding: .utf8) else {
@@ -47,13 +46,11 @@ final class OnyxFilterPipeline: @unchecked Sendable {
         return LUTData(data: data, dimension: Float(dimension))
     }()
 
-    // Cached filter instances
     private let monoFilter = CIFilter.colorMatrix()
     private let lutFilter = CIFilter.colorCube()
     private let curveFilter = CIFilter.toneCurve()
     
-    init() {
-        // Pre-configure static filter properties to avoid per-frame assignment overhead
+    nonisolated init() {
         monoFilter.rVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
         monoFilter.gVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
         monoFilter.bVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
@@ -65,7 +62,7 @@ final class OnyxFilterPipeline: @unchecked Sendable {
         }
     }
 
-    func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
+    nonisolated func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
         guard mode != .auto else { return image }
         
         var processingImage = image
@@ -86,6 +83,7 @@ final class OnyxFilterPipeline: @unchecked Sendable {
         
         let isLowLight = iso > 400
         
+        // Restored your exact original S-curves
         if mode == .zero || mode == .mono {
             if deviceType == .builtInUltraWideCamera {
                 if isLowLight {
