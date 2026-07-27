@@ -8,6 +8,8 @@ struct WeakReceiverBox: Sendable { weak var receiver: FrameReceiver? }
 
 actor CameraEngine {
     private var session: AVCaptureSession!
+    private let sessionQueue = DispatchQueue(label: "com.onyx.sessionQueue")
+    
     private let videoOutput = AVCaptureVideoDataOutput()
     private let photoOutput = AVCapturePhotoOutput()
     private let metadataOutput = AVCaptureMetadataOutput()
@@ -18,7 +20,8 @@ actor CameraEngine {
     var currentLens: Lens?
     var currentMode: ProcessingMode = .zero
     
-    var exposureCompensation: Float = -0.3
+    // Default to 0.0 EV to maximize signal-to-noise ratio
+    var exposureCompensation: Float = 0.0
     
     private var deviceInput: AVCaptureDeviceInput?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
@@ -45,7 +48,7 @@ actor CameraEngine {
     func setProcessingPipeline(mode: ProcessingMode) {
         self.currentMode = mode
         captureDelegate.processingMode = mode
-        self.exposureCompensation = (mode == .auto) ? 0.0 : -0.3
+        self.exposureCompensation = 0.0
         applyCurrentExposureBias()
     }
     
@@ -73,19 +76,19 @@ actor CameraEngine {
             if device.isFocusPointOfInterestSupported {
                 device.focusPointOfInterest = point
             }
-            if device.isFocusModeSupported(.autoFocus) {
-                device.focusMode = .autoFocus
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
             }
             
             if device.isExposurePointOfInterestSupported {
                 device.exposurePointOfInterest = point
             }
-            if device.isExposureModeSupported(.autoExpose) {
-                device.exposureMode = .autoExpose
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
             }
             
-            if device.isWhiteBalanceModeSupported(.locked) {
-                device.whiteBalanceMode = .locked
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
             }
             
             device.isSubjectAreaChangeMonitoringEnabled = true
@@ -140,7 +143,7 @@ actor CameraEngine {
         }
         
         guard !isConfigured else {
-            Task.detached { [session] in
+            sessionQueue.async { [weak session] in
                 if let s = session, !s.isRunning { s.startRunning() }
             }
             return true
@@ -149,11 +152,6 @@ actor CameraEngine {
         availableLenses = CameraHardware.availableLenses(for: .back)
         currentLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera }) ?? availableLenses.first
         captureDelegate.activeDeviceType = currentLens?.type ?? .builtInWideAngleCamera
-        
-        let engineRef = self
-        captureDelegate.onBiasChange = { newBias in
-            Task { await engineRef.setExposureBias(newBias) }
-        }
         
         session.beginConfiguration()
         session.sessionPreset = .photo
@@ -177,7 +175,7 @@ actor CameraEngine {
             }
         }
         
-        Task.detached { [session] in
+        sessionQueue.async { [weak session] in
             session?.startRunning()
         }
         
@@ -190,7 +188,7 @@ actor CameraEngine {
         notificationTask = nil
         pressureObservation?.invalidate()
         pressureObservation = nil
-        Task.detached { [session] in
+        sessionQueue.async { [weak session] in
             if let s = session, s.isRunning { s.stopRunning() }
         }
     }
@@ -254,6 +252,13 @@ actor CameraEngine {
     func selectLens(_ lens: Lens) {
         currentLens = lens
         captureDelegate.activeDeviceType = lens.type
+        
+        var currentChromaticity: AVCaptureDevice.WhiteBalanceChromaticityValues?
+        if let currentDevice = deviceInput?.device {
+            let currentGains = currentDevice.deviceWhiteBalanceGains
+            currentChromaticity = currentDevice.chromaticityValues(for: currentGains)
+        }
+        
         guard let newDevice = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
               let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
               
@@ -271,7 +276,7 @@ actor CameraEngine {
         }
         
         rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil)
-        applySettings(to: newDevice)
+        applySettings(to: newDevice, inheritedChromaticity: currentChromaticity)
         session.commitConfiguration()
         updatePhotoOutputDimensions(for: newDevice)
         observeSystemPressure(for: newDevice)
@@ -300,7 +305,7 @@ actor CameraEngine {
         }
     }
     
-    private func applySettings(to device: AVCaptureDevice) {
+    private func applySettings(to device: AVCaptureDevice, inheritedChromaticity: AVCaptureDevice.WhiteBalanceChromaticityValues? = nil) {
         do {
             try device.lockForConfiguration()
             
@@ -318,8 +323,30 @@ actor CameraEngine {
                 device.exposureMode = .continuousAutoExposure
             }
             
-            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            if let chromaticity = inheritedChromaticity, device.isWhiteBalanceModeSupported(.locked) {
+                let mappedGains = device.deviceWhiteBalanceGains(for: chromaticity)
+                let maxGain = device.maxWhiteBalanceGain
+                let clampedGains = AVCaptureDevice.WhiteBalanceGains(
+                    redGain: min(max(1.0, mappedGains.redGain), maxGain),
+                    greenGain: min(max(1.0, mappedGains.greenGain), maxGain),
+                    blueGain: min(max(1.0, mappedGains.blueGain), maxGain)
+                )
+                
+                device.setWhiteBalanceModeLocked(with: clampedGains) { _ in
+                    Task {
+                        do {
+                            try device.lockForConfiguration()
+                            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                                device.whiteBalanceMode = .continuousAutoWhiteBalance
+                            }
+                            device.unlockForConfiguration()
+                        } catch {}
+                    }
+                }
+            } else {
+                if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                    device.whiteBalanceMode = .continuousAutoWhiteBalance
+                }
             }
             
             device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, exposureCompensation)), completionHandler: nil)
@@ -381,13 +408,8 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.zero)
     private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
     
-    private let _currentAutoBias = OSAllocatedUnfairLock(initialState: Float(-0.3))
-    private let _lastAdjustmentTime = OSAllocatedUnfairLock(initialState: CMTime.zero)
-    private let _onBiasChange = OSAllocatedUnfairLock(initialState: (@Sendable (Float) -> Void)?(nil))
-    
     private let _lastScannedQR = OSAllocatedUnfairLock(initialState: (value: "", timestamp: Date.distantPast))
     
-    // The persistent pipeline instance required to prevent the allocation crash and frame drops
     private let filterPipeline = OnyxFilterPipeline()
     
     nonisolated var onCapture: (@Sendable () -> Void)? {
@@ -425,12 +447,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         set { _activeDeviceType.withLock { $0 = newValue } }
     }
     
-    nonisolated var onBiasChange: (@Sendable (Float) -> Void)? {
-        get { _onBiasChange.withLock { $0 } }
-        set { _onBiasChange.withLock { $0 = newValue } }
-    }
-    
-    // Reverted to your original standard 8-bit default color space
     let ciContext = MTLCreateSystemDefaultDevice().map {
         CIContext(mtlDevice: $0, options: [.cacheIntermediates: false, .priorityRequestLow: false])
     } ?? CIContext(options: [.cacheIntermediates: false])
@@ -441,8 +457,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         autoreleasepool {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             
-            let currentTimestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            
             var currentISO: Float = 100
             if let attachments = CMCopyDictionaryOfAttachments(allocator: nil, target: sampleBuffer, attachmentMode: kCMAttachmentMode_ShouldPropagate) as? [String: Any],
                let exif = attachments["{Exif}"] as? [String: Any],
@@ -451,38 +465,10 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
                 currentISO = isoValue.floatValue
             }
             
-            let currentBias = _currentAutoBias.withLock { $0 }
             let deviceType = _activeDeviceType.withLock { $0 }
             let mode = _processingMode.withLock { $0 }
-            let lastTime = _lastAdjustmentTime.withLock { $0 }
-            
-            if mode != .auto {
-                let isSecondarySensor = (deviceType == .builtInTelephotoCamera || deviceType == .builtInUltraWideCamera)
-                let highISOThreshold: Float = isSecondarySensor ? 650 : 1000
-                let lowISOThreshold: Float = isSecondarySensor ? 200 : 250
-                
-                let isCooldownFinished = lastTime == .zero || (currentTimestamp.seconds - lastTime.seconds) > 1.5
-                
-                if isCooldownFinished {
-                    if currentBias == -0.3 && currentISO > highISOThreshold {
-                        _currentAutoBias.withLock { $0 = 0.0 }
-                        _lastAdjustmentTime.withLock { $0 = currentTimestamp }
-                        onBiasChange?(0.0)
-                    } else if currentBias == 0.0 && currentISO < lowISOThreshold {
-                        _currentAutoBias.withLock { $0 = -0.3 }
-                        _lastAdjustmentTime.withLock { $0 = currentTimestamp }
-                        onBiasChange?(-0.3)
-                    }
-                }
-            } else {
-                if currentBias != 0.0 {
-                    _currentAutoBias.withLock { $0 = 0.0 }
-                    onBiasChange?(0.0)
-                }
-            }
             
             let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
-
             let finalImage = filterPipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: currentISO)
             frameReceiver?.receive(image: finalImage)
         }
@@ -527,6 +513,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         let mode = self.processingMode
         let deviceType = self.activeDeviceType
         
-        Task { await PhotoProcessor.processAndSave(photoData: photoData, location: location, context: context, mode: mode, deviceType: deviceType, iso: capturedISO) }
+        Task { await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: context, mode: mode, deviceType: deviceType, iso: capturedISO) }
     }
 }

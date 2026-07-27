@@ -48,7 +48,7 @@ final class OnyxFilterPipeline: @unchecked Sendable {
 
     private let monoFilter = CIFilter.colorMatrix()
     private let lutFilter = CIFilter.colorCube()
-    private let curveFilter = CIFilter.toneCurve()
+    private let organicContrastCurve = CIFilter.toneCurve()
     
     nonisolated init() {
         monoFilter.rVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
@@ -60,6 +60,13 @@ final class OnyxFilterPipeline: @unchecked Sendable {
             lutFilter.cubeDimension = lutData.dimension
             lutFilter.cubeData = lutData.data
         }
+        
+        // Apply a mild filmic S-Curve directly to the display-referred sRGB data
+        organicContrastCurve.point0 = CGPoint(x: 0.0, y: 0.0)
+        organicContrastCurve.point1 = CGPoint(x: 0.25, y: 0.22)
+        organicContrastCurve.point2 = CGPoint(x: 0.50, y: 0.50)
+        organicContrastCurve.point3 = CGPoint(x: 0.75, y: 0.82)
+        organicContrastCurve.point4 = CGPoint(x: 1.0, y: 1.0)
     }
 
     nonisolated func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
@@ -79,57 +86,7 @@ final class OnyxFilterPipeline: @unchecked Sendable {
             }
         }
         
-        curveFilter.inputImage = processingImage
-        
-        let isLowLight = iso > 400
-        
-        // Restored your exact original S-curves
-        if mode == .zero || mode == .mono {
-            if deviceType == .builtInUltraWideCamera {
-                if isLowLight {
-                    curveFilter.point0 = CGPoint(x: 0.0, y: 0.08)
-                    curveFilter.point1 = CGPoint(x: 0.25, y: 0.32)
-                    curveFilter.point2 = CGPoint(x: 0.50, y: 0.58)
-                    curveFilter.point3 = CGPoint(x: 0.75, y: 0.88)
-                    curveFilter.point4 = CGPoint(x: 0.95, y: 1.0)
-                } else {
-                    curveFilter.point0 = CGPoint(x: 0.0, y: 0.02)
-                    curveFilter.point1 = CGPoint(x: 0.22, y: 0.20)
-                    curveFilter.point2 = CGPoint(x: 0.50, y: 0.52)
-                    curveFilter.point3 = CGPoint(x: 0.75, y: 0.88)
-                    curveFilter.point4 = CGPoint(x: 0.96, y: 1.0)
-                }
-            } else if deviceType == .builtInTelephotoCamera {
-                if isLowLight {
-                    curveFilter.point0 = CGPoint(x: 0.0, y: 0.05)
-                    curveFilter.point1 = CGPoint(x: 0.25, y: 0.30)
-                    curveFilter.point2 = CGPoint(x: 0.50, y: 0.58)
-                    curveFilter.point3 = CGPoint(x: 0.75, y: 0.88)
-                    curveFilter.point4 = CGPoint(x: 0.95, y: 1.0)
-                } else {
-                    curveFilter.point0 = CGPoint(x: 0.0, y: 0.0)
-                    curveFilter.point1 = CGPoint(x: 0.22, y: 0.18)
-                    curveFilter.point2 = CGPoint(x: 0.50, y: 0.52)
-                    curveFilter.point3 = CGPoint(x: 0.75, y: 0.88)
-                    curveFilter.point4 = CGPoint(x: 0.96, y: 1.0)
-                }
-            } else {
-                if isLowLight {
-                    curveFilter.point0 = CGPoint(x: 0.0, y: 0.05)
-                    curveFilter.point1 = CGPoint(x: 0.25, y: 0.30)
-                    curveFilter.point2 = CGPoint(x: 0.50, y: 0.55)
-                    curveFilter.point3 = CGPoint(x: 0.75, y: 0.85)
-                    curveFilter.point4 = CGPoint(x: 0.95, y: 1.0)
-                } else {
-                    curveFilter.point0 = CGPoint(x: 0.0, y: 0.0)
-                    curveFilter.point1 = CGPoint(x: 0.25, y: 0.20)
-                    curveFilter.point2 = CGPoint(x: 0.50, y: 0.50)
-                    curveFilter.point3 = CGPoint(x: 0.75, y: 0.88)
-                    curveFilter.point4 = CGPoint(x: 0.96, y: 1.0)
-                }
-            }
-        }
-        
-        return curveFilter.outputImage ?? processingImage
+        organicContrastCurve.inputImage = processingImage
+        return organicContrastCurve.outputImage ?? processingImage
     }
 }
