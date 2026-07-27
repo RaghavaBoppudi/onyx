@@ -13,3 +13,17 @@ enum ProcessingMode: String, CaseIterable, Equatable {
         }
     }
 }
+
+enum GridMode: Int, CaseIterable, Equatable {
+    case none = 0
+    case thirds = 1
+    case golden = 2
+    
+    mutating func toggle() {
+        switch self {
+        case .none: self = .thirds
+        case .thirds: self = .golden
+        case .golden: self = .none
+        }
+    }
+}

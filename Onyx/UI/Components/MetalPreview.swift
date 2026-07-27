@@ -50,10 +50,17 @@ struct MetalPreview: UIViewRepresentable {
         }
         
         func configure(with device: MTLDevice, view: MTKView) {
-            self.context = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
-            self.commandQueue = device.makeCommandQueue()
-            self.mtkView = view
-        }
+                    let space = CGColorSpace(name: CGColorSpace.extendedSRGB) ?? CGColorSpaceCreateDeviceRGB()
+                    self.context = CIContext(mtlDevice: device, options: [
+                        .cacheIntermediates: false,
+                        .workingColorSpace: space,
+                        .workingFormat: CIFormat.RGBAh
+                    ])
+                    self.commandQueue = device.makeCommandQueue()
+                    self.mtkView = view
+                    
+                    self.mtkView?.colorPixelFormat = .bgra10_xr
+                }
         
         nonisolated func receive(image: CIImage?) {
             guard _isActive.withLock({ $0 }) else { return }

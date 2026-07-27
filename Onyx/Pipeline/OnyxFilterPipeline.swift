@@ -3,14 +3,15 @@ import CoreImage.CIFilterBuiltins
 import Foundation
 import AVFoundation
 
-struct OnyxFilterPipeline: Sendable {
+final class OnyxFilterPipeline: @unchecked Sendable {
     
     private struct LUTData: Sendable {
         let data: Data
         let dimension: Float
     }
     
-    private nonisolated static let cachedLUT: LUTData? = {
+    // The LUT data remains static to guarantee it is loaded into memory exactly once
+    private nonisolated static let sharedLUT: LUTData? = {
         guard let url = Bundle.main.url(forResource: "NaturalLUT", withExtension: "cube"),
               let content = try? String(contentsOf: url, encoding: .utf8) else {
             return nil
@@ -46,33 +47,41 @@ struct OnyxFilterPipeline: Sendable {
         return LUTData(data: data, dimension: Float(dimension))
     }()
 
-    nonisolated static func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
+    // Cached filter instances
+    private let monoFilter = CIFilter.colorMatrix()
+    private let lutFilter = CIFilter.colorCube()
+    private let curveFilter = CIFilter.toneCurve()
+    
+    init() {
+        // Pre-configure static filter properties to avoid per-frame assignment overhead
+        monoFilter.rVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
+        monoFilter.gVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
+        monoFilter.bVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
+        monoFilter.aVector = CIVector(x: 0.0, y: 0.0, z: 0.0, w: 1.0)
+        
+        if let lutData = Self.sharedLUT {
+            lutFilter.cubeDimension = lutData.dimension
+            lutFilter.cubeData = lutData.data
+        }
+    }
+
+    func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
         guard mode != .auto else { return image }
         
         var processingImage = image
         
         if mode == .mono {
-            let monoFilter = CIFilter.colorMatrix()
             monoFilter.inputImage = processingImage
-            monoFilter.rVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
-            monoFilter.gVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
-            monoFilter.bVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
-            monoFilter.aVector = CIVector(x: 0.0, y: 0.0, z: 0.0, w: 1.0)
-            
             processingImage = monoFilter.outputImage ?? processingImage
         }
         
         if mode == .zero {
-            if let lutData = cachedLUT {
-                let lut = CIFilter.colorCube()
-                lut.cubeDimension = lutData.dimension
-                lut.cubeData = lutData.data
-                lut.inputImage = processingImage
-                processingImage = lut.outputImage ?? processingImage
+            if Self.sharedLUT != nil {
+                lutFilter.inputImage = processingImage
+                processingImage = lutFilter.outputImage ?? processingImage
             }
         }
         
-        let curveFilter = CIFilter.toneCurve()
         curveFilter.inputImage = processingImage
         
         let isLowLight = iso > 400

@@ -33,8 +33,11 @@ struct SettingsDropdownView: View {
         .padding(Theme.Layout.paddingStandard)
         .background(
             RoundedRectangle(cornerRadius: Theme.Layout.cornerRadius, style: .continuous)
-                .fill(Theme.Color.glassBackground)
-                .liquidGlass(shape: RoundedRectangle(cornerRadius: Theme.Layout.cornerRadius, style: .continuous), isBordered: true)
+                .fill(Theme.Color.background)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Layout.cornerRadius, style: .continuous)
+                        .strokeBorder(Theme.Color.glassBorderSubtle, lineWidth: Theme.Layout.borderWidth)
+                )
         )
     }
 }

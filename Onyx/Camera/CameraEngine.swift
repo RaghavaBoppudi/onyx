@@ -69,17 +69,26 @@ actor CameraEngine {
         guard let device = deviceInput?.device else { return }
         do {
             try device.lockForConfiguration()
-            if device.isFocusPointOfInterestSupported && device.isFocusModeSupported(.autoFocus) {
+            
+            // Coordinates must be assigned BEFORE the mode to prevent mechanical race conditions
+            if device.isFocusPointOfInterestSupported {
                 device.focusPointOfInterest = point
+            }
+            if device.isFocusModeSupported(.autoFocus) {
                 device.focusMode = .autoFocus
             }
-            if device.isExposurePointOfInterestSupported && device.isExposureModeSupported(.autoExpose) {
+            
+            if device.isExposurePointOfInterestSupported {
                 device.exposurePointOfInterest = point
+            }
+            if device.isExposureModeSupported(.autoExpose) {
                 device.exposureMode = .autoExpose
             }
+            
             if device.isWhiteBalanceModeSupported(.locked) {
                 device.whiteBalanceMode = .locked
             }
+            
             device.isSubjectAreaChangeMonitoringEnabled = true
             device.unlockForConfiguration()
         } catch {
@@ -91,18 +100,25 @@ actor CameraEngine {
         guard let device = deviceInput?.device else { return }
         do {
             try device.lockForConfiguration()
+            
+            if device.isFocusPointOfInterestSupported {
+                device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+            }
             if device.isFocusModeSupported(.continuousAutoFocus) {
                 device.focusMode = .continuousAutoFocus
-                if device.isFocusPointOfInterestSupported {
-                    device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
-                }
+            }
+            
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
             }
             if device.isExposureModeSupported(.continuousAutoExposure) {
                 device.exposureMode = .continuousAutoExposure
-                if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
-                }
             }
+            
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            
             device.isSubjectAreaChangeMonitoringEnabled = true
             device.unlockForConfiguration()
         } catch {
@@ -225,7 +241,13 @@ actor CameraEngine {
     
     func switchCameraPosition(to position: AVCaptureDevice.Position) -> Lens? {
         availableLenses = CameraHardware.availableLenses(for: position)
-        let newLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera }) ?? availableLenses.first
+        
+        let preferredType: AVCaptureDevice.DeviceType = (position == .front) ? .builtInUltraWideCamera : .builtInWideAngleCamera
+        
+        let newLens = availableLenses.first(where: { $0.type == preferredType })
+            ?? availableLenses.first(where: { $0.type == .builtInWideAngleCamera })
+            ?? availableLenses.first
+            
         if let lens = newLens { selectLens(lens) }
         return newLens
     }
@@ -282,8 +304,21 @@ actor CameraEngine {
     private func applySettings(to device: AVCaptureDevice) {
         do {
             try device.lockForConfiguration()
-            if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
-            if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+            
+            // Explicitly reset the coordinate to prevent stale sensor states from freezing the new lens
+            if device.isFocusPointOfInterestSupported {
+                device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+            }
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+            
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+            }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
             
             if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
                 device.whiteBalanceMode = .continuousAutoWhiteBalance
@@ -354,6 +389,9 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     
     private let _lastScannedQR = OSAllocatedUnfairLock(initialState: (value: "", timestamp: Date.distantPast))
     
+    // Persistent filter pipeline for the live video feed
+    private let filterPipeline = OnyxFilterPipeline()
+    
     nonisolated var onCapture: (@Sendable () -> Void)? {
         get { _onCapture.withLock { $0 } }
         set { _onCapture.withLock { $0 = newValue } }
@@ -395,8 +433,14 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     }
     
     let ciContext = MTLCreateSystemDefaultDevice().map {
-        CIContext(mtlDevice: $0, options: [.cacheIntermediates: false, .priorityRequestLow: false])
-    } ?? CIContext(options: [.cacheIntermediates: false])
+            let space = CGColorSpace(name: CGColorSpace.extendedSRGB) ?? CGColorSpaceCreateDeviceRGB()
+            return CIContext(mtlDevice: $0, options: [
+                .cacheIntermediates: false,
+                .priorityRequestLow: false,
+                .workingColorSpace: space,
+                .workingFormat: CIFormat.RGBAh
+            ])
+        } ?? CIContext(options: [.cacheIntermediates: false])
 
     nonisolated override init() { super.init() }
 
@@ -445,7 +489,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
             }
             
             let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
-            let finalImage = OnyxFilterPipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: currentISO)
+            let finalImage = filterPipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: currentISO)
             frameReceiver?.receive(image: finalImage)
         }
     }

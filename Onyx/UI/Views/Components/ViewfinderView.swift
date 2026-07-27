@@ -1,5 +1,28 @@
 import SwiftUI
 
+struct CompositionGrid: Shape {
+    let mode: GridMode
+    
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard mode != .none else { return path }
+        
+        let fractions: [CGFloat] = mode == .thirds ? [1.0/3.0, 2.0/3.0] : [0.381966, 0.618034]
+        
+        for fraction in fractions {
+            // Vertical geometry
+            path.move(to: CGPoint(x: rect.width * fraction, y: 0))
+            path.addLine(to: CGPoint(x: rect.width * fraction, y: rect.height))
+            
+            // Horizontal geometry
+            path.move(to: CGPoint(x: 0, y: rect.height * fraction))
+            path.addLine(to: CGPoint(x: rect.width, y: rect.height * fraction))
+        }
+        
+        return path
+    }
+}
+
 struct ViewfinderView: View {
     @ObservedObject var viewModel: CameraViewModel
     let geometry: GeometryProxy
@@ -25,6 +48,10 @@ struct ViewfinderView: View {
                         viewModel.focus(at: location, normalized: normalized)
                     }
                 }
+            
+            CompositionGrid(mode: viewModel.gridMode)
+                .stroke(SwiftUI.Color.white.opacity(0.3), lineWidth: 0.5)
+                .allowsHitTesting(false)
             
             if let focusPoint = viewModel.focusPointUI {
                 Circle()

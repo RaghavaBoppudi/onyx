@@ -16,6 +16,8 @@ final class CameraViewModel: ObservableObject {
     @Published var processingMode: ProcessingMode = .zero {
         didSet { setProcessingPipeline(mode: processingMode) }
     }
+    @Published var gridMode: GridMode = .none
+    
     @Published var isFlashOn: Bool = false
     @Published var isSettingsOpen: Bool = false
     @Published var focusPointUI: CGPoint?
@@ -160,5 +162,9 @@ final class CameraViewModel: ObservableObject {
         focusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
             self?.focusPointUI = nil
         }
+    }
+    
+    func toggleGrid() {
+        gridMode.toggle()
     }
 }

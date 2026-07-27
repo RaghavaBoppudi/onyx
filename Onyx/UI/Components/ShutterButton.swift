@@ -7,50 +7,37 @@ struct ShutterButton: View {
         Button(action: {}) {
             SwiftUI.Color.clear
         }
-        .buttonStyle(ShutterButtonStyle(action: action))
+        .buttonStyle(ShutterGlassStyle(action: action))
     }
 }
 
-private struct ShutterButtonStyle: ButtonStyle {
+private struct ShutterGlassStyle: ButtonStyle {
     let action: () -> Void
     let hapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
     func makeBody(configuration: Configuration) -> some View {
         ZStack {
-            // Base Tier
+            // Base Glass Tier
             Circle()
-                .fill(Theme.Color.Shutter.gradient)
+                .fill(Theme.Color.glassBackground)
+                .liquidGlass(shape: Circle(), isBordered: true)
                 .frame(width: Theme.Layout.Shutter.baseSize, height: Theme.Layout.Shutter.baseSize)
-                .overlay(
-                    Circle()
-                        .stroke(Theme.Color.Shutter.strokeBase, lineWidth: 1.0)
-                )
-                .shadow(color: Theme.Color.background.opacity(0.7), radius: 6, x: 0, y: 4)
-                .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
+                .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
                 .animation(Theme.Physics.shutterBase, value: configuration.isPressed)
             
-            // Middle Tier
+            // Middle Accent Ring
             Circle()
-                .fill(Theme.Color.Shutter.gradient)
+                .stroke(Theme.Color.Shutter.gradient, lineWidth: 2.0)
                 .frame(width: Theme.Layout.Shutter.midSize, height: Theme.Layout.Shutter.midSize)
-                .overlay(
-                    Circle()
-                        .stroke(Theme.Color.Shutter.strokeMid, lineWidth: 1.0)
-                )
-                .shadow(color: Theme.Color.background.opacity(0.5), radius: 4, x: 0, y: 2)
-                .scaleEffect(configuration.isPressed ? 0.80 : 1.0)
+                .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
                 .animation(Theme.Physics.shutterMid, value: configuration.isPressed)
             
-            // Top Tier
+            // Inner Brand Core
             Circle()
                 .fill(Theme.Color.Shutter.gradient)
                 .frame(width: Theme.Layout.Shutter.topSize, height: Theme.Layout.Shutter.topSize)
-                .overlay(
-                    Circle()
-                        .stroke(Theme.Color.Shutter.strokeTop, lineWidth: 0.8)
-                )
-                .shadow(color: Theme.Color.background.opacity(0.4), radius: 3, x: 0, y: 1)
-                .scaleEffect(configuration.isPressed ? 0.70 : 1.0)
+                .scaleEffect(configuration.isPressed ? 0.75 : 1.0)
+                .opacity(configuration.isPressed ? 0.8 : 1.0)
                 .animation(Theme.Physics.shutterTop, value: configuration.isPressed)
         }
         .frame(width: Theme.Layout.Shutter.baseSize, height: Theme.Layout.Shutter.baseSize)

@@ -46,12 +46,13 @@ struct PhotoProcessor: Sendable {
                 
                 guard let baseImage = rawFilter.outputImage else { return }
                 
-                let finalImage = OnyxFilterPipeline.apply(to: baseImage, mode: mode, deviceType: deviceType, iso: iso)
+                // Instantiate a single-use pipeline for thread safety in the detached task
+                let pipeline = OnyxFilterPipeline()
+                let finalImage = pipeline.apply(to: baseImage, mode: mode, deviceType: deviceType, iso: iso)
                 
-                guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-                      let renderedData = context.heifRepresentation(
+                guard let colorSpace = CGColorSpace(name: CGColorSpace.displayP3),
+                      let renderedData = try? context.heif10Representation(
                           of: finalImage,
-                          format: .RGBA8,
                           colorSpace: colorSpace,
                           options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
                       ) else { return }

@@ -41,7 +41,7 @@ struct LensSelectorView: View {
             
             Capsule()
                 .fill(Theme.Color.glassBackground)
-                .liquidGlass(isBordered: true)
+                .overlay(Capsule().strokeBorder(Theme.Color.glassBorderStrong, lineWidth: Theme.Layout.borderWidth))
                 .frame(width: Theme.Layout.Lens.buttonWidth + Theme.Layout.Lens.hitTestOversize, height: Theme.Layout.Lens.buttonHeight + Theme.Layout.Lens.hitTestOversize)
                 .offset(x: baseOffset + dragOffset)
                 .scaleEffect(x: 1.0, y: isInteracting ? 1.2 : 1.0)
