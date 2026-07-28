@@ -4,63 +4,73 @@ import CoreImage
 import os
 
 struct MetalPreview: UIViewRepresentable {
-    let camera: CameraManager
+    let viewModel: CameraViewModel
+    let isActive: Bool
     
     func makeUIView(context: Context) -> MTKView {
         guard let device = MTLCreateSystemDefaultDevice() else { fatalError("Metal not supported") }
         let mtkView = MTKView(frame: .zero, device: device)
         mtkView.framebufferOnly = false
         mtkView.delegate = context.coordinator
+        
         mtkView.enableSetNeedsDisplay = true
         mtkView.isPaused = true
         mtkView.backgroundColor = .black
-        camera.frameReceiver = context.coordinator
+        
+        context.coordinator.configure(with: device, view: mtkView)
+        Task { await viewModel.setFrameReceiver(context.coordinator) }
         return mtkView
     }
     
-    func updateUIView(_ uiView: MTKView, context: Context) {}
+    func updateUIView(_ uiView: MTKView, context: Context) {
+        context.coordinator.isActive = isActive
+    }
     
-    func makeCoordinator() -> Coordinator { Coordinator(context: camera.ciContext) }
+    func makeCoordinator() -> Coordinator { Coordinator() }
     
     class Coordinator: NSObject, MTKViewDelegate, FrameReceiver, @unchecked Sendable {
         private let currentImageLock = OSAllocatedUnfairLock(initialState: CIImage?(nil))
-        let context: CIContext
-        let commandQueue: MTLCommandQueue?
-        private let defaultColorSpace = CGColorSpaceCreateDeviceRGB()
+        private let _isActive = OSAllocatedUnfairLock(initialState: true)
         
-        @MainActor private weak var view: MTKView?
+        private var context: CIContext?
+        private var commandQueue: MTLCommandQueue?
         
-        init(context: CIContext) {
-            self.context = context
-            self.commandQueue = MTLCreateSystemDefaultDevice()?.makeCommandQueue()
-            super.init()
+        private let defaultColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()
+        
+        weak var mtkView: MTKView?
+        
+        var isActive: Bool {
+            get { _isActive.withLock { $0 } }
+            set { _isActive.withLock { $0 = newValue } }
+        }
+        
+        var currentImage: CIImage? {
+            currentImageLock.withLock { $0 }
+        }
+        
+        func configure(with device: MTLDevice, view: MTKView) {
+            self.context = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
+            self.commandQueue = device.makeCommandQueue()
+            self.mtkView = view
         }
         
         nonisolated func receive(image: CIImage?) {
+            guard _isActive.withLock({ $0 }) else { return }
             currentImageLock.withLock { $0 = image }
+            
             DispatchQueue.main.async { [weak self] in
-                self?.triggerDisplay()
+                self?.mtkView?.setNeedsDisplay()
             }
         }
         
-        @MainActor
-        private func triggerDisplay() {
-            view?.setNeedsDisplay()
-        }
+        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
-        @MainActor
-        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-            self.view = view
-        }
-        
-        @MainActor
         func draw(in view: MTKView) {
             autoreleasepool {
-                let image = currentImageLock.withLock { $0 }
-                
-                guard let image = image,
+                guard let image = currentImageLock.withLock({ $0 }),
                       let drawable = view.currentDrawable,
-                      let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
+                      let commandBuffer = commandQueue?.makeCommandBuffer(),
+                      let ciContext = context else { return }
 
                 let bounds = CGRect(origin: .zero, size: view.drawableSize)
                 let colorSpace = image.colorSpace ?? defaultColorSpace
@@ -73,11 +83,11 @@ struct MetalPreview: UIViewRepresentable {
                     .translatedBy(x: (bounds.width - (image.extent.width * scale)) / (2 * scale),
                                   y: (bounds.height - (image.extent.height * scale)) / (2 * scale))
 
-                context.render(image.transformed(by: transform).clampedToExtent(),
-                               to: drawable.texture,
-                               commandBuffer: commandBuffer,
-                               bounds: bounds,
-                               colorSpace: colorSpace)
+                ciContext.render(image.transformed(by: transform),
+                                to: drawable.texture,
+                                commandBuffer: commandBuffer,
+                                bounds: bounds,
+                                colorSpace: colorSpace)
                 
                 commandBuffer.present(drawable)
                 commandBuffer.commit()

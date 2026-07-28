@@ -1,118 +1,78 @@
 import SwiftUI
-import UIKit
-import AVFoundation
+import AVKit
 
 struct ContentView: View {
-    @StateObject private var camera = CameraManager()
-    @State private var focusPoint: CGPoint? = nil
-    @State private var showFocusIndicator = false
-    @State private var isFlashing = false
-    
-    private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
+    @StateObject private var viewModel = CameraViewModel()
     
     var body: some View {
         GeometryReader { geometry in
-            ZStack {
-                Color.black.ignoresSafeArea()
-                VolumeShutterView(onShutterPress: initiateCapture)
+            let viewfinderWidth = geometry.size.width - Theme.Layout.viewfinderInset
+            let viewfinderHeight = viewfinderWidth * (4.0 / 3.0)
+            
+            VStack(spacing: 0) {
+                TopControlsView(
+                    isSettingsOpen: $viewModel.isSettingsOpen,
+                    viewModel: viewModel,
+                    iconOrientation: viewModel.iconOrientation
+                )
                 
-                VStack(spacing: 0) {
-                    topControls
-                    Spacer()
-                    viewfinder(geometry: geometry)
-                    bottomControls
-                }
-            }
-        }
-        .onDisappear {
-            camera.stopSession()
-        }
-    }
-    
-    // MARK: - Subviews
-    private var topControls: some View {
-        HStack {
-            Spacer()
-            Button(action: {
-                hapticGenerator.impactOccurred()
-                camera.toggleCameraPosition()
-            }) {
-                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundColor(.white)
-                    .padding(.trailing, 24)
-                    .padding(.top, 12)
-            }
-        }
-    }
-    
-    private func viewfinder(geometry: GeometryProxy) -> some View {
-        ZStack(alignment: .bottom) {
-            MetalPreview(camera: camera)
-                .blur(radius: camera.isSwitchingLens ? 30 : 0)
-                .animation(.easeInOut(duration: 0.15), value: camera.isSwitchingLens)
-            
-            Color.clear.contentShape(Rectangle())
-                .onTapGesture { location in
-                    hapticGenerator.impactOccurred(intensity: 1.0)
-                    let nx = location.x / geometry.size.width
-                    let ny = location.y / geometry.size.height
-                    camera.lockFocusAndExposure(at: CGPoint(x: nx, y: ny))
-                    focusPoint = location
-                    showFocusIndicator = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { showFocusIndicator = false }
-                }
-            
-            if showFocusIndicator, let point = focusPoint {
-                Circle()
-                    .stroke(Color.white, lineWidth: 1.5)
-                    .frame(width: 50, height: 50)
-                    .position(point)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showFocusIndicator)
-            }
-            
-            Color.black.opacity(isFlashing ? 1.0 : 0)
-                .animation(.easeInOut(duration: 0.1), value: isFlashing)
-        }
-        .frame(width: geometry.size.width, height: geometry.size.width * 4 / 3)
-        .clipped()
-    }
-    
-    private var bottomControls: some View {
-        VStack(spacing: 24) {
-            if camera.availableLenses.count > 1 {
-                HStack(spacing: 0) {
-                    ForEach(camera.availableLenses, id: \.type) { lens in
-                        Button(action: { camera.selectLens(lens) }) {
-                            VStack(spacing: 6) {
-                                Circle()
-                                    .fill(camera.currentLens == lens ? Theme.accent : Color.clear)
-                                    .frame(width: 4, height: 4)
-                                
-                                Text(lens.label)
-                                    .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(camera.currentLens == lens ? Theme.accent : Color.white)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                ZStack(alignment: .bottom) {
+                    ViewfinderView(
+                        viewModel: viewModel,
+                        geometry: geometry,
+                        isActive: !viewModel.isCapturing,
+                        iconOrientation: viewModel.iconOrientation
+                    )
+                    .frame(width: viewfinderWidth, height: viewfinderHeight)
+                    .cornerRadius(Theme.Layout.cornerRadius)
+                    
+                    if viewModel.isSettingsOpen {
+                        SettingsDropdownView(
+                            selectedMode: $viewModel.processingMode,
+                            isOpen: $viewModel.isSettingsOpen
+                        )
+                        .padding(.horizontal, Theme.Layout.paddingSmall)
+                        .padding(.top, Theme.Layout.paddingSmall)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .transition(.scale(scale: 0.9, anchor: .top).combined(with: .opacity))
+                        .zIndex(2)
+                    }
+                    
+                    if viewModel.availableLenses.count > 1 {
+                        LensSelectorView(
+                            availableLenses: viewModel.availableLenses,
+                            currentLens: viewModel.currentLens,
+                            iconOrientation: viewModel.iconOrientation,
+                            onSelectLens: { lens in viewModel.selectLens(lens) }
+                        )
+                        .padding(.bottom, Theme.Layout.paddingSmall)
+                        .transition(.scale(scale: 0.9, anchor: .bottom).combined(with: .opacity))
+                        .zIndex(3)
                     }
                 }
-                .padding(.horizontal, 40)
-            } else {
-                Color.clear.frame(height: 24)
+                .frame(width: viewfinderWidth, height: viewfinderHeight, alignment: .top)
+                
+                BottomControlsView(
+                    isFlashOn: $viewModel.isFlashOn,
+                    cameraPosition: viewModel.cameraPosition,
+                    iconOrientation: viewModel.iconOrientation,
+                    onCameraPositionToggle: { viewModel.toggleCameraPosition() },
+                    onShutterPress: { viewModel.capturePhoto() }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            ShutterButton(action: initiateCapture)
+            .background(Theme.Color.background.edgesIgnoringSafeArea(.all))
         }
-        .padding(.top, 24)
-        .padding(.bottom, 36)
-    }
-    
-    private func initiateCapture() {
-        hapticGenerator.impactOccurred()
-        isFlashing = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isFlashing = false }
-        camera.capturePhoto()
+        .task {
+            await viewModel.start()
+        }
+        .onDisappear {
+            Task { await viewModel.stop() }
+        }
+        .onCameraCaptureEvent { event in
+            if event.phase == .ended {
+                viewModel.capturePhoto()
+            }
+        }
     }
 }
