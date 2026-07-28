@@ -13,14 +13,16 @@ struct SettingsDropdownView: View {
                     }) {
                         Text(mode.rawValue)
                             .font(.system(size: Theme.Typography.bodySmallBold, weight: .bold))
-                            .frame(maxWidth: .infinity)
                             .foregroundColor(selectedMode == mode ? Theme.Color.background : Theme.Color.text)
                             .padding(.vertical, Theme.Layout.paddingSmall)
-                            .background(
-                                Capsule()
-                                    .fill(selectedMode == mode ? Theme.Color.accent : SwiftUI.Color.clear)
-                            )
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Capsule())
                     }
+                    .buttonStyle(.plain)
+                    .background(
+                        Capsule()
+                            .fill(selectedMode == mode ? Theme.Color.accent : .clear)
+                    )
                 }
             }
             

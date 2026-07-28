@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 struct ContentView: View {
     @StateObject private var viewModel = CameraViewModel()
@@ -61,15 +62,17 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Theme.Color.background.edgesIgnoringSafeArea(.all))
-            .background(
-                VolumeShutterView(onShutterPress: { viewModel.capturePhoto() })
-            )
         }
         .task {
             await viewModel.start()
         }
         .onDisappear {
             Task { await viewModel.stop() }
+        }
+        .onCameraCaptureEvent { event in
+            if event.phase == .ended {
+                viewModel.capturePhoto()
+            }
         }
     }
 }

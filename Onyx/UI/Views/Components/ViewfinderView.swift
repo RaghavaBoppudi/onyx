@@ -5,9 +5,9 @@ struct CompositionGrid: Shape {
     
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        guard mode != .none else { return path }
+        guard mode == .thirds else { return path }
         
-        let fractions: [CGFloat] = mode == .thirds ? [1.0/3.0, 2.0/3.0] : [0.381966, 0.618034]
+        let fractions: [CGFloat] = [1.0/3.0, 2.0/3.0]
         
         for fraction in fractions {
             // Vertical geometry
@@ -50,13 +50,13 @@ struct ViewfinderView: View {
                 }
             
             CompositionGrid(mode: viewModel.gridMode)
-                .stroke(SwiftUI.Color.white.opacity(0.3), lineWidth: 0.5)
+                .stroke(Color.white.opacity(0.3), lineWidth: 0.5)
                 .allowsHitTesting(false)
             
             if let focusPoint = viewModel.focusPointUI {
                 Circle()
-                    .fill(Theme.Color.text)
-                    .frame(width: Theme.Layout.paddingSmall, height: Theme.Layout.paddingSmall)
+                    .stroke(Theme.Color.accent, lineWidth: Theme.Layout.borderWidth * 3)
+                    .frame(width: Theme.Layout.focusReticleSize, height: Theme.Layout.focusReticleSize)
                     .position(focusPoint)
                     .animation(.easeOut(duration: 0.2), value: focusPoint)
             }

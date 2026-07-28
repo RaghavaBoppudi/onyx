@@ -40,12 +40,13 @@ enum Theme {
         static let qrBottomPadding: CGFloat = 80
         static let viewfinderInset: CGFloat = 20
         static let lensSelectorOffset: CGFloat = 24
+        static let focusReticleSize: CGFloat = 72
 
         enum Lens {
-            static let buttonWidth: CGFloat = 52
+            static let buttonWidth: CGFloat = 72
             static let buttonHeight: CGFloat = 36
             static let padding: CGFloat = 6
-            static let itemSpacing: CGFloat = 8
+            static let itemSpacing: CGFloat = 24
             static let dragThreshold: CGFloat = 8
             static let hitTestOversize: CGFloat = 12
         }

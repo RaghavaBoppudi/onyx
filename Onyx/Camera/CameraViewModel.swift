@@ -13,7 +13,7 @@ final class CameraViewModel: ObservableObject {
     @Published var isFlashing = false
     @Published var scannedURL: URL?
     
-    @Published var processingMode: ProcessingMode = .zero {
+    @Published var processingMode: ProcessingMode = .mono {
         didSet { setProcessingPipeline(mode: processingMode) }
     }
     @Published var gridMode: GridMode = .none

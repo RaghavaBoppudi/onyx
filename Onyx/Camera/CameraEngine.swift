@@ -18,7 +18,7 @@ actor CameraEngine {
     
     var availableLenses: [Lens] = []
     var currentLens: Lens?
-    var currentMode: ProcessingMode = .zero
+    var currentMode: ProcessingMode = .mono
     
     // Default to 0.0 EV to maximize signal-to-noise ratio
     var exposureCompensation: Float = 0.0
@@ -239,10 +239,8 @@ actor CameraEngine {
     func switchCameraPosition(to position: AVCaptureDevice.Position) -> Lens? {
         availableLenses = CameraHardware.availableLenses(for: position)
         
-        let preferredType: AVCaptureDevice.DeviceType = (position == .front) ? .builtInUltraWideCamera : .builtInWideAngleCamera
-        
-        let newLens = availableLenses.first(where: { $0.type == preferredType })
-            ?? availableLenses.first(where: { $0.type == .builtInWideAngleCamera })
+        // Universally prefer the 1x (Wide Angle) lens across all camera positions
+        let newLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera })
             ?? availableLenses.first
             
         if let lens = newLens { selectLens(lens) }
@@ -405,7 +403,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _onCapture = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onCaptureComplete = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
-    private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.zero)
+    private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.mono)
     private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
     
     private let _lastScannedQR = OSAllocatedUnfairLock(initialState: (value: "", timestamp: Date.distantPast))

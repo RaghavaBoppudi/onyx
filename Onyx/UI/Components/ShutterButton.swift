@@ -4,11 +4,8 @@ struct ShutterButton: View {
     let action: () -> Void
     
     var body: some View {
-        // The action is executed natively here, decoupled from layout redraws
-        Button(action: {
-            action()
-        }) {
-            SwiftUI.Color.clear
+        Button(action: action) {
+            Color.clear
         }
         .buttonStyle(ShutterGlassStyle())
     }
@@ -45,8 +42,6 @@ private struct ShutterGlassStyle: ButtonStyle {
         .frame(width: Theme.Layout.Shutter.baseSize, height: Theme.Layout.Shutter.baseSize)
         .contentShape(Circle())
         .onChange(of: configuration.isPressed) { _, isPressed in
-            // Visual and haptic feedback remains tied to the state observer,
-            // but the hardware capture trigger is removed to prevent the loop crash.
             if isPressed {
                 hapticGenerator.prepare()
                 hapticGenerator.impactOccurred()

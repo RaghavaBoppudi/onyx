@@ -35,7 +35,6 @@ struct MetalPreview: UIViewRepresentable {
         private var context: CIContext?
         private var commandQueue: MTLCommandQueue?
         
-        // Precision fix: Target wide color gamut for modern hardware
         private let defaultColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()
         
         weak var mtkView: MTKView?

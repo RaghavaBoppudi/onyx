@@ -28,22 +28,15 @@ struct TopControlsView: View {
             Button(action: {
                 viewModel.toggleGrid()
             }) {
-                HStack(spacing: 2) {
-                    Image(systemName: "rectangle.split.3x3")
-                        .font(.system(size: Theme.Typography.iconStandard, weight: .bold))
-                    
-                    if viewModel.gridMode != .none {
-                        Text(viewModel.gridMode == .thirds ? "1" : "2")
-                            .font(.system(size: 12, weight: .black))
-                    }
-                }
-                .foregroundColor(viewModel.gridMode == .none ? Theme.Color.text : Theme.Color.background)
-                .frame(width: Theme.Layout.controlWidth, height: Theme.Layout.controlHeight)
-                .background(
-                    Capsule()
-                        .fill(viewModel.gridMode != .none ? Theme.Color.accent : Theme.Color.glassBorderSubtle)
-                )
-                .rotationEffect(iconOrientation)
+                Image(systemName: "rectangle.split.3x3")
+                    .font(.system(size: Theme.Typography.iconStandard, weight: .bold))
+                    .foregroundColor(viewModel.gridMode == .none ? Theme.Color.text : Theme.Color.background)
+                    .frame(width: Theme.Layout.controlWidth, height: Theme.Layout.controlHeight)
+                    .background(
+                        Capsule()
+                            .fill(viewModel.gridMode != .none ? Theme.Color.accent : Theme.Color.glassBorderSubtle)
+                    )
+                    .rotationEffect(iconOrientation)
             }
         }
         .padding(.horizontal, Theme.Layout.paddingLarge)
