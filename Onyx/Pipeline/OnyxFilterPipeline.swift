@@ -46,47 +46,36 @@ final class OnyxFilterPipeline: @unchecked Sendable {
         return LUTData(data: data, dimension: Float(dimension))
     }()
 
-    private let monoFilter = CIFilter.colorMatrix()
-    private let lutFilter = CIFilter.colorCube()
-    private let organicContrastCurve = CIFilter.toneCurve()
-    
-    nonisolated init() {
-        monoFilter.rVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
-        monoFilter.gVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
-        monoFilter.bVector = CIVector(x: 0.65, y: 0.35, z: 0.00, w: 0.0)
-        monoFilter.aVector = CIVector(x: 0.0, y: 0.0, z: 0.0, w: 1.0)
-        
-        if let lutData = Self.sharedLUT {
-            lutFilter.cubeDimension = lutData.dimension
-            lutFilter.cubeData = lutData.data
-        }
-        
-        // Apply a mild filmic S-Curve directly to the display-referred sRGB data
-        organicContrastCurve.point0 = CGPoint(x: 0.0, y: 0.0)
-        organicContrastCurve.point1 = CGPoint(x: 0.25, y: 0.22)
-        organicContrastCurve.point2 = CGPoint(x: 0.50, y: 0.50)
-        organicContrastCurve.point3 = CGPoint(x: 0.75, y: 0.82)
-        organicContrastCurve.point4 = CGPoint(x: 1.0, y: 1.0)
-    }
+    nonisolated init() {}
 
     nonisolated func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
         guard mode != .auto else { return image }
-        
         var processingImage = image
-        
+
         if mode == .mono {
-            monoFilter.inputImage = processingImage
-            processingImage = monoFilter.outputImage ?? processingImage
+            processingImage = processingImage.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: 0.35, y: 0.55, z: 0.10, w: 0.0),
+                "inputGVector": CIVector(x: 0.35, y: 0.55, z: 0.10, w: 0.0),
+                "inputBVector": CIVector(x: 0.35, y: 0.55, z: 0.10, w: 0.0),
+                "inputAVector": CIVector(x: 0.0, y: 0.0, z: 0.0, w: 1.0)
+            ])
         }
-        
+
         if mode == .zero {
-            if Self.sharedLUT != nil {
-                lutFilter.inputImage = processingImage
-                processingImage = lutFilter.outputImage ?? processingImage
+            if let lut = Self.sharedLUT {
+                processingImage = processingImage.applyingFilter("CIColorCube", parameters: [
+                    "inputCubeDimension": lut.dimension,
+                    "inputCubeData": lut.data
+                ])
             }
         }
-        
-        organicContrastCurve.inputImage = processingImage
-        return organicContrastCurve.outputImage ?? processingImage
+
+        return processingImage.applyingFilter("CIToneCurve", parameters: [
+            "inputPoint0": CIVector(x: 0.0, y: 0.0),
+            "inputPoint1": CIVector(x: 0.25, y: 0.22),
+            "inputPoint2": CIVector(x: 0.50, y: 0.50),
+            "inputPoint3": CIVector(x: 0.75, y: 0.82),
+            "inputPoint4": CIVector(x: 1.0, y: 1.0)
+        ])
     }
 }

@@ -160,7 +160,9 @@ final class CameraViewModel: ObservableObject {
         
         focusTimer?.invalidate()
         focusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-            self?.focusPointUI = nil
+            Task { @MainActor [weak self] in
+                self?.focusPointUI = nil
+            }
         }
     }
     

@@ -5,7 +5,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate, @unchecked Se
     private let manager = CLLocationManager()
     private let _currentLocation = OSAllocatedUnfairLock(initialState: CLLocation?(nil))
     
-    var currentLocation: CLLocation? {
+    nonisolated var currentLocation: CLLocation? {
         get { _currentLocation.withLock { $0 } }
         set { _currentLocation.withLock { $0 = newValue } }
     }
