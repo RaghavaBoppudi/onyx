@@ -10,11 +10,9 @@ struct CompositionGrid: Shape {
         let fractions: [CGFloat] = [1.0/3.0, 2.0/3.0]
         
         for fraction in fractions {
-            // Vertical geometry
             path.move(to: CGPoint(x: rect.width * fraction, y: 0))
             path.addLine(to: CGPoint(x: rect.width * fraction, y: rect.height))
             
-            // Horizontal geometry
             path.move(to: CGPoint(x: 0, y: rect.height * fraction))
             path.addLine(to: CGPoint(x: rect.width, y: rect.height * fraction))
         }
@@ -40,7 +38,7 @@ struct ViewfinderView: View {
                         withAnimation { viewModel.isSettingsOpen = false }
                     } else {
                         let viewfinderWidth = geometry.size.width - Theme.Layout.viewfinderInset
-                        let viewfinderHeight = viewfinderWidth * (4.0 / 3.0)
+                        let viewfinderHeight = viewfinderWidth * Theme.Layout.aspectRatio
                         
                         let normalizedX = location.y / viewfinderHeight
                         let normalizedY = 1.0 - (location.x / viewfinderWidth)
@@ -69,7 +67,7 @@ struct ViewfinderView: View {
             }
         }
         .animation(Theme.Physics.menuTransition, value: viewModel.scannedURL)
-        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+        .aspectRatio(1.0 / Theme.Layout.aspectRatio, contentMode: .fit)
         .frame(width: geometry.size.width)
         .clipped()
     }

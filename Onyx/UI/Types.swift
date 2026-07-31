@@ -7,9 +7,9 @@ enum ProcessingMode: String, CaseIterable, Equatable {
     
     var description: String {
         switch self {
-        case .zero: return "Natural color science.\nZero computational enhancement."
-        case .mono: return "True monochrome.\nZero computational enhancement."
-        case .auto: return "Standard iOS processing.\n For complex lighting conditions."
+        case .zero: return "Unprocessed RAW color data."
+        case .mono: return "Authentic monochrome. Natural sensor grain."
+        case .auto: return "Standard iOS computational pipeline."
         }
     }
 }

@@ -7,40 +7,29 @@ struct ShutterButton: View {
         Button(action: action) {
             Color.clear
         }
-        .buttonStyle(ShutterGlassStyle())
+        .buttonStyle(ShutterFlatStyle())
     }
 }
 
-private struct ShutterGlassStyle: ButtonStyle {
+private struct ShutterFlatStyle: ButtonStyle {
     let hapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
     func makeBody(configuration: Configuration) -> some View {
         ZStack {
-            // Base Glass Tier
+            // Outer Ring
             Circle()
-                .fill(Theme.Color.glassBackground)
-                .liquidGlass(shape: Circle(), isBordered: true)
+                .stroke(configuration.isPressed ? Theme.Color.Shutter.pressed : Theme.Color.Shutter.ring, lineWidth: Theme.Layout.Shutter.ringWidth)
                 .frame(width: Theme.Layout.Shutter.baseSize, height: Theme.Layout.Shutter.baseSize)
-                .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-                .animation(Theme.Physics.shutterBase, value: configuration.isPressed)
             
-            // Middle Accent Ring
+            // Inner Core
             Circle()
-                .stroke(Theme.Color.Shutter.gradient, lineWidth: 2.0)
-                .frame(width: Theme.Layout.Shutter.midSize, height: Theme.Layout.Shutter.midSize)
-                .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
-                .animation(Theme.Physics.shutterMid, value: configuration.isPressed)
-            
-            // Inner Brand Core
-            Circle()
-                .fill(Theme.Color.Shutter.gradient)
-                .frame(width: Theme.Layout.Shutter.topSize, height: Theme.Layout.Shutter.topSize)
-                .scaleEffect(configuration.isPressed ? 0.75 : 1.0)
-                .opacity(configuration.isPressed ? 0.8 : 1.0)
-                .animation(Theme.Physics.shutterTop, value: configuration.isPressed)
+                .fill(configuration.isPressed ? Theme.Color.Shutter.pressed : Theme.Color.Shutter.core)
+                .frame(width: Theme.Layout.Shutter.coreSize, height: Theme.Layout.Shutter.coreSize)
+                .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
         }
         .frame(width: Theme.Layout.Shutter.baseSize, height: Theme.Layout.Shutter.baseSize)
         .contentShape(Circle())
+        .animation(Theme.Physics.shutterPress, value: configuration.isPressed)
         .onChange(of: configuration.isPressed) { _, isPressed in
             if isPressed {
                 hapticGenerator.prepare()

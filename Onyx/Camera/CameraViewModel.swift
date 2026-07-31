@@ -8,7 +8,6 @@ final class CameraViewModel: ObservableObject {
     @Published var availableLenses: [Lens] = []
     @Published var currentLens: Lens?
     @Published var cameraPosition: AVCaptureDevice.Position = .back
-    @Published var isSwitchingLens = false
     @Published var isCapturing = false
     @Published var isFlashing = false
     @Published var scannedURL: URL?
@@ -21,11 +20,9 @@ final class CameraViewModel: ObservableObject {
     @Published var isFlashOn: Bool = false
     @Published var isSettingsOpen: Bool = false
     @Published var focusPointUI: CGPoint?
-    @Published var iconOrientation: Angle = .zero
     
-    @Published var cameraSnapshot: CGImage? = nil
-    @Published var flipDegrees: Double = 0.0
-    @Published var isFlipping: Bool = false
+    // TODO: Bind to CoreMotion or UIDevice orientation notifications
+    @Published var iconOrientation: Angle = .zero
     
     private let engine = CameraEngine()
     private var qrClearTask: Task<Void, Never>?
@@ -67,6 +64,16 @@ final class CameraViewModel: ObservableObject {
             Task { @MainActor [weak self] in self?.isCapturing = false }
         }
         
+        await engine.setOnFocusLocked { @Sendable [weak self] in
+            Task { @MainActor [weak self] in
+                if self?.focusPointUI != nil {
+                    let haptic = UIImpactFeedbackGenerator(style: .medium)
+                    haptic.prepare()
+                    haptic.impactOccurred()
+                }
+            }
+        }
+        
         if await engine.start() {
             self.availableLenses = await engine.availableLenses
             self.currentLens = await engine.currentLens
@@ -98,54 +105,51 @@ final class CameraViewModel: ObservableObject {
     }
     
     func toggleCameraPosition() {
-        guard !isFlipping, let currentCIImage = frameReceiver?.currentImage else { return }
-        
-        let context = CIContext(options: [.cacheIntermediates: false])
-        cameraSnapshot = context.createCGImage(currentCIImage, from: currentCIImage.extent)
-        isFlipping = true
-        flipDegrees = 0.0
-        isSwitchingLens = true
-        
-        cameraPosition = cameraPosition == .back ? .front : .back
-        
-        Task {
-            if let newLens = await engine.switchCameraPosition(to: cameraPosition) {
-                currentLens = newLens
-                availableLenses = await engine.availableLenses
-            }
+            // Enforce state reset on primary action
+            isSettingsOpen = false
             
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            await MainActor.run {
-                cameraSnapshot = nil
-                isFlipping = false
-                flipDegrees = 0.0
-                isSwitchingLens = false
+            cameraPosition = cameraPosition == .back ? .front : .back
+            
+            Task {
+                if let newLens = await engine.switchCameraPosition(to: cameraPosition) {
+                    let newLenses = await engine.availableLenses
+                    
+                    await MainActor.run {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            self.availableLenses = newLenses
+                            self.currentLens = newLens
+                        }
+                    }
+                }
             }
         }
-    }
     
     func selectLens(_ lens: Lens) {
         guard lens != currentLens else { return }
-        isSwitchingLens = true
         currentLens = lens
         
         Task {
             await engine.selectLens(lens)
-            isSwitchingLens = false
         }
     }
     
     func capturePhoto() {
-        guard !isCapturing else { return }
-        isCapturing = true
-        let flash = isFlashOn
-        
-        triggerFlash()
-        
-        Task.detached(priority: .userInitiated) { [engine] in
-            await engine.capturePhoto(flashEnabled: flash)
+            guard !isCapturing else { return }
+            
+            // Enforce state reset on primary action
+            isSettingsOpen = false
+            
+            isCapturing = true
+            let flash = isFlashOn
+            
+            triggerFlash()
+            
+            Task.detached(priority: .userInitiated) { [engine] in
+                await engine.capturePhoto(flashEnabled: flash)
+            }
         }
-    }
     
     func setProcessingPipeline(mode: ProcessingMode) {
         Task {

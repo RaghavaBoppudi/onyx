@@ -5,46 +5,25 @@ import AVFoundation
 
 final class OnyxFilterPipeline: @unchecked Sendable {
     
-    private struct LUTData: Sendable {
-        let data: Data
-        let dimension: Float
+    private struct LensCalibration: Sendable {
+        let saturation: Float
+        let whitePoint: CIColor
     }
     
-    private nonisolated static let sharedLUT: LUTData? = {
-        guard let url = Bundle.main.url(forResource: "NaturalLUT", withExtension: "cube"),
-              let content = try? String(contentsOf: url, encoding: .utf8) else {
-            return nil
-        }
-        
-        var dimension = 0
-        var cubeData = [Float]()
-        let lines = content.components(separatedBy: .newlines)
-        
-        for line in lines {
-            if line.hasPrefix("LUT_3D_SIZE") {
-                let parts = line.split(separator: " ")
-                if parts.count == 2, let dim = Int(parts[1]) {
-                    dimension = dim
-                }
-            }
-            
-            let components = line.split(separator: " ")
-            if components.count == 3,
-               let r = Float(components[0]),
-               let g = Float(components[1]),
-               let b = Float(components[2]) {
-                cubeData.append(r)
-                cubeData.append(g)
-                cubeData.append(b)
-                cubeData.append(1.0)
-            }
-        }
-        
-        guard dimension > 0, cubeData.count == dimension * dimension * dimension * 4 else { return nil }
-        
-        let data = cubeData.withUnsafeBufferPointer { Data(buffer: $0) }
-        return LUTData(data: data, dimension: Float(dimension))
-    }()
+    private let hardwareCalibrations: [AVCaptureDevice.DeviceType: LensCalibration] = [
+        .builtInWideAngleCamera: LensCalibration(
+            saturation: 1.0,
+            whitePoint: CIColor(red: 1.0, green: 0.98, blue: 0.96)
+        ),
+        .builtInUltraWideCamera: LensCalibration(
+            saturation: 1.0,
+            whitePoint: CIColor(red: 1.0, green: 1.0, blue: 1.0)
+        ),
+        .builtInTelephotoCamera: LensCalibration(
+            saturation: 1.0,
+            whitePoint: CIColor(red: 1.0, green: 1.0, blue: 1.0)
+        )
+    ]
 
     nonisolated init() {}
 
@@ -62,19 +41,24 @@ final class OnyxFilterPipeline: @unchecked Sendable {
         }
 
         if mode == .zero {
-            if let lut = Self.sharedLUT {
-                processingImage = processingImage.applyingFilter("CIColorCube", parameters: [
-                    "inputCubeDimension": lut.dimension,
-                    "inputCubeData": lut.data
-                ])
-            }
+            let calibration = hardwareCalibrations[deviceType] ?? hardwareCalibrations[.builtInWideAngleCamera]!
+            
+            processingImage = processingImage.applyingFilter("CIColorControls", parameters: [
+                "inputSaturation": calibration.saturation,
+                "inputContrast": 1.0,
+                "inputBrightness": 0.0
+            ])
+            
+            processingImage = processingImage.applyingFilter("CIWhitePointAdjust", parameters: [
+                "inputColor": calibration.whitePoint
+            ])
         }
 
         return processingImage.applyingFilter("CIToneCurve", parameters: [
             "inputPoint0": CIVector(x: 0.0, y: 0.0),
-            "inputPoint1": CIVector(x: 0.25, y: 0.22),
+            "inputPoint1": CIVector(x: 0.25, y: 0.24),
             "inputPoint2": CIVector(x: 0.50, y: 0.50),
-            "inputPoint3": CIVector(x: 0.75, y: 0.82),
+            "inputPoint3": CIVector(x: 0.75, y: 0.76),
             "inputPoint4": CIVector(x: 1.0, y: 1.0)
         ])
     }

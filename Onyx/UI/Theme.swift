@@ -6,28 +6,20 @@ enum Theme {
         static let background = SwiftUI.Color.black
         static let text = SwiftUI.Color.white
         
-        static let glassBackground = SwiftUI.Color.black.opacity(0.4)
-        static let glassBorderSubtle = SwiftUI.Color.white.opacity(0.2)
-        static let glassBorderStrong = SwiftUI.Color.white.opacity(0.4)
+        static let glassBackground = SwiftUI.Color.white.opacity(0.15)
+        static let glassBorderSubtle = SwiftUI.Color.white.opacity(0.3)
+        static let glassBorderStrong = SwiftUI.Color.white.opacity(0.5)
         
         enum Shutter {
-            static let gradient = LinearGradient(
-                stops: [
-                    .init(color: SwiftUI.Color(red: 1.0, green: 0.22, blue: 0.22), location: 0.0),
-                    .init(color: SwiftUI.Color(red: 0.95, green: 0.42, blue: 0.08), location: 0.4),
-                    .init(color: SwiftUI.Color(red: 0.45, green: 0.22, blue: 0.02), location: 0.75),
-                    .init(color: SwiftUI.Color(red: 0.08, green: 0.05, blue: 0.03), location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            static let strokeBase = SwiftUI.Color.black.opacity(0.6)
-            static let strokeMid = SwiftUI.Color.black.opacity(0.5)
-            static let strokeTop = SwiftUI.Color.black.opacity(0.4)
+            static let core = SwiftUI.Color(red: 1.0, green: 0.4, blue: 0.0)
+            static let ring = SwiftUI.Color.white.opacity(0.8)
+            static let pressed = SwiftUI.Color.white
         }
     }
     
     enum Layout {
+        static let aspectRatio: CGFloat = 4.0 / 3.0
+        
         static let controlWidth: CGFloat = 64
         static let controlHeight: CGFloat = 36
         static let cornerRadius: CGFloat = 24
@@ -38,7 +30,7 @@ enum Theme {
         static let paddingLarge: CGFloat = 32
         
         static let qrBottomPadding: CGFloat = 80
-        static let viewfinderInset: CGFloat = 20
+        static let viewfinderInset: CGFloat = 12
         static let lensSelectorOffset: CGFloat = 24
         static let focusReticleSize: CGFloat = 72
 
@@ -52,9 +44,9 @@ enum Theme {
         }
         
         enum Shutter {
-            static let baseSize: CGFloat = 104
-            static let midSize: CGFloat = 80
-            static let topSize: CGFloat = 56
+            static let baseSize: CGFloat = 88
+            static let coreSize: CGFloat = 64
+            static let ringWidth: CGFloat = 4
         }
     }
     
@@ -73,8 +65,6 @@ enum Theme {
         static let lensDragActive = Animation.interactiveSpring(response: 0.15, dampingFraction: 0.8)
         static let lensDragEnd = Animation.spring(response: 0.4, dampingFraction: 0.6)
         
-        static let shutterBase = Animation.spring(response: 0.40, dampingFraction: 0.6)
-        static let shutterMid = Animation.spring(response: 0.28, dampingFraction: 0.65)
-        static let shutterTop = Animation.spring(response: 0.15, dampingFraction: 0.7)
+        static let shutterPress = Animation.interactiveSpring(response: 0.2, dampingFraction: 0.6)
     }
 }

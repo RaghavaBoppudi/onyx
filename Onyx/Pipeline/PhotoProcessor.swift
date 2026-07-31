@@ -40,12 +40,17 @@ actor PhotoProcessor {
         } else {
             guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
             
+            // Retain natural noise characteristics
             rawFilter.luminanceNoiseReductionAmount = 0.0
             rawFilter.colorNoiseReductionAmount = 0.0
             rawFilter.sharpnessAmount = 0.1
+            
+            // Disable AI and spatial mapping (Smart HDR)
             rawFilter.extendedDynamicRangeAmount = 0.0
             rawFilter.localToneMapAmount = 0.0
-            rawFilter.boostAmount = 0.0
+            
+            // Allow baseline gamma boost to translate linear data for display. Do not set this to 0.0.
+            rawFilter.boostAmount = 1.0
             
             guard let baseImage = rawFilter.outputImage else { return }
             
@@ -53,9 +58,8 @@ actor PhotoProcessor {
             let finalImage = pipeline.apply(to: baseImage, mode: mode, deviceType: deviceType, iso: iso)
             
             guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-                  let renderedData = context.heifRepresentation(
+                  let renderedData = context.jpegRepresentation(
                       of: finalImage,
-                      format: .RGBA8,
                       colorSpace: colorSpace,
                       options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
                   ) else { return }

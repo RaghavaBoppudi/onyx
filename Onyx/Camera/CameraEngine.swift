@@ -20,7 +20,6 @@ actor CameraEngine {
     var currentLens: Lens?
     var currentMode: ProcessingMode = .mono
     
-    // Default to 0.0 EV to maximize signal-to-noise ratio
     var exposureCompensation: Float = 0.0
     
     private var deviceInput: AVCaptureDeviceInput?
@@ -28,6 +27,7 @@ actor CameraEngine {
     private var isConfigured = false
     private var notificationTask: Task<Void, Never>?
     private var pressureObservation: NSKeyValueObservation?
+    private var focusObservation: NSKeyValueObservation?
 
     func setFrameReceiver(_ receiver: FrameReceiver?) {
         captureDelegate.frameReceiver = receiver
@@ -45,10 +45,14 @@ actor CameraEngine {
         captureDelegate.onQRCodeScanned = callback
     }
     
+    func setOnFocusLocked(_ callback: @escaping @Sendable () -> Void) {
+        captureDelegate.onFocusLocked = callback
+    }
+    
     func setProcessingPipeline(mode: ProcessingMode) {
         self.currentMode = mode
         captureDelegate.processingMode = mode
-        self.exposureCompensation = 0.0
+        self.exposureCompensation = -0.6
         applyCurrentExposureBias()
     }
     
@@ -166,6 +170,7 @@ actor CameraEngine {
         if let device = deviceInput?.device {
             updatePhotoOutputDimensions(for: device)
             observeSystemPressure(for: device)
+            observeFocus(for: device)
         }
         
         notificationTask?.cancel()
@@ -188,6 +193,8 @@ actor CameraEngine {
         notificationTask = nil
         pressureObservation?.invalidate()
         pressureObservation = nil
+        focusObservation?.invalidate()
+        focusObservation = nil
         sessionQueue.async { [weak session] in
             if let s = session, s.isRunning { s.stopRunning() }
         }
@@ -223,6 +230,11 @@ actor CameraEngine {
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
             if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = true }
+            
+            // Allow hardware to prioritize capture speed over complex ISP tuning
+            if #available(iOS 17.0, *) {
+                photoOutput.isResponsiveCaptureEnabled = photoOutput.isResponsiveCaptureSupported
+            }
         }
     }
     
@@ -238,10 +250,7 @@ actor CameraEngine {
     
     func switchCameraPosition(to position: AVCaptureDevice.Position) -> Lens? {
         availableLenses = CameraHardware.availableLenses(for: position)
-        
-        // Universally prefer the 1x (Wide Angle) lens across all camera positions
-        let newLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera })
-            ?? availableLenses.first
+        let newLens = availableLenses.first(where: { $0.label == "1x" }) ?? availableLenses.first
             
         if let lens = newLens { selectLens(lens) }
         return newLens
@@ -276,8 +285,10 @@ actor CameraEngine {
         rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil)
         applySettings(to: newDevice, inheritedChromaticity: currentChromaticity)
         session.commitConfiguration()
+        
         updatePhotoOutputDimensions(for: newDevice)
         observeSystemPressure(for: newDevice)
+        observeFocus(for: newDevice)
         
         photoOutput.isAppleProRAWEnabled = photoOutput.isAppleProRAWSupported
     }
@@ -299,6 +310,16 @@ actor CameraEngine {
                 device.unlockForConfiguration()
             } catch {
                 print("Failed to lock device for thermal throttling.")
+            }
+        }
+    }
+    
+    private func observeFocus(for device: AVCaptureDevice) {
+        focusObservation?.invalidate()
+        focusObservation = device.observe(\.isAdjustingFocus, options: [.old, .new]) { [weak self] device, change in
+            guard let old = change.oldValue, let new = change.newValue, old == true, new == false else { return }
+            Task { [weak self] in
+                await self?.captureDelegate.onFocusLocked?()
             }
         }
     }
@@ -391,6 +412,11 @@ actor CameraEngine {
         settings.isAutoRedEyeReductionEnabled = false
         settings.flashMode = flashEnabled ? .on : .off
         
+        // Severely cut down shutter latency at the expense of multi-frame fusion quality
+        if #available(iOS 16.0, *) {
+            settings.photoQualityPrioritization = .speed
+        }
+        
         captureDelegate.currentLocation = locationProvider.currentLocation
         captureDelegate.processingMode = currentMode
         photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
@@ -403,6 +429,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _onCapture = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onCaptureComplete = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
+    private let _onFocusLocked = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.mono)
     private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
     
@@ -423,6 +450,11 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     nonisolated var onQRCodeScanned: (@Sendable (String) -> Void)? {
         get { _onQRCodeScanned.withLock { $0 } }
         set { _onQRCodeScanned.withLock { $0 = newValue } }
+    }
+    
+    nonisolated var onFocusLocked: (@Sendable () -> Void)? {
+        get { _onFocusLocked.withLock { $0 } }
+        set { _onFocusLocked.withLock { $0 = newValue } }
     }
     
     nonisolated var frameReceiver: FrameReceiver? {
