@@ -38,7 +38,7 @@ actor PhotoProcessor {
         do {
             let values = try fileURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             if let availableBytes = values.volumeAvailableCapacityForImportantUsage {
-                return availableBytes > 500_000_000 // 500 MB hard limit
+                return availableBytes > 500_000_000
             }
         } catch {
             return true
@@ -50,9 +50,7 @@ actor PhotoProcessor {
         guard hasSufficientStorage() else { throw ProcessorError.insufficientStorage }
         
         let backgroundTaskID = await MainActor.run {
-            UIApplication.shared.beginBackgroundTask(withName: "com.onyx.PhotoProcessing") {
-                // Task expired
-            }
+            UIApplication.shared.beginBackgroundTask(withName: "com.onyx.PhotoProcessing") { }
         }
         
         defer {
@@ -63,40 +61,37 @@ actor PhotoProcessor {
         if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
         guard status == .authorized || status == .limited else { return }
 
-        let dataToSave: Data
+        guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
         
-        if mode == .auto {
-            dataToSave = photoData
-        } else {
-            guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
-            
-            rawFilter.luminanceNoiseReductionAmount = 0.0
-            rawFilter.colorNoiseReductionAmount = 0.0
-            rawFilter.sharpnessAmount = 0.1
-            rawFilter.extendedDynamicRangeAmount = 0.0
-            rawFilter.localToneMapAmount = 0.0
-            rawFilter.boostAmount = 1.0
-            
-            guard let baseImage = rawFilter.outputImage else { return }
-            
-            let pipeline = OnyxFilterPipeline()
-            let finalImage = pipeline.apply(to: baseImage, mode: mode, deviceType: deviceType, iso: iso)
-            
-            guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-                  let renderedData = context.jpegRepresentation(
-                      of: finalImage,
-                      colorSpace: colorSpace,
-                      options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
-                  ) else { return }
-            
-            dataToSave = renderedData
-        }
+        // Suppress digital chroma blotches, retain organic luminance grain
+        rawFilter.luminanceNoiseReductionAmount = 0.0
+        rawFilter.colorNoiseReductionAmount = 0.5
+        
+        // Minimal sharpness to avoid computational halos
+        rawFilter.sharpnessAmount = 0.2
+        rawFilter.extendedDynamicRangeAmount = 0.0
+        
+        // Industry standard natural baseline: slight compression without HDR flatness
+        rawFilter.localToneMapAmount = 0.3
+        rawFilter.boostAmount = 1.0
+        
+        guard let baseImage = rawFilter.outputImage else { return }
+        
+        let pipeline = OnyxFilterPipeline()
+        let finalImage = pipeline.apply(to: baseImage, mode: mode, deviceType: deviceType, iso: iso)
+        
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let renderedData = context.jpegRepresentation(
+                  of: finalImage,
+                  colorSpace: colorSpace,
+                  options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
+              ) else { return }
         
         do {
             let album = try await getOrCreateOnyxAlbum()
             try await PHPhotoLibrary.shared().performChanges {
                 let assetRequest = PHAssetCreationRequest.forAsset()
-                assetRequest.addResource(with: .photo, data: dataToSave, options: nil)
+                assetRequest.addResource(with: .photo, data: renderedData, options: nil)
                 if let location = location { assetRequest.location = location }
                 
                 guard let assetPlaceholder = assetRequest.placeholderForCreatedAsset else { return }

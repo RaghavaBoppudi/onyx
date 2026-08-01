@@ -3,7 +3,7 @@ import AVKit
 
 struct ContentView: View {
     @StateObject private var viewModel = CameraViewModel()
-    private let uiHaptic = UIImpactFeedbackGenerator(style: .light)
+    @AppStorage("appTheme") private var appTheme: AppTheme = .system
     
     var body: some View {
         GeometryReader { geometry in
@@ -12,7 +12,9 @@ struct ContentView: View {
             
             ZStack {
                 VStack(spacing: 0) {
-                    Spacer()
+                    
+                    Spacer(minLength: 0)
+                        .frame(maxHeight: viewModel.isSettingsOpen ? Theme.Layout.paddingStandard : .infinity)
                     
                     ViewfinderView(
                         viewModel: viewModel,
@@ -22,103 +24,95 @@ struct ContentView: View {
                     )
                     .frame(width: viewfinderWidth, height: viewfinderHeight)
                     .cornerRadius(Theme.Layout.cornerRadius)
-                    .padding(.bottom, Theme.Layout.paddingStandard)
                     
-                    if viewModel.availableLenses.count > 1 {
-                        LensSelectorView(
-                            availableLenses: viewModel.availableLenses,
-                            currentLens: viewModel.currentLens,
-                            iconOrientation: viewModel.iconOrientation,
-                            onSelectLens: { lens in viewModel.selectLens(lens) }
-                        )
-                        .padding(.bottom, Theme.Layout.paddingStandard)
-                        .opacity(viewModel.isSettingsOpen ? 0 : 1)
-                        .animation(.easeInOut(duration: 0.2), value: viewModel.isSettingsOpen)
-                    }
+                    Spacer(minLength: Theme.Layout.paddingStandard)
                     
-                    ZStack {
-                        HStack(alignment: .center) {
-                            HStack(spacing: Theme.Layout.paddingStandard) {
-                                Button(action: {
-                                    uiHaptic.impactOccurred()
-                                    viewModel.toggleGrid()
-                                }) {
-                                    ZStack(alignment: .bottomTrailing) {
-                                        Image(systemName: "rectangle.split.3x3")
-                                            .font(.system(size: Theme.Typography.iconStandard, weight: .semibold))
+                    VStack(spacing: 0) {
+                        if viewModel.availableLenses.count > 1 && !viewModel.isSettingsOpen {
+                            LensSelectorView(
+                                availableLenses: viewModel.availableLenses,
+                                currentLens: viewModel.currentLens,
+                                iconOrientation: viewModel.iconOrientation,
+                                onSelectLens: { lens in viewModel.selectLens(lens) }
+                            )
+                            .padding(.bottom, Theme.Layout.paddingStandard)
+                            .transition(.opacity)
+                        }
+                        
+                        ZStack {
+                            if !viewModel.isSettingsOpen {
+                                HStack(alignment: .center) {
+                                    HStack(spacing: Theme.Layout.paddingStandard) {
+                                        Button(action: {
+                                            HapticManager.shared.playLight()
+                                            viewModel.toggleGrid()
+                                        }) {
+                                            Image(systemName: "rectangle.split.3x3")
+                                                .font(.system(size: Theme.Typography.iconStandard, weight: .semibold))
+                                                .foregroundColor(viewModel.gridMode != .none ? Theme.Color.text : Theme.Color.text.opacity(0.5))
+                                                .frame(width: 44, height: 44)
+                                                .rotationEffect(viewModel.iconOrientation)
+                                        }
                                         
-                                        if viewModel.gridMode != .none {
-                                            Text("\(viewModel.gridMode.rawValue)")
-                                                .font(.system(size: 10, weight: .bold))
-                                                .padding(3)
-                                                .background(Circle().fill(Theme.Color.background))
-                                                .offset(x: 6, y: 6)
+                                        Button(action: {
+                                            HapticManager.shared.playLight()
+                                            viewModel.isFlashOn.toggle()
+                                        }) {
+                                            Image(systemName: viewModel.isFlashOn ? "bolt.fill" : "bolt.slash.fill")
+                                                .font(.system(size: Theme.Typography.iconStandard, weight: .semibold))
+                                                .foregroundColor(viewModel.isFlashOn ? Theme.Color.text : Theme.Color.text.opacity(0.5))
+                                                .frame(width: 44, height: 44)
+                                                .rotationEffect(viewModel.iconOrientation)
                                         }
                                     }
-                                    .foregroundColor(viewModel.gridMode != .none ? Theme.Color.text : Theme.Color.text.opacity(0.5))
-                                    .frame(width: 44, height: 44)
-                                    .rotationEffect(viewModel.iconOrientation)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    
+                                    ShutterButton(isCapturing: viewModel.isCapturing, action: { viewModel.capturePhoto() })
+                                        .layoutPriority(1)
+                                    
+                                    HStack(spacing: Theme.Layout.paddingStandard) {
+                                        Button(action: {
+                                            HapticManager.shared.playLight()
+                                            viewModel.toggleCameraPosition()
+                                        }) {
+                                            Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
+                                                .font(.system(size: Theme.Typography.iconStandard, weight: .semibold))
+                                                .foregroundColor(Theme.Color.text)
+                                                .frame(width: 44, height: 44)
+                                                .rotationEffect(viewModel.iconOrientation)
+                                        }
+                                        
+                                        Button(action: {
+                                            HapticManager.shared.playLight()
+                                            withAnimation(Theme.Physics.menuTransition) { viewModel.isSettingsOpen.toggle() }
+                                        }) {
+                                            Image(systemName: "gearshape.fill")
+                                                .font(.system(size: Theme.Typography.iconStandard, weight: .semibold))
+                                                .foregroundColor(viewModel.isSettingsOpen ? Theme.Color.background : Theme.Color.text)
+                                                .frame(width: 44, height: 44)
+                                                .background(Circle().fill(viewModel.isSettingsOpen ? Theme.Color.text : Color.clear))
+                                                .rotationEffect(viewModel.iconOrientation)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
                                 }
-                                
-                                Button(action: {
-                                    uiHaptic.impactOccurred()
-                                    viewModel.isFlashOn.toggle()
-                                }) {
-                                    Image(systemName: viewModel.isFlashOn ? "bolt.fill" : "bolt.slash.fill")
-                                        .font(.system(size: Theme.Typography.iconStandard, weight: .semibold))
-                                        .foregroundColor(viewModel.isFlashOn ? Theme.Color.text : Theme.Color.text.opacity(0.5))
-                                        .frame(width: 44, height: 44)
-                                        .rotationEffect(viewModel.iconOrientation)
-                                }
+                                .transition(.opacity)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                             
-                            ShutterButton(action: { viewModel.capturePhoto() })
-                                .layoutPriority(1)
-                                .disabled(viewModel.isCapturing)
-                                .opacity(viewModel.isCapturing ? 0.5 : 1.0)
-                            
-                            HStack(spacing: Theme.Layout.paddingStandard) {
-                                Button(action: {
-                                    uiHaptic.impactOccurred()
-                                    viewModel.toggleCameraPosition()
-                                }) {
-                                    Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
-                                        .font(.system(size: Theme.Typography.iconStandard, weight: .semibold))
-                                        .foregroundColor(Theme.Color.text)
-                                        .frame(width: 44, height: 44)
-                                        .rotationEffect(viewModel.iconOrientation)
-                                }
-                                
-                                Button(action: {
-                                    uiHaptic.impactOccurred()
-                                    withAnimation(Theme.Physics.menuTransition) { viewModel.isSettingsOpen.toggle() }
-                                }) {
-                                    Image(systemName: "gearshape.fill")
-                                        .font(.system(size: Theme.Typography.iconStandard, weight: .semibold))
-                                        .foregroundColor(viewModel.isSettingsOpen ? Theme.Color.background : Theme.Color.text)
-                                        .frame(width: 44, height: 44)
-                                        .background(Circle().fill(viewModel.isSettingsOpen ? Theme.Color.text : Color.clear))
-                                        .rotationEffect(viewModel.iconOrientation)
-                                }
+                            if viewModel.isSettingsOpen {
+                                SettingsDropdownView(
+                                    selectedMode: $viewModel.processingMode,
+                                    isOpen: $viewModel.isSettingsOpen
+                                )
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        .opacity(viewModel.isSettingsOpen ? 0 : 1)
-                        .allowsHitTesting(!viewModel.isSettingsOpen)
-                        .animation(Theme.Physics.menuTransition, value: viewModel.isSettingsOpen)
-                        
-                        if viewModel.isSettingsOpen {
-                            SettingsDropdownView(
-                                selectedMode: $viewModel.processingMode,
-                                isOpen: $viewModel.isSettingsOpen
-                            )
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
                     }
                     .padding(.horizontal, Theme.Layout.viewfinderInset)
                     .padding(.bottom, Theme.Layout.paddingLarge)
+                    
                 }
+                .frame(width: geometry.size.width)
                 
                 if !viewModel.isAuthorized {
                     Theme.Color.background.ignoresSafeArea()
@@ -164,6 +158,7 @@ struct ContentView: View {
                 }
             }
             .background(Theme.Color.background.edgesIgnoringSafeArea(.all))
+            .preferredColorScheme(appTheme.colorScheme)
             .alert("STORAGE FULL", isPresented: $viewModel.showStorageAlert) {
                 Button("OK", role: .cancel) { }
             } message: {

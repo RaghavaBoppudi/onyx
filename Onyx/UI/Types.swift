@@ -1,15 +1,14 @@
 import Foundation
+import SwiftUI
 
 enum ProcessingMode: String, CaseIterable, Equatable {
     case mono = "MONO"
     case zero = "ZERO"
-    case auto = "AUTO"
     
     var description: String {
         switch self {
         case .zero: return "Unprocessed RAW color data."
         case .mono: return "Authentic monochrome. Natural sensor grain."
-        case .auto: return "Standard iOS computational pipeline."
         }
     }
 }
@@ -22,6 +21,20 @@ enum GridMode: Int, CaseIterable, Equatable {
         switch self {
         case .none: self = .thirds
         case .thirds: self = .none
+        }
+    }
+}
+
+enum AppTheme: String, CaseIterable, Equatable {
+    case system = "SYSTEM"
+    case light = "LIGHT"
+    case dark = "DARK"
+    
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
         }
     }
 }

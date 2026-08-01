@@ -409,36 +409,28 @@ actor CameraEngine {
     }
     
     func capturePhoto(flashEnabled: Bool) {
-        if let photoConnection = photoOutput.connection(with: .video), let coordinator = rotationCoordinator {
-            let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
-            if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
-        }
-        
-        let settings: AVCapturePhotoSettings
-        let isZero = (currentMode == .zero || currentMode == .mono)
-        
-        if isZero {
-            guard let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else { return }
-            settings = AVCapturePhotoSettings(rawPixelFormatType: bayerFormat)
-        } else {
-            if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
-                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
-            } else {
-                settings = AVCapturePhotoSettings()
+            if let photoConnection = photoOutput.connection(with: .video), let coordinator = rotationCoordinator {
+                let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+                if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
             }
+            
+            guard let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else {
+                print("Error: Sensor does not support Bayer RAW capture.")
+                return
+            }
+            
+            let settings = AVCapturePhotoSettings(rawPixelFormatType: bayerFormat)
+            settings.isAutoRedEyeReductionEnabled = false
+            settings.flashMode = flashEnabled ? .on : .off
+            
+            if #available(iOS 16.0, *) {
+                settings.photoQualityPrioritization = .speed
+            }
+            
+            captureDelegate.currentLocation = locationProvider.currentLocation
+            captureDelegate.processingMode = currentMode
+            photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
         }
-        
-        settings.isAutoRedEyeReductionEnabled = false
-        settings.flashMode = flashEnabled ? .on : .off
-        
-        if #available(iOS 16.0, *) {
-            settings.photoQualityPrioritization = .speed
-        }
-        
-        captureDelegate.currentLocation = locationProvider.currentLocation
-        captureDelegate.processingMode = currentMode
-        photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
-    }
 }
 
 final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate, AVCaptureMetadataOutputObjectsDelegate, @unchecked Sendable {

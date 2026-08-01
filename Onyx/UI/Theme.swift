@@ -12,8 +12,8 @@ enum Theme {
         
         enum Shutter {
             static let core = accent
-            static let ring = SwiftUI.Color.black.opacity(0.15)
-            static let pressed = SwiftUI.Color.black
+            static let ring = Theme.Color.text.opacity(0.2)
+            static let pressed = Theme.Color.text
         }
     }
     
@@ -44,7 +44,7 @@ enum Theme {
         }
         
         enum Shutter {
-            static let baseSize: CGFloat = 88
+            static let baseSize: CGFloat = 76
             static let coreSize: CGFloat = 64
             static let ringWidth: CGFloat = 4
         }

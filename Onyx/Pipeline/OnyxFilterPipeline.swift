@@ -12,15 +12,15 @@ final class OnyxFilterPipeline: @unchecked Sendable {
     
     private let hardwareCalibrations: [AVCaptureDevice.DeviceType: LensCalibration] = [
         .builtInWideAngleCamera: LensCalibration(
-            saturation: 1.0,
+            saturation: 1.05,
             whitePoint: CIColor(red: 1.0, green: 0.98, blue: 0.96)
         ),
         .builtInUltraWideCamera: LensCalibration(
-            saturation: 1.0,
+            saturation: 1.05,
             whitePoint: CIColor(red: 1.0, green: 1.0, blue: 1.0)
         ),
         .builtInTelephotoCamera: LensCalibration(
-            saturation: 1.0,
+            saturation: 1.05,
             whitePoint: CIColor(red: 1.0, green: 1.0, blue: 1.0)
         )
     ]
@@ -28,7 +28,6 @@ final class OnyxFilterPipeline: @unchecked Sendable {
     nonisolated init() {}
 
     nonisolated func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
-        guard mode != .auto else { return image }
         var processingImage = image
 
         if mode == .mono {
@@ -54,12 +53,18 @@ final class OnyxFilterPipeline: @unchecked Sendable {
             ])
         }
 
+        // Natural Processing Curve:
+        // Point 0: Lifted black point (no pure blacks)
+        // Point 1: Lifted shadows to retain data
+        // Point 2: Linear midtone anchor
+        // Point 3: Slight highlight pop
+        // Point 4: Highlight roll-off to prevent clipping
         return processingImage.applyingFilter("CIToneCurve", parameters: [
-            "inputPoint0": CIVector(x: 0.0, y: 0.0),
-            "inputPoint1": CIVector(x: 0.25, y: 0.24),
+            "inputPoint0": CIVector(x: 0.0, y: 0.03),
+            "inputPoint1": CIVector(x: 0.25, y: 0.27),
             "inputPoint2": CIVector(x: 0.50, y: 0.50),
-            "inputPoint3": CIVector(x: 0.75, y: 0.76),
-            "inputPoint4": CIVector(x: 1.0, y: 1.0)
+            "inputPoint3": CIVector(x: 0.75, y: 0.78),
+            "inputPoint4": CIVector(x: 1.0, y: 0.96)
         ])
     }
 }
