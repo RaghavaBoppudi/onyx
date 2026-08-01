@@ -11,6 +11,8 @@ final class CameraViewModel: ObservableObject {
     @Published var isCapturing = false
     @Published var isFlashing = false
     @Published var scannedURL: URL?
+    @Published var isAuthorized: Bool = true
+    @Published var showStorageAlert: Bool = false
     
     @Published var processingMode: ProcessingMode = .mono {
         didSet { setProcessingPipeline(mode: processingMode) }
@@ -21,7 +23,6 @@ final class CameraViewModel: ObservableObject {
     @Published var isSettingsOpen: Bool = false
     @Published var focusPointUI: CGPoint?
     
-    // TODO: Bind to CoreMotion or UIDevice orientation notifications
     @Published var iconOrientation: Angle = .zero
     
     private let engine = CameraEngine()
@@ -36,15 +37,11 @@ final class CameraViewModel: ObservableObject {
     
     private func setupLifecycleObservers() {
         NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
-            .sink { [weak self] _ in
-                Task { await self?.stop() }
-            }
+            .sink { [weak self] _ in Task { await self?.stop() } }
             .store(in: &cancellables)
             
         NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
-            .sink { [weak self] _ in
-                Task { await self?.start() }
-            }
+            .sink { [weak self] _ in Task { await self?.start() } }
             .store(in: &cancellables)
     }
     
@@ -74,7 +71,14 @@ final class CameraViewModel: ObservableObject {
             }
         }
         
-        if await engine.start() {
+        await engine.setOnStorageError { @Sendable [weak self] in
+            Task { @MainActor [weak self] in self?.showStorageAlert = true }
+        }
+        
+        let success = await engine.start()
+        self.isAuthorized = success
+        
+        if success {
             self.availableLenses = await engine.availableLenses
             self.currentLens = await engine.currentLens
         }
@@ -105,68 +109,54 @@ final class CameraViewModel: ObservableObject {
     }
     
     func toggleCameraPosition() {
-            // Enforce state reset on primary action
-            isSettingsOpen = false
-            
-            cameraPosition = cameraPosition == .back ? .front : .back
-            
-            Task {
-                if let newLens = await engine.switchCameraPosition(to: cameraPosition) {
-                    let newLenses = await engine.availableLenses
-                    
-                    await MainActor.run {
-                        var transaction = Transaction()
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) {
-                            self.availableLenses = newLenses
-                            self.currentLens = newLens
-                        }
+        isSettingsOpen = false
+        cameraPosition = cameraPosition == .back ? .front : .back
+        
+        Task {
+            if let newLens = await engine.switchCameraPosition(to: cameraPosition) {
+                let newLenses = await engine.availableLenses
+                
+                await MainActor.run {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        self.availableLenses = newLenses
+                        self.currentLens = newLens
                     }
                 }
             }
         }
+    }
     
     func selectLens(_ lens: Lens) {
         guard lens != currentLens else { return }
         currentLens = lens
-        
-        Task {
-            await engine.selectLens(lens)
-        }
+        Task { await engine.selectLens(lens) }
     }
     
     func capturePhoto() {
-            guard !isCapturing else { return }
-            
-            // Enforce state reset on primary action
-            isSettingsOpen = false
-            
-            isCapturing = true
-            let flash = isFlashOn
-            
-            triggerFlash()
-            
-            Task.detached(priority: .userInitiated) { [engine] in
-                await engine.capturePhoto(flashEnabled: flash)
-            }
+        guard !isCapturing else { return }
+        isSettingsOpen = false
+        isCapturing = true
+        let flash = isFlashOn
+        triggerFlash()
+        
+        Task.detached(priority: .userInitiated) { [engine] in
+            await engine.capturePhoto(flashEnabled: flash)
         }
+    }
     
     func setProcessingPipeline(mode: ProcessingMode) {
-        Task {
-            await engine.setProcessingPipeline(mode: mode)
-        }
+        Task { await engine.setProcessingPipeline(mode: mode) }
     }
     
     func focus(at uiPoint: CGPoint, normalized: CGPoint) {
         focusPointUI = uiPoint
-        
         Task { await engine.setFocus(point: normalized) }
         
         focusTimer?.invalidate()
         focusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.focusPointUI = nil
-            }
+            Task { @MainActor [weak self] in self?.focusPointUI = nil }
         }
     }
     

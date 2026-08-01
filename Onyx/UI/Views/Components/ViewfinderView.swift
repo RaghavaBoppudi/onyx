@@ -33,19 +33,28 @@ struct ViewfinderView: View {
         ZStack(alignment: .bottom) {
             MetalPreview(viewModel: viewModel, isActive: isActive)
                 .contentShape(Rectangle())
-                .onTapGesture { location in
-                    if viewModel.isSettingsOpen {
-                        withAnimation { viewModel.isSettingsOpen = false }
-                    } else {
-                        let viewfinderWidth = geometry.size.width - Theme.Layout.viewfinderInset
-                        let viewfinderHeight = viewfinderWidth * Theme.Layout.aspectRatio
-                        
-                        let normalizedX = location.y / viewfinderHeight
-                        let normalizedY = 1.0 - (location.x / viewfinderWidth)
-                        let normalized = CGPoint(x: normalizedX, y: normalizedY)
-                        viewModel.focus(at: location, normalized: normalized)
-                    }
-                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onEnded { value in
+                            if viewModel.isSettingsOpen {
+                                withAnimation { viewModel.isSettingsOpen = false }
+                                return
+                            }
+                            
+                            let location = value.location
+                            let viewfinderWidth = geometry.size.width - (Theme.Layout.viewfinderInset * 2)
+                            let viewfinderHeight = viewfinderWidth * Theme.Layout.aspectRatio
+                            
+                            // Gesture constraint zone to prevent OS collision
+                            let safeInset: CGFloat = 30.0
+                            guard location.y > safeInset, location.y < viewfinderHeight - safeInset else { return }
+                            
+                            let normalizedX = location.y / viewfinderHeight
+                            let normalizedY = 1.0 - (location.x / viewfinderWidth)
+                            let normalized = CGPoint(x: normalizedX, y: normalizedY)
+                            viewModel.focus(at: location, normalized: normalized)
+                        }
+                )
             
             CompositionGrid(mode: viewModel.gridMode)
                 .stroke(Color.white.opacity(0.3), lineWidth: 0.5)
@@ -68,7 +77,7 @@ struct ViewfinderView: View {
         }
         .animation(Theme.Physics.menuTransition, value: viewModel.scannedURL)
         .aspectRatio(1.0 / Theme.Layout.aspectRatio, contentMode: .fit)
-        .frame(width: geometry.size.width)
+        .frame(width: geometry.size.width - (Theme.Layout.viewfinderInset * 2))
         .clipped()
     }
     

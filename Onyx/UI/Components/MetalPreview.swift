@@ -32,9 +32,7 @@ struct MetalPreview: UIViewRepresentable {
         private let currentImageLock = OSAllocatedUnfairLock(initialState: CIImage?(nil))
         private let _isActive = OSAllocatedUnfairLock(initialState: true)
         
-        private var context: CIContext?
         private var commandQueue: MTLCommandQueue?
-        
         private let defaultColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()
         
         weak var mtkView: MTKView?
@@ -49,7 +47,6 @@ struct MetalPreview: UIViewRepresentable {
         }
         
         func configure(with device: MTLDevice, view: MTKView) {
-            self.context = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
             self.commandQueue = device.makeCommandQueue()
             self.mtkView = view
         }
@@ -69,8 +66,7 @@ struct MetalPreview: UIViewRepresentable {
             autoreleasepool {
                 guard let image = currentImageLock.withLock({ $0 }),
                       let drawable = view.currentDrawable,
-                      let commandBuffer = commandQueue?.makeCommandBuffer(),
-                      let ciContext = context else { return }
+                      let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
 
                 let bounds = CGRect(origin: .zero, size: view.drawableSize)
                 let colorSpace = image.colorSpace ?? defaultColorSpace
@@ -83,7 +79,7 @@ struct MetalPreview: UIViewRepresentable {
                     .translatedBy(x: (bounds.width - (image.extent.width * scale)) / (2 * scale),
                                   y: (bounds.height - (image.extent.height * scale)) / (2 * scale))
 
-                ciContext.render(image.transformed(by: transform),
+                OnyxGlobals.sharedContext.render(image.transformed(by: transform),
                                 to: drawable.texture,
                                 commandBuffer: commandBuffer,
                                 bounds: bounds,

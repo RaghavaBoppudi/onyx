@@ -2,6 +2,11 @@ import CoreImage
 import Photos
 import CoreLocation
 import AVFoundation
+import UIKit
+
+enum ProcessorError: Error {
+    case insufficientStorage
+}
 
 actor PhotoProcessor {
     static let shared = PhotoProcessor()
@@ -28,7 +33,32 @@ actor PhotoProcessor {
         return album
     }
     
-    func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType, iso: Float) async {
+    private func hasSufficientStorage() -> Bool {
+        let fileURL = URL(fileURLWithPath: NSHomeDirectory())
+        do {
+            let values = try fileURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            if let availableBytes = values.volumeAvailableCapacityForImportantUsage {
+                return availableBytes > 500_000_000 // 500 MB hard limit
+            }
+        } catch {
+            return true
+        }
+        return true
+    }
+    
+    func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType, iso: Float) async throws {
+        guard hasSufficientStorage() else { throw ProcessorError.insufficientStorage }
+        
+        let backgroundTaskID = await MainActor.run {
+            UIApplication.shared.beginBackgroundTask(withName: "com.onyx.PhotoProcessing") {
+                // Task expired
+            }
+        }
+        
+        defer {
+            Task { @MainActor in UIApplication.shared.endBackgroundTask(backgroundTaskID) }
+        }
+        
         var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
         guard status == .authorized || status == .limited else { return }
@@ -40,16 +70,11 @@ actor PhotoProcessor {
         } else {
             guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
             
-            // Retain natural noise characteristics
             rawFilter.luminanceNoiseReductionAmount = 0.0
             rawFilter.colorNoiseReductionAmount = 0.0
             rawFilter.sharpnessAmount = 0.1
-            
-            // Disable AI and spatial mapping (Smart HDR)
             rawFilter.extendedDynamicRangeAmount = 0.0
             rawFilter.localToneMapAmount = 0.0
-            
-            // Allow baseline gamma boost to translate linear data for display. Do not set this to 0.0.
             rawFilter.boostAmount = 1.0
             
             guard let baseImage = rawFilter.outputImage else { return }

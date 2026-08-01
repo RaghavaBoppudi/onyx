@@ -3,6 +3,7 @@
 import CoreImage
 import CoreLocation
 import os
+import Photos
 
 struct WeakReceiverBox: Sendable { weak var receiver: FrameReceiver? }
 
@@ -10,9 +11,10 @@ actor CameraEngine {
     private var session: AVCaptureSession!
     private let sessionQueue = DispatchQueue(label: "com.onyx.sessionQueue")
     
-    private let videoOutput = AVCaptureVideoDataOutput()
-    private let photoOutput = AVCapturePhotoOutput()
-    private let metadataOutput = AVCaptureMetadataOutput()
+    private lazy var videoOutput = AVCaptureVideoDataOutput()
+    private lazy var photoOutput = AVCapturePhotoOutput()
+    private lazy var metadataOutput = AVCaptureMetadataOutput()
+    
     private let captureDelegate = EngineCaptureDelegate()
     private let locationProvider = LocationProvider()
     
@@ -20,7 +22,7 @@ actor CameraEngine {
     var currentLens: Lens?
     var currentMode: ProcessingMode = .mono
     
-    var exposureCompensation: Float = 0.0
+    var exposureCompensation: Float = -0.6
     
     private var deviceInput: AVCaptureDeviceInput?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
@@ -47,6 +49,10 @@ actor CameraEngine {
     
     func setOnFocusLocked(_ callback: @escaping @Sendable () -> Void) {
         captureDelegate.onFocusLocked = callback
+    }
+    
+    func setOnStorageError(_ callback: @escaping @Sendable () -> Void) {
+        captureDelegate.onStorageError = callback
     }
     
     func setProcessingPipeline(mode: ProcessingMode) {
@@ -133,11 +139,18 @@ actor CameraEngine {
     }
     
     func start() async -> Bool {
-        let authStatus = AVCaptureDevice.authorizationStatus(for: .video)
-        if authStatus == .notDetermined {
-            let granted = await AVCaptureDevice.requestAccess(for: .video)
-            guard granted else { return false }
-        } else if authStatus != .authorized {
+        let cameraAuth = AVCaptureDevice.authorizationStatus(for: .video)
+        if cameraAuth == .notDetermined {
+            guard await AVCaptureDevice.requestAccess(for: .video) else { return false }
+        } else if cameraAuth != .authorized {
+            return false
+        }
+        
+        var photoAuth = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if photoAuth == .notDetermined {
+            photoAuth = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        }
+        guard photoAuth == .authorized || photoAuth == .limited else {
             return false
         }
         
@@ -157,31 +170,41 @@ actor CameraEngine {
         currentLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera }) ?? availableLenses.first
         captureDelegate.activeDeviceType = currentLens?.type ?? .builtInWideAngleCamera
         
-        session.beginConfiguration()
-        session.sessionPreset = .photo
-        
-        configureInput()
-        configureVideoOutput()
-        configurePhotoOutput()
-        configureMetadataOutput()
-        
-        session.commitConfiguration()
-        
-        if let device = deviceInput?.device {
-            updatePhotoOutputDimensions(for: device)
-            observeSystemPressure(for: device)
-            observeFocus(for: device)
+        let success: Bool = await withCheckedContinuation { continuation in
+            sessionQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                
+                self.session.beginConfiguration()
+                self.session.sessionPreset = .photo
+                
+                self.configureInput()
+                self.configureVideoOutput()
+                self.configurePhotoOutput()
+                self.configureMetadataOutput()
+                
+                self.session.commitConfiguration()
+                
+                if let device = self.deviceInput?.device {
+                    self.updatePhotoOutputDimensions(for: device)
+                    self.observeSystemPressure(for: device)
+                    self.observeFocus(for: device)
+                }
+                
+                self.session.startRunning()
+                continuation.resume(returning: true)
+            }
         }
+        
+        guard success else { return false }
         
         notificationTask?.cancel()
         notificationTask = Task {
             for await _ in NotificationCenter.default.notifications(named: AVCaptureDevice.subjectAreaDidChangeNotification) {
                 resetFocusToContinuous()
             }
-        }
-        
-        sessionQueue.async { [weak session] in
-            session?.startRunning()
         }
         
         isConfigured = true
@@ -230,8 +253,6 @@ actor CameraEngine {
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
             if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = true }
-            
-            // Allow hardware to prioritize capture speed over complex ISP tuning
             if #available(iOS 17.0, *) {
                 photoOutput.isResponsiveCaptureEnabled = photoOutput.isResponsiveCaptureSupported
             }
@@ -318,9 +339,7 @@ actor CameraEngine {
         focusObservation?.invalidate()
         focusObservation = device.observe(\.isAdjustingFocus, options: [.old, .new]) { [weak self] device, change in
             guard let old = change.oldValue, let new = change.newValue, old == true, new == false else { return }
-            Task { [weak self] in
-                await self?.captureDelegate.onFocusLocked?()
-            }
+            Task { [weak self] in await self?.captureDelegate.onFocusLocked?() }
         }
     }
     
@@ -412,7 +431,6 @@ actor CameraEngine {
         settings.isAutoRedEyeReductionEnabled = false
         settings.flashMode = flashEnabled ? .on : .off
         
-        // Severely cut down shutter latency at the expense of multi-frame fusion quality
         if #available(iOS 16.0, *) {
             settings.photoQualityPrioritization = .speed
         }
@@ -430,6 +448,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _onCaptureComplete = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
     private let _onFocusLocked = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
+    private let _onStorageError = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.mono)
     private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
     
@@ -457,6 +476,11 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         set { _onFocusLocked.withLock { $0 = newValue } }
     }
     
+    nonisolated var onStorageError: (@Sendable () -> Void)? {
+        get { _onStorageError.withLock { $0 } }
+        set { _onStorageError.withLock { $0 = newValue } }
+    }
+    
     nonisolated var frameReceiver: FrameReceiver? {
         get { _frameReceiver.withLock { $0.receiver } }
         set { _frameReceiver.withLock { $0.receiver = newValue } }
@@ -477,10 +501,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         set { _activeDeviceType.withLock { $0 = newValue } }
     }
     
-    let ciContext = MTLCreateSystemDefaultDevice().map {
-        CIContext(mtlDevice: $0, options: [.cacheIntermediates: false, .priorityRequestLow: false])
-    } ?? CIContext(options: [.cacheIntermediates: false])
-
     nonisolated override init() { super.init() }
 
     nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -538,11 +558,18 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
             capturedISO = isoValue.floatValue
         }
         
-        let context = self.ciContext
         let location = self.currentLocation
         let mode = self.processingMode
         let deviceType = self.activeDeviceType
         
-        Task { await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: context, mode: mode, deviceType: deviceType, iso: capturedISO) }
+        Task {
+            do {
+                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: OnyxGlobals.sharedContext, mode: mode, deviceType: deviceType, iso: capturedISO)
+            } catch ProcessorError.insufficientStorage {
+                onStorageError?()
+            } catch {
+                print("Failed with unknown error: \(error)")
+            }
+        }
     }
 }
