@@ -3,17 +3,17 @@ import SwiftUI
 enum Theme {
     enum Color {
         static let accent = SwiftUI.Color(red: 1.0, green: 0.4, blue: 0.0)
-        static let background = SwiftUI.Color.black
-        static let text = SwiftUI.Color.white
+        static let background = SwiftUI.Color(UIColor.systemBackground)
+        static let text = SwiftUI.Color(UIColor.label)
         
-        static let glassBackground = SwiftUI.Color.white.opacity(0.15)
-        static let glassBorderSubtle = SwiftUI.Color.white.opacity(0.3)
-        static let glassBorderStrong = SwiftUI.Color.white.opacity(0.5)
+        static let glassBackground = SwiftUI.Color.black.opacity(0.05)
+        static let glassBorderSubtle = SwiftUI.Color.black.opacity(0.1)
+        static let glassBorderStrong = SwiftUI.Color.black.opacity(0.3)
         
         enum Shutter {
-            static let core = SwiftUI.Color(red: 1.0, green: 0.4, blue: 0.0)
-            static let ring = SwiftUI.Color.white.opacity(0.8)
-            static let pressed = SwiftUI.Color.white
+            static let core = accent
+            static let ring = SwiftUI.Color.black.opacity(0.15)
+            static let pressed = SwiftUI.Color.black
         }
     }
     

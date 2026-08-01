@@ -57,7 +57,7 @@ struct ViewfinderView: View {
                 )
             
             CompositionGrid(mode: viewModel.gridMode)
-                .stroke(Color.white.opacity(0.3), lineWidth: 0.5)
+                .stroke(Theme.Color.text.opacity(0.3), lineWidth: 0.5)
                 .allowsHitTesting(false)
             
             if let focusPoint = viewModel.focusPointUI {

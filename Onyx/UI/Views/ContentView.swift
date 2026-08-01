@@ -146,7 +146,7 @@ struct ContentView: View {
                                 .foregroundColor(Theme.Color.background)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 56)
-                                .background(Capsule().fill(Color.white))
+                                .background(Capsule().fill(Theme.Color.text))
                         }
                     }
                     .padding(Theme.Layout.paddingLarge)

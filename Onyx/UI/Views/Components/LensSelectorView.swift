@@ -21,12 +21,12 @@ struct LensSelectorView: View {
                 }) {
                     VStack(spacing: 6) {
                         Circle()
-                            .fill(isSelected ? Color.white : Color.clear)
+                            .fill(isSelected ? Theme.Color.text : Color.clear)
                             .frame(width: 4, height: 4)
                         
                         Text(lens.label)
                             .font(.system(size: Theme.Typography.bodyBold, weight: .bold))
-                            .foregroundColor(Color.white)
+                            .foregroundColor(Theme.Color.text)
                             .opacity(isSelected ? 1.0 : 0.4)
                     }
                     .frame(width: Theme.Layout.Lens.buttonWidth, height: Theme.Layout.Lens.buttonHeight)

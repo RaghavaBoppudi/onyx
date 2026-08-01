@@ -32,7 +32,7 @@ struct SettingsDropdownView: View {
                     .buttonStyle(.plain)
                     .background(
                         Capsule()
-                            .fill(selectedMode == mode ? Color.white : Color.white.opacity(0.15))
+                            .fill(selectedMode == mode ? Theme.Color.text : Theme.Color.glassBackground)
                     )
                 }
             }
