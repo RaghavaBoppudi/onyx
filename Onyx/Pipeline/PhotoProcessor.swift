@@ -3,6 +3,7 @@ import Photos
 import CoreLocation
 import AVFoundation
 import UIKit
+import UniformTypeIdentifiers
 
 enum ProcessorError: Error {
     case insufficientStorage
@@ -46,7 +47,8 @@ actor PhotoProcessor {
         return true
     }
     
-    func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType, iso: Float) async throws {
+    // TEMPORARY DNG BENCHMARK PIPELINE
+    func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType, iso: Float, ev: Float) async throws {
         guard hasSufficientStorage() else { throw ProcessorError.insufficientStorage }
         
         let backgroundTaskID = await MainActor.run {
@@ -60,38 +62,28 @@ actor PhotoProcessor {
         var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
         guard status == .authorized || status == .limited else { return }
-
-        guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else { return }
         
-        // Suppress digital chroma blotches, retain organic luminance grain
-        rawFilter.luminanceNoiseReductionAmount = 0.0
-        rawFilter.colorNoiseReductionAmount = 0.5
+        // Generate a strict sequential ID
+        let counter = UserDefaults.standard.integer(forKey: "OnyxPhotoCounter") + 1
+        UserDefaults.standard.set(counter, forKey: "OnyxPhotoCounter")
+        let shortID = String(format: "%04d", counter)
         
-        // Minimal sharpness to avoid computational halos
-        rawFilter.sharpnessAmount = 0.2
-        rawFilter.extendedDynamicRangeAmount = 0.0
+        // Format EV String
+        let evString = ev > 0 ? "+\(ev)" : (ev == 0.0 ? "0.0" : "\(ev)")
         
-        // Industry standard natural baseline: slight compression without HDR flatness
-        rawFilter.localToneMapAmount = 0.3
-        rawFilter.boostAmount = 1.0
-        
-        guard let baseImage = rawFilter.outputImage else { return }
-        
-        let pipeline = OnyxFilterPipeline()
-        let finalImage = pipeline.apply(to: baseImage, mode: mode, deviceType: deviceType, iso: iso)
-        
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let renderedData = context.jpegRepresentation(
-                  of: finalImage,
-                  colorSpace: colorSpace,
-                  options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
-              ) else { return }
+        // Hardcoded to Benchmark format while we bypass the JPEG render
+        let fileName = "OnyxBenchmark_\(shortID)_EV\(evString).dng"
         
         do {
             let album = try await getOrCreateOnyxAlbum()
             try await PHPhotoLibrary.shared().performChanges {
                 let assetRequest = PHAssetCreationRequest.forAsset()
-                assetRequest.addResource(with: .photo, data: renderedData, options: nil)
+                
+                let options = PHAssetResourceCreationOptions()
+                options.uniformTypeIdentifier = "com.adobe.raw-image"
+                options.originalFilename = fileName
+                
+                assetRequest.addResource(with: .photo, data: photoData, options: options)
                 if let location = location { assetRequest.location = location }
                 
                 guard let assetPlaceholder = assetRequest.placeholderForCreatedAsset else { return }
@@ -99,7 +91,7 @@ actor PhotoProcessor {
                 albumChangeRequest?.addAssets([assetPlaceholder] as NSArray)
             }
         } catch {
-            print("Failed to save photo to Onyx album: \(error)")
+            print("Failed to save DNG photo to Onyx album: \(error)")
         }
     }
 }

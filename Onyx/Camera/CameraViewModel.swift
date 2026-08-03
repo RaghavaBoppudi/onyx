@@ -14,7 +14,14 @@ final class CameraViewModel: ObservableObject {
     @Published var isAuthorized: Bool = true
     @Published var showStorageAlert: Bool = false
     
-    @Published var processingMode: ProcessingMode = .mono {
+    // EV Control added here
+    @Published var exposureBias: Float = -0.6 {
+        didSet {
+            Task { await engine.setExposureBias(exposureBias) }
+        }
+    }
+    
+    @Published var processingMode: ProcessingMode = .zero {
         didSet { setProcessingPipeline(mode: processingMode) }
     }
     @Published var gridMode: GridMode = .none
@@ -52,6 +59,8 @@ final class CameraViewModel: ObservableObject {
     
     func start() async {
         await engine.setProcessingPipeline(mode: self.processingMode)
+        // Ensure exposure bias is applied correctly on startup
+        await engine.setExposureBias(self.exposureBias)
         
         await engine.setOnQRCodeScanned { @Sendable [weak self] stringValue in
             Task { @MainActor [weak self] in self?.processQRCode(stringValue) }
@@ -148,6 +157,8 @@ final class CameraViewModel: ObservableObject {
     
     func setProcessingPipeline(mode: ProcessingMode) {
         Task { await engine.setProcessingPipeline(mode: mode) }
+        // Ensure exposure bias stays set after mode switch
+        Task { await engine.setExposureBias(exposureBias) }
     }
     
     func focus(at uiPoint: CGPoint, normalized: CGPoint) {

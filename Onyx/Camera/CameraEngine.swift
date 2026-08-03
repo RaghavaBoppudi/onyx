@@ -20,7 +20,7 @@ actor CameraEngine {
     
     var availableLenses: [Lens] = []
     var currentLens: Lens?
-    var currentMode: ProcessingMode = .mono
+    var currentMode: ProcessingMode = .zero
     
     var exposureCompensation: Float = -0.6
     
@@ -58,12 +58,11 @@ actor CameraEngine {
     func setProcessingPipeline(mode: ProcessingMode) {
         self.currentMode = mode
         captureDelegate.processingMode = mode
-        self.exposureCompensation = -0.6
-        applyCurrentExposureBias()
     }
     
     func setExposureBias(_ bias: Float) {
         self.exposureCompensation = bias
+        captureDelegate.exposureBias = bias
         applyCurrentExposureBias()
     }
     
@@ -409,28 +408,28 @@ actor CameraEngine {
     }
     
     func capturePhoto(flashEnabled: Bool) {
-            if let photoConnection = photoOutput.connection(with: .video), let coordinator = rotationCoordinator {
-                let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
-                if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
-            }
-            
-            guard let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else {
-                print("Error: Sensor does not support Bayer RAW capture.")
-                return
-            }
-            
-            let settings = AVCapturePhotoSettings(rawPixelFormatType: bayerFormat)
-            settings.isAutoRedEyeReductionEnabled = false
-            settings.flashMode = flashEnabled ? .on : .off
-            
-            if #available(iOS 16.0, *) {
-                settings.photoQualityPrioritization = .speed
-            }
-            
-            captureDelegate.currentLocation = locationProvider.currentLocation
-            captureDelegate.processingMode = currentMode
-            photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
+        if let photoConnection = photoOutput.connection(with: .video), let coordinator = rotationCoordinator {
+            let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+            if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
         }
+        
+        guard let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else {
+            print("Error: Sensor does not support Bayer RAW capture.")
+            return
+        }
+        
+        let settings = AVCapturePhotoSettings(rawPixelFormatType: bayerFormat)
+        settings.isAutoRedEyeReductionEnabled = false
+        settings.flashMode = flashEnabled ? .on : .off
+        
+        if #available(iOS 16.0, *) {
+            settings.photoQualityPrioritization = .speed
+        }
+        
+        captureDelegate.currentLocation = locationProvider.currentLocation
+        captureDelegate.processingMode = currentMode
+        photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
+    }
 }
 
 final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate, AVCaptureMetadataOutputObjectsDelegate, @unchecked Sendable {
@@ -441,8 +440,9 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
     private let _onFocusLocked = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onStorageError = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
-    private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.mono)
+    private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.zero)
     private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
+    private let _exposureBias = OSAllocatedUnfairLock(initialState: Float(-0.6))
     
     private let _lastScannedQR = OSAllocatedUnfairLock(initialState: (value: "", timestamp: Date.distantPast))
     
@@ -491,6 +491,11 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     nonisolated var activeDeviceType: AVCaptureDevice.DeviceType {
         get { _activeDeviceType.withLock { $0 } }
         set { _activeDeviceType.withLock { $0 = newValue } }
+    }
+    
+    nonisolated var exposureBias: Float {
+        get { _exposureBias.withLock { $0 } }
+        set { _exposureBias.withLock { $0 = newValue } }
     }
     
     nonisolated override init() { super.init() }
@@ -553,10 +558,11 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         let location = self.currentLocation
         let mode = self.processingMode
         let deviceType = self.activeDeviceType
+        let currentEV = self.exposureBias
         
         Task {
             do {
-                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: OnyxGlobals.sharedContext, mode: mode, deviceType: deviceType, iso: capturedISO)
+                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: OnyxGlobals.sharedContext, mode: mode, deviceType: deviceType, iso: capturedISO, ev: currentEV)
             } catch ProcessorError.insufficientStorage {
                 onStorageError?()
             } catch {

@@ -16,6 +16,13 @@ struct ContentView: View {
                     Spacer(minLength: 0)
                         .frame(maxHeight: viewModel.isSettingsOpen ? Theme.Layout.paddingStandard : .infinity)
                     
+                    // Shifted outside the Viewfinder ZStack into the empty layout space
+                    if !viewModel.isSettingsOpen {
+                        ExposureBarView(currentEV: $viewModel.exposureBias)
+                            .padding(.bottom, Theme.Layout.paddingSmall)
+                            .transition(.opacity)
+                    }
+                    
                     ViewfinderView(
                         viewModel: viewModel,
                         geometry: geometry,
