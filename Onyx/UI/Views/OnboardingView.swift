@@ -151,15 +151,9 @@ private struct PermissionCard: View {
             
             Spacer()
         }
-        .padding(Theme.Layout.paddingStandard)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Layout.cornerRadius, style: .continuous)
-                .fill(Theme.Color.glassBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Layout.cornerRadius, style: .continuous)
-                        .strokeBorder(Theme.Color.glassBorderSubtle, lineWidth: Theme.Layout.borderWidth)
-                )
-        )
+        .padding(.vertical, Theme.Layout.paddingStandard)
         .padding(.horizontal, Theme.Layout.paddingLarge)
+        .background(Color.clear)
+        .contentShape(Rectangle())
     }
 }

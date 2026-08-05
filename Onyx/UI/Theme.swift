@@ -2,7 +2,7 @@ import SwiftUI
 
 enum Theme {
     enum Color {
-        static let accent = SwiftUI.Color(red: 1.0, green: 0.4, blue: 0.0)
+        static let accent = SwiftUI.Color(red: 0.04, green: 0.7, blue: 0.7)
         static let background = SwiftUI.Color(UIColor.systemBackground)
         static let text = SwiftUI.Color(UIColor.label)
         
