@@ -6,8 +6,6 @@ struct LensSelectorView: View {
     let iconOrientation: Angle
     let onSelectLens: (Lens) -> Void
     
-    private let hapticGenerator = UISelectionFeedbackGenerator()
-    
     var body: some View {
         HStack(spacing: 40) {
             ForEach(availableLenses, id: \.label) { lens in
@@ -15,7 +13,7 @@ struct LensSelectorView: View {
                 
                 Button(action: {
                     if !isSelected {
-                        hapticGenerator.selectionChanged()
+                        HapticManager.shared.playSelection()
                         onSelectLens(lens)
                     }
                 }) {

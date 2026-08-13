@@ -32,9 +32,9 @@ final class OnyxFilterPipeline: @unchecked Sendable {
 
         if mode == .mono {
             processingImage = processingImage.applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: 0.35, y: 0.55, z: 0.10, w: 0.0),
-                "inputGVector": CIVector(x: 0.35, y: 0.55, z: 0.10, w: 0.0),
-                "inputBVector": CIVector(x: 0.35, y: 0.55, z: 0.10, w: 0.0),
+                "inputRVector": CIVector(x: 0.75, y: 0.25, z: -0.05, w: 0.0),
+                "inputGVector": CIVector(x: 0.75, y: 0.25, z: -0.05, w: 0.0),
+                "inputBVector": CIVector(x: 0.75, y: 0.25, z: -0.05, w: 0.0),
                 "inputAVector": CIVector(x: 0.0, y: 0.0, z: 0.0, w: 1.0)
             ])
         }
@@ -53,18 +53,14 @@ final class OnyxFilterPipeline: @unchecked Sendable {
             ])
         }
 
-        // Natural Processing Curve:
-        // Point 0: Lifted black point (no pure blacks)
-        // Point 1: Lifted shadows to retain data
-        // Point 2: Linear midtone anchor
-        // Point 3: Slight highlight pop
-        // Point 4: Highlight roll-off to prevent clipping
+        // Unified Static Curve
+        // Simulates a balanced film response regardless of ISO
         return processingImage.applyingFilter("CIToneCurve", parameters: [
-            "inputPoint0": CIVector(x: 0.0, y: 0.03),
-            "inputPoint1": CIVector(x: 0.25, y: 0.27),
-            "inputPoint2": CIVector(x: 0.50, y: 0.50),
-            "inputPoint3": CIVector(x: 0.75, y: 0.78),
-            "inputPoint4": CIVector(x: 1.0, y: 0.96)
+            "inputPoint0": CIVector(x: 0.0, y: 0.02),  // Slight lift to emulate film base density
+            "inputPoint1": CIVector(x: 0.25, y: 0.26), // Smooth shadow transition
+            "inputPoint2": CIVector(x: 0.50, y: 0.50), // Linear midtone anchor
+            "inputPoint3": CIVector(x: 0.75, y: 0.80), // Slight highlight contrast pop
+            "inputPoint4": CIVector(x: 1.0, y: 0.98)   // Highlight roll-off to prevent hard digital clipping
         ])
     }
 }

@@ -5,15 +5,14 @@ final class HapticManager {
     
     private let lightGenerator = UIImpactFeedbackGenerator(style: .light)
     private let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
+    private let heavyGenerator = UIImpactFeedbackGenerator(style: .heavy)
     private let selectionGenerator = UISelectionFeedbackGenerator()
     
     private init() {
-        // Pre-warm the haptic engine off the critical path
-        DispatchQueue.global(qos: .userInitiated).async {
-            self.lightGenerator.prepare()
-            self.mediumGenerator.prepare()
-            self.selectionGenerator.prepare()
-        }
+        self.lightGenerator.prepare()
+        self.mediumGenerator.prepare()
+        self.heavyGenerator.prepare()
+        self.selectionGenerator.prepare()
     }
     
     func playLight() {
@@ -25,6 +24,12 @@ final class HapticManager {
     func playMedium() {
         DispatchQueue.main.async {
             self.mediumGenerator.impactOccurred()
+        }
+    }
+    
+    func playHeavy() {
+        DispatchQueue.main.async {
+            self.heavyGenerator.impactOccurred()
         }
     }
     

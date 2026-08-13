@@ -1,74 +1,83 @@
 import SwiftUI
-import MetalKit
+import Metal
+import QuartzCore
 import CoreImage
 import os
+
+// 1. A dedicated UIView that strictly manages a raw CAMetalLayer
+class MetalVideoView: UIView {
+    var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
+    
+    override class var layerClass: AnyClass { CAMetalLayer.self }
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        guard let device = MTLCreateSystemDefaultDevice() else { return }
+        metalLayer.device = device
+        metalLayer.framebufferOnly = false
+        metalLayer.pixelFormat = .bgra8Unorm
+        metalLayer.backgroundColor = UIColor.black.cgColor
+        metalLayer.isOpaque = true
+    }
+    
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    
+    // Ensure the drawable size precisely matches physical screen pixels, not UI points
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let scale = window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        metalLayer.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+    }
+}
 
 struct MetalPreview: UIViewRepresentable {
     let viewModel: CameraViewModel
     let isActive: Bool
     
-    func makeUIView(context: Context) -> MTKView {
-        guard let device = MTLCreateSystemDefaultDevice() else { fatalError("Metal not supported") }
-        let mtkView = MTKView(frame: .zero, device: device)
-        mtkView.framebufferOnly = false
-        mtkView.delegate = context.coordinator
-        
-        mtkView.enableSetNeedsDisplay = true
-        mtkView.isPaused = true
-        mtkView.backgroundColor = .black
-        
-        context.coordinator.configure(with: device, view: mtkView)
+    func makeUIView(context: Context) -> MetalVideoView {
+        let view = MetalVideoView()
+        context.coordinator.configure(with: view.metalLayer)
         Task { await viewModel.setFrameReceiver(context.coordinator) }
-        return mtkView
+        return view
     }
     
-    func updateUIView(_ uiView: MTKView, context: Context) {
+    func updateUIView(_ uiView: MetalVideoView, context: Context) {
         context.coordinator.isActive = isActive
     }
     
     func makeCoordinator() -> Coordinator { Coordinator() }
     
-    class Coordinator: NSObject, MTKViewDelegate, FrameReceiver, @unchecked Sendable {
-        private let currentImageLock = OSAllocatedUnfairLock(initialState: CIImage?(nil))
+    class Coordinator: NSObject, FrameReceiver, @unchecked Sendable {
         private let _isActive = OSAllocatedUnfairLock(initialState: true)
         
         private var commandQueue: MTLCommandQueue?
         private let defaultColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()
         
-        weak var mtkView: MTKView?
+        weak var metalLayer: CAMetalLayer?
         
         var isActive: Bool {
             get { _isActive.withLock { $0 } }
             set { _isActive.withLock { $0 = newValue } }
         }
         
-        var currentImage: CIImage? {
-            currentImageLock.withLock { $0 }
+        var currentImage: CIImage? { return nil }
+        
+        func configure(with layer: CAMetalLayer) {
+            self.metalLayer = layer
+            self.commandQueue = layer.device?.makeCommandQueue()
         }
         
-        func configure(with device: MTLDevice, view: MTKView) {
-            self.commandQueue = device.makeCommandQueue()
-            self.mtkView = view
-        }
-        
+        // Executed entirely on the com.onyx.videoQueue background thread
         nonisolated func receive(image: CIImage?) {
-            guard _isActive.withLock({ $0 }) else { return }
-            currentImageLock.withLock { $0 = image }
+            guard _isActive.withLock({ $0 }), let image = image else { return }
             
-            DispatchQueue.main.async { [weak self] in
-                self?.mtkView?.setNeedsDisplay()
-            }
-        }
-        
-        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
-        
-        func draw(in view: MTKView) {
             autoreleasepool {
-                guard let image = currentImageLock.withLock({ $0 }),
-                      let drawable = view.currentDrawable,
+                // Pull a completely fresh drawable directly from the layer
+                guard let layer = self.metalLayer,
+                      let drawable = layer.nextDrawable(),
                       let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
 
-                let bounds = CGRect(origin: .zero, size: view.drawableSize)
+                let bounds = CGRect(origin: .zero, size: layer.drawableSize)
                 let colorSpace = image.colorSpace ?? defaultColorSpace
 
                 let scaleX = bounds.width / image.extent.width

@@ -22,8 +22,6 @@ actor CameraEngine {
     var currentLens: Lens?
     var currentMode: ProcessingMode = .zero
     
-    var exposureCompensation: Float = -0.6
-    
     private var deviceInput: AVCaptureDeviceInput?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
@@ -58,23 +56,6 @@ actor CameraEngine {
     func setProcessingPipeline(mode: ProcessingMode) {
         self.currentMode = mode
         captureDelegate.processingMode = mode
-    }
-    
-    func setExposureBias(_ bias: Float) {
-        self.exposureCompensation = bias
-        captureDelegate.exposureBias = bias
-        applyCurrentExposureBias()
-    }
-    
-    private func applyCurrentExposureBias() {
-        guard let device = deviceInput?.device else { return }
-        do {
-            try device.lockForConfiguration()
-            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, exposureCompensation)), completionHandler: nil)
-            device.unlockForConfiguration()
-        } catch {
-            print("Failed to lock device for exposure bias update.")
-        }
     }
     
     func setFocus(point: CGPoint) {
@@ -251,7 +232,6 @@ actor CameraEngine {
     private func configurePhotoOutput() {
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
-            if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = true }
             if #available(iOS 17.0, *) {
                 photoOutput.isResponsiveCaptureEnabled = photoOutput.isResponsiveCaptureSupported
             }
@@ -309,8 +289,6 @@ actor CameraEngine {
         updatePhotoOutputDimensions(for: newDevice)
         observeSystemPressure(for: newDevice)
         observeFocus(for: newDevice)
-        
-        photoOutput.isAppleProRAWEnabled = photoOutput.isAppleProRAWSupported
     }
     
     private func observeSystemPressure(for device: AVCaptureDevice) {
@@ -386,16 +364,8 @@ actor CameraEngine {
                 }
             }
             
-            device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, exposureCompensation)), completionHandler: nil)
+            device.setExposureTargetBias(-0.5, completionHandler: nil)
             device.isSubjectAreaChangeMonitoringEnabled = true
-            
-            if device.position == .front {
-                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
-            } else {
-                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
-            }
             device.unlockForConfiguration()
         } catch {}
     }
@@ -442,7 +412,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _onStorageError = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.zero)
     private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
-    private let _exposureBias = OSAllocatedUnfairLock(initialState: Float(-0.6))
     
     private let _lastScannedQR = OSAllocatedUnfairLock(initialState: (value: "", timestamp: Date.distantPast))
     
@@ -491,11 +460,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     nonisolated var activeDeviceType: AVCaptureDevice.DeviceType {
         get { _activeDeviceType.withLock { $0 } }
         set { _activeDeviceType.withLock { $0 = newValue } }
-    }
-    
-    nonisolated var exposureBias: Float {
-        get { _exposureBias.withLock { $0 } }
-        set { _exposureBias.withLock { $0 = newValue } }
     }
     
     nonisolated override init() { super.init() }
@@ -558,11 +522,10 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         let location = self.currentLocation
         let mode = self.processingMode
         let deviceType = self.activeDeviceType
-        let currentEV = self.exposureBias
         
         Task {
             do {
-                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: OnyxGlobals.sharedContext, mode: mode, deviceType: deviceType, iso: capturedISO, ev: currentEV)
+                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: OnyxGlobals.sharedContext, mode: mode, deviceType: deviceType, iso: capturedISO)
             } catch ProcessorError.insufficientStorage {
                 onStorageError?()
             } catch {

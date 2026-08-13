@@ -26,7 +26,6 @@ struct ShutterButton: View {
 
 private struct ShutterCoreStyle: ButtonStyle {
     let isCapturing: Bool
-    let hapticGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
     func makeBody(configuration: Configuration) -> some View {
         Circle()
@@ -38,8 +37,7 @@ private struct ShutterCoreStyle: ButtonStyle {
             .animation(.easeOut(duration: 0.1), value: isCapturing)
             .onChange(of: configuration.isPressed) { _, isPressed in
                 if isPressed {
-                    hapticGenerator.prepare()
-                    hapticGenerator.impactOccurred()
+                    HapticManager.shared.playHeavy()
                 }
             }
     }
