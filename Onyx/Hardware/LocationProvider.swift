@@ -15,6 +15,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate, @unchecked Se
         DispatchQueue.main.async {
             self.manager.delegate = self
             self.manager.desiredAccuracy = kCLLocationAccuracyBest
+            self.manager.distanceFilter = 10.0
             self.manager.requestWhenInUseAuthorization()
             self.manager.startUpdatingLocation()
         }

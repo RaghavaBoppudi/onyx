@@ -1,8 +1,15 @@
 import AVFoundation
 
 struct CameraHardware: Sendable {
+    // Thread-safe immutable caching layers for performance isolation
+    private static let backLensesCache: [Lens] = CameraHardware.discoverLenses(for: .back)
+    private static let frontLensesCache: [Lens] = CameraHardware.discoverLenses(for: .front)
+    
     nonisolated static func availableLenses(for position: AVCaptureDevice.Position) -> [Lens] {
-        // 1. Prioritize multi-camera virtual devices to map optical zoom factors accurately
+        return position == .back ? backLensesCache : frontLensesCache
+    }
+    
+    private static func discoverLenses(for position: AVCaptureDevice.Position) -> [Lens] {
         let virtualDeviceTypes: [AVCaptureDevice.DeviceType] = [
             .builtInTripleCamera,
             .builtInDualWideCamera,
@@ -17,7 +24,6 @@ struct CameraHardware: Sendable {
             }
         }
         
-        // 2. Extract Apple's calibrated optical switchover thresholds
         if let vDevice = virtualDevice {
             let physicalDevices = vDevice.constituentDevices
             let switchOverFactors = vDevice.virtualDeviceSwitchOverVideoZoomFactors.map { $0.doubleValue }
@@ -54,7 +60,6 @@ struct CameraHardware: Sendable {
             return lenses.sorted { $0.equivalentFocalLength < $1.equivalentFocalLength }
         }
         
-        // 3. Fallback for sensors that do not cluster into a virtual device (e.g., Front cameras)
         let discoverySession = AVCaptureDevice.DiscoverySession(
             deviceTypes: [
                 .builtInUltraWideCamera,
@@ -67,7 +72,6 @@ struct CameraHardware: Sendable {
         )
         
         var lenses: [Lens] = []
-        
         for device in discoverySession.devices {
             switch device.deviceType {
             case .builtInUltraWideCamera:
@@ -84,7 +88,6 @@ struct CameraHardware: Sendable {
                 break
             }
         }
-        
         return lenses.sorted { $0.equivalentFocalLength < $1.equivalentFocalLength }
     }
 }

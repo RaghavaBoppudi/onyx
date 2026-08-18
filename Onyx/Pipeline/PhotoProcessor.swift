@@ -14,6 +14,7 @@ enum ProcessorError: Error {
 
 actor PhotoProcessor {
     static let shared = PhotoProcessor()
+    private var isLibraryAuthorized = false
     
     private init() {}
     
@@ -45,15 +46,11 @@ actor PhotoProcessor {
     
     private func hasSufficientStorage() -> Bool {
         let fileURL = URL(fileURLWithPath: NSHomeDirectory())
-        do {
-            let values = try fileURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-            if let availableBytes = values.volumeAvailableCapacityForImportantUsage {
-                return availableBytes > 500_000_000
-            }
-        } catch {
+        guard let values = try? fileURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+              let availableBytes = values.volumeAvailableCapacityForImportantUsage else {
             return true
         }
-        return true
+        return availableBytes > 500_000_000
     }
     
     func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType, iso: Float) async throws {
@@ -67,13 +64,15 @@ actor PhotoProcessor {
             Task { @MainActor in UIApplication.shared.endBackgroundTask(backgroundTaskID) }
         }
         
-        var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
-        guard status == .authorized || status == .limited else { return }
+        if !isLibraryAuthorized {
+            var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
+            guard status == .authorized || status == .limited else { return }
+            isLibraryAuthorized = true
+        }
         
         let rawImage: CIImage
         if let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) {
-            // Strip Apple's default computational ISP processing from Bayer RAW frames
             rawFilter.localToneMapAmount = 0.0
             rawFilter.luminanceNoiseReductionAmount = 0.0
             rawFilter.colorNoiseReductionAmount = 0.0
@@ -82,7 +81,6 @@ actor PhotoProcessor {
             guard let output = rawFilter.outputImage else { throw ProcessorError.invalidData }
             rawImage = output
         } else {
-            // Fallback decoding for sensors that physically lack RAW capabilities (Front/Ultra-Wide on older hardware)
             guard let fallbackImage = CIImage(data: photoData) else { throw ProcessorError.invalidData }
             rawImage = fallbackImage
         }
@@ -91,7 +89,6 @@ actor PhotoProcessor {
         let processedImage = pipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: iso)
         
         let options = [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 1.0]
-        
         guard let colorSpace = rawImage.colorSpace ?? CGColorSpace(name: CGColorSpace.displayP3),
               let jpegData = context.jpegRepresentation(of: processedImage, colorSpace: colorSpace, options: options) else {
             throw ProcessorError.renderFailure
@@ -99,15 +96,12 @@ actor PhotoProcessor {
         
         let counter = UserDefaults.standard.integer(forKey: "OnyxPhotoCounter") + 1
         UserDefaults.standard.set(counter, forKey: "OnyxPhotoCounter")
-        let shortID = String(format: "%04d", counter)
-        
-        let fileName = "Onyx_\(shortID).jpg"
+        let fileName = "Onyx_\(String(format: "%04d", counter)).jpg"
         
         do {
             let album = try await getOrCreateOnyxAlbum()
             try await PHPhotoLibrary.shared().performChanges {
                 let assetRequest = PHAssetCreationRequest.forAsset()
-                
                 let options = PHAssetResourceCreationOptions()
                 options.uniformTypeIdentifier = UTType.jpeg.identifier
                 options.originalFilename = fileName

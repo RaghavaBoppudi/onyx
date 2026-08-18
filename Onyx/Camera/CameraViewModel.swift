@@ -139,7 +139,7 @@ final class CameraViewModel: ObservableObject {
         let flash = isFlashOn
         triggerFlash()
         
-        Task.detached(priority: .userInitiated) { [engine] in
+        Task {
             await engine.capturePhoto(flashEnabled: flash)
         }
     }
