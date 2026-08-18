@@ -27,8 +27,6 @@ struct ViewfinderView: View {
     let isActive: Bool
     let iconOrientation: Angle
     
-    private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
-    
     var body: some View {
         ZStack(alignment: .bottom) {
             MetalPreview(viewModel: viewModel, isActive: isActive)
@@ -45,7 +43,6 @@ struct ViewfinderView: View {
                             let viewfinderWidth = geometry.size.width - (Theme.Layout.viewfinderInset * 2)
                             let viewfinderHeight = viewfinderWidth * Theme.Layout.aspectRatio
                             
-                            // Gesture constraint zone to prevent OS collision
                             let safeInset: CGFloat = 30.0
                             guard location.y > safeInset, location.y < viewfinderHeight - safeInset else { return }
                             
@@ -84,7 +81,7 @@ struct ViewfinderView: View {
     @ViewBuilder
     private func qrPill(for url: URL) -> some View {
         Button(action: {
-            hapticGenerator.impactOccurred()
+            HapticManager.shared.playMedium()
             UIApplication.shared.open(url)
         }) {
             HStack(spacing: Theme.Layout.paddingSmall) {

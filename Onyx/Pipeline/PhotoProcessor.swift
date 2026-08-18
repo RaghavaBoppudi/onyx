@@ -71,17 +71,21 @@ actor PhotoProcessor {
         if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .readWrite) }
         guard status == .authorized || status == .limited else { return }
         
-        guard let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) else {
-            throw ProcessorError.invalidData
+        let rawImage: CIImage
+        if let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) {
+            // Strip Apple's default computational ISP processing from Bayer RAW frames
+            rawFilter.localToneMapAmount = 0.0
+            rawFilter.luminanceNoiseReductionAmount = 0.0
+            rawFilter.colorNoiseReductionAmount = 0.0
+            rawFilter.sharpnessAmount = 0.0
+            
+            guard let output = rawFilter.outputImage else { throw ProcessorError.invalidData }
+            rawImage = output
+        } else {
+            // Fallback decoding for sensors that physically lack RAW capabilities (Front/Ultra-Wide on older hardware)
+            guard let fallbackImage = CIImage(data: photoData) else { throw ProcessorError.invalidData }
+            rawImage = fallbackImage
         }
-        
-        // Strip Apple's default computational ISP processing
-        rawFilter.localToneMapAmount = 0.0
-        rawFilter.luminanceNoiseReductionAmount = 0.0
-        rawFilter.colorNoiseReductionAmount = 0.0
-        rawFilter.sharpnessAmount = 0.0
-        
-        guard let rawImage = rawFilter.outputImage else { throw ProcessorError.invalidData }
         
         let pipeline = OnyxFilterPipeline()
         let processedImage = pipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: iso)

@@ -5,11 +5,9 @@ struct SettingsDropdownView: View {
     @Binding var isOpen: Bool
     
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
-    private let hapticGenerator = UISelectionFeedbackGenerator()
     
     var body: some View {
         VStack(spacing: 32) {
-            // Processing Mode Row
             VStack(spacing: 12) {
                 Text("PIPELINE")
                     .font(.system(size: 10, weight: .black))
@@ -20,7 +18,7 @@ struct SettingsDropdownView: View {
                     ForEach(ProcessingMode.allCases, id: \.self) { mode in
                         Button(action: {
                             if selectedMode != mode {
-                                hapticGenerator.selectionChanged()
+                                HapticManager.shared.playSelection()
                                 selectedMode = mode
                             }
                         }) {
@@ -44,7 +42,6 @@ struct SettingsDropdownView: View {
                 }
             }
             
-            // Appearance Row
             VStack(spacing: 12) {
                 Text("APPEARANCE")
                     .font(.system(size: 10, weight: .black))
@@ -55,7 +52,7 @@ struct SettingsDropdownView: View {
                     ForEach(AppTheme.allCases, id: \.self) { theme in
                         Button(action: {
                             if appTheme != theme {
-                                hapticGenerator.selectionChanged()
+                                HapticManager.shared.playSelection()
                                 appTheme = theme
                             }
                         }) {
@@ -70,7 +67,7 @@ struct SettingsDropdownView: View {
                                 .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity) // Distributes equally
+                        .frame(maxWidth: .infinity)
                         .background(
                             Capsule()
                                 .fill(appTheme == theme ? Theme.Color.text : Theme.Color.glassBackground)

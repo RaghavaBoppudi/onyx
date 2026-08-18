@@ -26,7 +26,6 @@ actor CameraEngine {
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
     private var notificationTask: Task<Void, Never>?
-    private var pressureObservation: NSKeyValueObservation?
     private var focusObservation: NSKeyValueObservation?
 
     func setFrameReceiver(_ receiver: FrameReceiver?) {
@@ -81,7 +80,10 @@ actor CameraEngine {
                 device.whiteBalanceMode = .continuousAutoWhiteBalance
             }
             
-            device.isSubjectAreaChangeMonitoringEnabled = true
+            if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
+                device.isSubjectAreaChangeMonitoringEnabled = true
+            }
+            
             device.unlockForConfiguration()
         } catch {
             print("Failed to lock device for focus update.")
@@ -111,7 +113,10 @@ actor CameraEngine {
                 device.whiteBalanceMode = .continuousAutoWhiteBalance
             }
             
-            device.isSubjectAreaChangeMonitoringEnabled = true
+            if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
+                device.isSubjectAreaChangeMonitoringEnabled = true
+            }
+            
             device.unlockForConfiguration()
         } catch {
             print("Failed to lock device for continuous focus reset.")
@@ -168,8 +173,6 @@ actor CameraEngine {
                 self.session.commitConfiguration()
                 
                 if let device = self.deviceInput?.device {
-                    self.updatePhotoOutputDimensions(for: device)
-                    self.observeSystemPressure(for: device)
                     self.observeFocus(for: device)
                 }
                 
@@ -194,8 +197,6 @@ actor CameraEngine {
     func stop() {
         notificationTask?.cancel()
         notificationTask = nil
-        pressureObservation?.invalidate()
-        pressureObservation = nil
         focusObservation?.invalidate()
         focusObservation = nil
         sessionQueue.async { [weak session] in
@@ -226,7 +227,11 @@ actor CameraEngine {
             if connection.isVideoRotationAngleSupported(portraitAngle) { connection.videoRotationAngle = portraitAngle }
             if connection.isVideoMirroringSupported { connection.isVideoMirrored = (device.position == .front) }
         }
-        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+        
+        Task {
+            let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil) }
+            self.rotationCoordinator = coordinator
+        }
     }
     
     private func configurePhotoOutput() {
@@ -260,16 +265,11 @@ actor CameraEngine {
         currentLens = lens
         captureDelegate.activeDeviceType = lens.type
         
-        var currentChromaticity: AVCaptureDevice.WhiteBalanceChromaticityValues?
-        if let currentDevice = deviceInput?.device {
-            let currentGains = currentDevice.deviceWhiteBalanceGains
-            currentChromaticity = currentDevice.chromaticityValues(for: currentGains)
-        }
-        
         guard let newDevice = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
               let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
               
         session.beginConfiguration()
+        
         if let currentInput = deviceInput { session.removeInput(currentInput) }
         if session.canAddInput(newInput) {
             session.addInput(newInput)
@@ -282,34 +282,15 @@ actor CameraEngine {
             if connection.isVideoMirroringSupported { connection.isVideoMirrored = (newDevice.position == .front) }
         }
         
-        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil)
-        applySettings(to: newDevice, inheritedChromaticity: currentChromaticity)
+        applySettings(to: newDevice)
         session.commitConfiguration()
         
-        updatePhotoOutputDimensions(for: newDevice)
-        observeSystemPressure(for: newDevice)
-        observeFocus(for: newDevice)
-    }
-    
-    private func observeSystemPressure(for device: AVCaptureDevice) {
-        pressureObservation?.invalidate()
-        pressureObservation = device.observe(\.systemPressureState, options: [.new]) { device, _ in
-            let pressureLevel = device.systemPressureState.level
-            
-            do {
-                try device.lockForConfiguration()
-                if pressureLevel == .serious || pressureLevel == .critical {
-                    device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 20)
-                    device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 20)
-                } else if pressureLevel == .nominal || pressureLevel == .fair {
-                    device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-                    device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
-                }
-                device.unlockForConfiguration()
-            } catch {
-                print("Failed to lock device for thermal throttling.")
-            }
+        Task {
+            let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil) }
+            self.rotationCoordinator = coordinator
         }
+        
+        observeFocus(for: newDevice)
     }
     
     private func observeFocus(for device: AVCaptureDevice) {
@@ -320,7 +301,7 @@ actor CameraEngine {
         }
     }
     
-    private func applySettings(to device: AVCaptureDevice, inheritedChromaticity: AVCaptureDevice.WhiteBalanceChromaticityValues? = nil) {
+    private func applySettings(to device: AVCaptureDevice) {
         do {
             try device.lockForConfiguration()
             
@@ -338,42 +319,19 @@ actor CameraEngine {
                 device.exposureMode = .continuousAutoExposure
             }
             
-            if let chromaticity = inheritedChromaticity, device.isWhiteBalanceModeSupported(.locked) {
-                let mappedGains = device.deviceWhiteBalanceGains(for: chromaticity)
-                let maxGain = device.maxWhiteBalanceGain
-                let clampedGains = AVCaptureDevice.WhiteBalanceGains(
-                    redGain: min(max(1.0, mappedGains.redGain), maxGain),
-                    greenGain: min(max(1.0, mappedGains.greenGain), maxGain),
-                    blueGain: min(max(1.0, mappedGains.blueGain), maxGain)
-                )
-                
-                device.setWhiteBalanceModeLocked(with: clampedGains) { _ in
-                    Task {
-                        do {
-                            try device.lockForConfiguration()
-                            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-                                device.whiteBalanceMode = .continuousAutoWhiteBalance
-                            }
-                            device.unlockForConfiguration()
-                        } catch {}
-                    }
-                }
-            } else {
-                if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-                    device.whiteBalanceMode = .continuousAutoWhiteBalance
-                }
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
             }
             
             device.setExposureTargetBias(-0.5, completionHandler: nil)
-            device.isSubjectAreaChangeMonitoringEnabled = true
+            
+            if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
+                device.isSubjectAreaChangeMonitoringEnabled = true
+            }
+            
             device.unlockForConfiguration()
-        } catch {}
-    }
-    
-    private func updatePhotoOutputDimensions(for device: AVCaptureDevice) {
-        if #available(iOS 16.0, *) {
-            let maxDimensions = device.activeFormat.supportedMaxPhotoDimensions.last ?? CMVideoDimensions(width: 0, height: 0)
-            photoOutput.maxPhotoDimensions = maxDimensions
+        } catch {
+            print("Failed to lock device for settings application.")
         }
     }
     
@@ -383,14 +341,22 @@ actor CameraEngine {
             if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
         }
         
-        guard let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else {
-            print("Error: Sensor does not support Bayer RAW capture.")
-            return
+        let settings: AVCapturePhotoSettings
+        if let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) {
+            settings = AVCapturePhotoSettings(rawPixelFormatType: bayerFormat)
+        } else {
+            // Fallback for Front Cameras and older Ultra-Wide lenses that physically lack RAW capabilities
+            settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         }
         
-        let settings = AVCapturePhotoSettings(rawPixelFormatType: bayerFormat)
         settings.isAutoRedEyeReductionEnabled = false
-        settings.flashMode = flashEnabled ? .on : .off
+        
+        let requestedFlashMode: AVCaptureDevice.FlashMode = flashEnabled ? .on : .off
+        if photoOutput.supportedFlashModes.contains(requestedFlashMode) {
+            settings.flashMode = requestedFlashMode
+        } else {
+            settings.flashMode = .off
+        }
         
         if #available(iOS 16.0, *) {
             settings.photoQualityPrioritization = .speed
