@@ -20,7 +20,6 @@ actor CameraEngine {
     
     var availableLenses: [Lens] = []
     var currentLens: Lens?
-    var currentMode: ProcessingMode = .zero
     
     private var deviceInput: AVCaptureDeviceInput?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
@@ -50,11 +49,6 @@ actor CameraEngine {
     
     func setOnStorageError(_ callback: @escaping @Sendable () -> Void) {
         captureDelegate.onStorageError = callback
-    }
-    
-    func setProcessingPipeline(mode: ProcessingMode) {
-        self.currentMode = mode
-        captureDelegate.processingMode = mode
     }
     
     func setFocus(point: CGPoint) {
@@ -152,7 +146,7 @@ actor CameraEngine {
         }
         
         availableLenses = CameraHardware.availableLenses(for: .back)
-        currentLens = availableLenses.first(where: { $0.type == .builtInWideAngleCamera }) ?? availableLenses.first
+        currentLens = availableLenses.first(where: { $0.label == "1x" }) ?? availableLenses.first
         captureDelegate.activeDeviceType = currentLens?.type ?? .builtInWideAngleCamera
         
         let success: Bool = await withCheckedContinuation { continuation in
@@ -262,35 +256,55 @@ actor CameraEngine {
     }
     
     func selectLens(_ lens: Lens) {
+        let oldLens = currentLens
         currentLens = lens
         captureDelegate.activeDeviceType = lens.type
         
-        guard let newDevice = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
-              let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
-              
-        session.beginConfiguration()
-        
-        if let currentInput = deviceInput { session.removeInput(currentInput) }
-        if session.canAddInput(newInput) {
-            session.addInput(newInput)
-            deviceInput = newInput
+        let requiresInputRebuild: Bool
+        if lens.position != oldLens?.position {
+            requiresInputRebuild = true
+        } else if lens.type != oldLens?.type {
+            requiresInputRebuild = true
+        } else {
+            requiresInputRebuild = false
         }
         
-        if let connection = videoOutput.connection(with: .video) {
-            let portraitAngle: CGFloat = (newDevice.position == .front) ? 0.0 : 90.0
-            if connection.isVideoRotationAngleSupported(portraitAngle) { connection.videoRotationAngle = portraitAngle }
-            if connection.isVideoMirroringSupported { connection.isVideoMirrored = (newDevice.position == .front) }
+        if requiresInputRebuild {
+            guard let newDevice = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
+                  let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
+                  
+            session.beginConfiguration()
+            
+            if let currentInput = deviceInput { session.removeInput(currentInput) }
+            if session.canAddInput(newInput) {
+                session.addInput(newInput)
+                deviceInput = newInput
+            }
+            
+            if let connection = videoOutput.connection(with: .video) {
+                let portraitAngle: CGFloat = (newDevice.position == .front) ? 0.0 : 90.0
+                if connection.isVideoRotationAngleSupported(portraitAngle) { connection.videoRotationAngle = portraitAngle }
+                if connection.isVideoMirroringSupported { connection.isVideoMirrored = (newDevice.position == .front) }
+            }
+            
+            applySettings(to: newDevice)
+            session.commitConfiguration()
+            
+            Task {
+                let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil) }
+                self.rotationCoordinator = coordinator
+            }
+            
+            observeFocus(for: newDevice)
+        } else {
+            if let activeDevice = deviceInput?.device {
+                do {
+                    try activeDevice.lockForConfiguration()
+                    activeDevice.videoZoomFactor = lens.videoZoomFactor
+                    activeDevice.unlockForConfiguration()
+                } catch {}
+            }
         }
-        
-        applySettings(to: newDevice)
-        session.commitConfiguration()
-        
-        Task {
-            let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil) }
-            self.rotationCoordinator = coordinator
-        }
-        
-        observeFocus(for: newDevice)
     }
     
     private func observeFocus(for device: AVCaptureDevice) {
@@ -325,6 +339,10 @@ actor CameraEngine {
             
             device.setExposureTargetBias(-0.5, completionHandler: nil)
             
+            if let lens = currentLens {
+                device.videoZoomFactor = lens.videoZoomFactor
+            }
+            
             if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
                 device.isSubjectAreaChangeMonitoringEnabled = true
             }
@@ -345,7 +363,6 @@ actor CameraEngine {
         if let bayerFormat = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) {
             settings = AVCapturePhotoSettings(rawPixelFormatType: bayerFormat)
         } else {
-            // Fallback for Front Cameras and older Ultra-Wide lenses that physically lack RAW capabilities
             settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         }
         
@@ -363,7 +380,6 @@ actor CameraEngine {
         }
         
         captureDelegate.currentLocation = locationProvider.currentLocation
-        captureDelegate.processingMode = currentMode
         photoOutput.capturePhoto(with: settings, delegate: captureDelegate)
     }
 }
@@ -376,7 +392,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let _onQRCodeScanned = OSAllocatedUnfairLock(initialState: (@Sendable (String) -> Void)?(nil))
     private let _onFocusLocked = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
     private let _onStorageError = OSAllocatedUnfairLock(initialState: (@Sendable () -> Void)?(nil))
-    private let _processingMode = OSAllocatedUnfairLock(initialState: ProcessingMode.zero)
     private let _activeDeviceType = OSAllocatedUnfairLock(initialState: AVCaptureDevice.DeviceType.builtInWideAngleCamera)
     
     private let _lastScannedQR = OSAllocatedUnfairLock(initialState: (value: "", timestamp: Date.distantPast))
@@ -418,11 +433,6 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         set { _currentLocation.withLock { $0 = newValue } }
     }
     
-    nonisolated var processingMode: ProcessingMode {
-        get { _processingMode.withLock { $0 } }
-        set { _processingMode.withLock { $0 = newValue } }
-    }
-    
     nonisolated var activeDeviceType: AVCaptureDevice.DeviceType {
         get { _activeDeviceType.withLock { $0 } }
         set { _activeDeviceType.withLock { $0 = newValue } }
@@ -443,10 +453,9 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
             }
             
             let deviceType = _activeDeviceType.withLock { $0 }
-            let mode = _processingMode.withLock { $0 }
             
             let rawImage = CIImage(cvPixelBuffer: pixelBuffer)
-            let finalImage = filterPipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: currentISO)
+            let finalImage = filterPipeline.apply(to: rawImage, deviceType: deviceType, iso: currentISO)
             frameReceiver?.receive(image: finalImage)
         }
     }
@@ -486,12 +495,11 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         }
         
         let location = self.currentLocation
-        let mode = self.processingMode
         let deviceType = self.activeDeviceType
         
         Task {
             do {
-                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: OnyxGlobals.sharedContext, mode: mode, deviceType: deviceType, iso: capturedISO)
+                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: OnyxGlobals.sharedContext, deviceType: deviceType, iso: capturedISO)
             } catch ProcessorError.insufficientStorage {
                 onStorageError?()
             } catch {

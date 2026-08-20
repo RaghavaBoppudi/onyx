@@ -8,21 +8,17 @@ final class CameraViewModel: ObservableObject {
     @Published var availableLenses: [Lens] = []
     @Published var currentLens: Lens?
     @Published var cameraPosition: AVCaptureDevice.Position = .back
-    @Published var isCapturing = false
+    @Published var isProcessing = false
     @Published var isFlashing = false
+    @Published var showFlash = false
     @Published var scannedURL: URL?
     @Published var isAuthorized: Bool = true
     @Published var showStorageAlert: Bool = false
     
-    @Published var processingMode: ProcessingMode = .zero {
-        didSet { setProcessingPipeline(mode: processingMode) }
-    }
     @Published var gridMode: GridMode = .none
-    
     @Published var isFlashOn: Bool = false
     @Published var isSettingsOpen: Bool = false
     @Published var focusPointUI: CGPoint?
-    
     @Published var iconOrientation: Angle = .zero
     
     private let engine = CameraEngine()
@@ -51,14 +47,24 @@ final class CameraViewModel: ObservableObject {
     }
     
     func start() async {
-        await engine.setProcessingPipeline(mode: self.processingMode)
-        
         await engine.setOnQRCodeScanned { @Sendable [weak self] stringValue in
             Task { @MainActor [weak self] in self?.processQRCode(stringValue) }
         }
         
+        // Fires instantly at hardware actuation (willCapturePhotoFor)
+        await engine.setOnCapture { @Sendable [weak self] in
+            Task { @MainActor [weak self] in
+                self?.showFlash = true
+                HapticManager.shared.playHeavy()
+                withAnimation(.easeOut(duration: 0.15)) {
+                    self?.showFlash = false
+                }
+            }
+        }
+        
+        // Fires when RAW memory transfer finishes (~1s later)
         await engine.setOnCaptureComplete { @Sendable [weak self] in
-            Task { @MainActor [weak self] in self?.isCapturing = false }
+            Task { @MainActor [weak self] in self?.isProcessing = false }
         }
         
         await engine.setOnFocusLocked { @Sendable [weak self] in
@@ -133,19 +139,15 @@ final class CameraViewModel: ObservableObject {
     }
     
     func capturePhoto() {
-        guard !isCapturing else { return }
+        guard !isProcessing else { return }
         isSettingsOpen = false
-        isCapturing = true
+        isProcessing = true
         let flash = isFlashOn
         triggerFlash()
         
         Task {
             await engine.capturePhoto(flashEnabled: flash)
         }
-    }
-    
-    func setProcessingPipeline(mode: ProcessingMode) {
-        Task { await engine.setProcessingPipeline(mode: mode) }
     }
     
     func focus(at uiPoint: CGPoint, normalized: CGPoint) {

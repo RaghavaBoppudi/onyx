@@ -27,38 +27,24 @@ final class OnyxFilterPipeline: @unchecked Sendable {
 
     nonisolated init() {}
 
-    nonisolated func apply(to image: CIImage, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
+    nonisolated func apply(to image: CIImage, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
         var processingImage = image
 
-        if mode == .mono {
-            processingImage = processingImage.applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: 0.68, y: 0.28, z: 0.04, w: 0.0),
-                "inputGVector": CIVector(x: 0.68, y: 0.28, z: 0.04, w: 0.0),
-                "inputBVector": CIVector(x: 0.68, y: 0.28, z: 0.04, w: 0.0),
-                "inputAVector": CIVector(x: 0.0, y: 0.0, z: 0.0, w: 1.0)
-            ])
-        }
-
-        if mode == .zero {
-            let calibration = hardwareCalibrations[deviceType] ?? hardwareCalibrations[.builtInWideAngleCamera]!
-            
-            processingImage = processingImage.applyingFilter("CIColorControls", parameters: [
-                "inputSaturation": calibration.saturation,
-                "inputContrast": 1.0,
-                "inputBrightness": 0.0
-            ])
-            
-            processingImage = processingImage.applyingFilter("CIWhitePointAdjust", parameters: [
-                "inputColor": calibration.whitePoint
-            ])
-        }
-
-        // Low shadow anchor for deep, cinematic blacks in MONO mode
-        let shadowAnchor: CGFloat = (mode == .mono) ? 0.20 : 0.26
+        let calibration = hardwareCalibrations[deviceType] ?? hardwareCalibrations[.builtInWideAngleCamera]!
+        
+        processingImage = processingImage.applyingFilter("CIColorControls", parameters: [
+            "inputSaturation": calibration.saturation,
+            "inputContrast": 1.0,
+            "inputBrightness": 0.0
+        ])
+        
+        processingImage = processingImage.applyingFilter("CIWhitePointAdjust", parameters: [
+            "inputColor": calibration.whitePoint
+        ])
 
         return processingImage.applyingFilter("CIToneCurve", parameters: [
             "inputPoint0": CIVector(x: 0.0, y: 0.01),
-            "inputPoint1": CIVector(x: 0.25, y: shadowAnchor),
+            "inputPoint1": CIVector(x: 0.25, y: 0.26),
             "inputPoint2": CIVector(x: 0.50, y: 0.50),
             "inputPoint3": CIVector(x: 0.75, y: 0.80),
             "inputPoint4": CIVector(x: 1.0, y: 0.98)

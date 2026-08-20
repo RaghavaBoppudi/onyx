@@ -53,7 +53,7 @@ actor PhotoProcessor {
         return availableBytes > 500_000_000
     }
     
-    func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, mode: ProcessingMode, deviceType: AVCaptureDevice.DeviceType, iso: Float) async throws {
+    func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, deviceType: AVCaptureDevice.DeviceType, iso: Float) async throws {
         guard hasSufficientStorage() else { throw ProcessorError.insufficientStorage }
         
         let backgroundTaskID = await MainActor.run {
@@ -86,7 +86,7 @@ actor PhotoProcessor {
         }
         
         let pipeline = OnyxFilterPipeline()
-        let processedImage = pipeline.apply(to: rawImage, mode: mode, deviceType: deviceType, iso: iso)
+        let processedImage = pipeline.apply(to: rawImage, deviceType: deviceType, iso: iso)
         
         let options = [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 1.0]
         guard let colorSpace = rawImage.colorSpace ?? CGColorSpace(name: CGColorSpace.displayP3),

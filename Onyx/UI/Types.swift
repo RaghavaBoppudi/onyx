@@ -1,18 +1,6 @@
 import Foundation
 import SwiftUI
 
-enum ProcessingMode: String, CaseIterable, Equatable {
-    case mono = "MONO"
-    case zero = "ZERO"
-    
-    var description: String {
-        switch self {
-        case .zero: return "Unprocessed RAW color data."
-        case .mono: return "Authentic monochrome. Natural sensor grain."
-        }
-    }
-}
-
 enum GridMode: Int, CaseIterable, Equatable {
     case none = 0
     case thirds = 1
