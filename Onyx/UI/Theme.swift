@@ -1,14 +1,32 @@
 import SwiftUI
+import UIKit
+
+extension UIColor {
+    // off-white - #f9faef
+    static let onyxWhite = UIColor(red: 249.0/255.0, green: 250.0/255.0, blue: 239.0/255.0, alpha: 1.0)
+    // brown-black - #262424
+    static let onyxBlack = UIColor(red: 38.0/255.0, green: 36.0/255.0, blue: 36.0/255.0, alpha: 1.0)
+    
+    static let onyxBackground = UIColor { traitCollection in
+        return traitCollection.userInterfaceStyle == .dark ? .onyxBlack : .onyxWhite
+    }
+    
+    static let onyxText = UIColor { traitCollection in
+        return traitCollection.userInterfaceStyle == .dark ? .onyxWhite : .onyxBlack
+    }
+}
 
 enum Theme {
     enum Color {
-        static let accent = SwiftUI.Color(red: 0.04, green: 0.7, blue: 0.7)
-        static let background = SwiftUI.Color(UIColor.systemBackground)
-        static let text = SwiftUI.Color(UIColor.label)
+        // Lime green - #dbff34
+        static let accent = SwiftUI.Color(red: 219.0/255.0, green: 255.0/255.0, blue: 52.0/255.0)
         
-        static let glassBackground = SwiftUI.Color.black.opacity(0.05)
-        static let glassBorderSubtle = SwiftUI.Color.black.opacity(0.1)
-        static let glassBorderStrong = SwiftUI.Color.black.opacity(0.3)
+        static let background = SwiftUI.Color(uiColor: .onyxBackground)
+        static let text = SwiftUI.Color(uiColor: .onyxText)
+        
+        static let glassBackground = text.opacity(0.05)
+        static let glassBorderSubtle = text.opacity(0.1)
+        static let glassBorderStrong = text.opacity(0.3)
         
         enum Shutter {
             static let core = accent
