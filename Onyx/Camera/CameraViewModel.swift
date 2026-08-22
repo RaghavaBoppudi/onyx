@@ -8,24 +8,18 @@ final class CameraViewModel: ObservableObject {
     @Published var availableLenses: [Lens] = []
     @Published var currentLens: Lens?
     @Published var cameraPosition: AVCaptureDevice.Position = .back
-    @Published var isSwitchingLens = false
-    @Published var isCapturing = false
+    @Published var isProcessing = false
     @Published var isFlashing = false
+    @Published var showFlash = false
     @Published var scannedURL: URL?
+    @Published var isAuthorized: Bool = true
+    @Published var showStorageAlert: Bool = false
     
-    @Published var processingMode: ProcessingMode = .mono {
-        didSet { setProcessingPipeline(mode: processingMode) }
-    }
     @Published var gridMode: GridMode = .none
-    
     @Published var isFlashOn: Bool = false
     @Published var isSettingsOpen: Bool = false
     @Published var focusPointUI: CGPoint?
     @Published var iconOrientation: Angle = .zero
-    
-    @Published var cameraSnapshot: CGImage? = nil
-    @Published var flipDegrees: Double = 0.0
-    @Published var isFlipping: Bool = false
     
     private let engine = CameraEngine()
     private var qrClearTask: Task<Void, Never>?
@@ -39,15 +33,11 @@ final class CameraViewModel: ObservableObject {
     
     private func setupLifecycleObservers() {
         NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
-            .sink { [weak self] _ in
-                Task { await self?.stop() }
-            }
+            .sink { [weak self] _ in Task { await self?.stop() } }
             .store(in: &cancellables)
             
         NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
-            .sink { [weak self] _ in
-                Task { await self?.start() }
-            }
+            .sink { [weak self] _ in Task { await self?.start() } }
             .store(in: &cancellables)
     }
     
@@ -57,17 +47,42 @@ final class CameraViewModel: ObservableObject {
     }
     
     func start() async {
-        await engine.setProcessingPipeline(mode: self.processingMode)
-        
         await engine.setOnQRCodeScanned { @Sendable [weak self] stringValue in
             Task { @MainActor [weak self] in self?.processQRCode(stringValue) }
         }
         
-        await engine.setOnCaptureComplete { @Sendable [weak self] in
-            Task { @MainActor [weak self] in self?.isCapturing = false }
+        // Fires instantly at hardware actuation (willCapturePhotoFor)
+        await engine.setOnCapture { @Sendable [weak self] in
+            Task { @MainActor [weak self] in
+                self?.showFlash = true
+                HapticManager.shared.playHeavy()
+                withAnimation(.easeOut(duration: 0.15)) {
+                    self?.showFlash = false
+                }
+            }
         }
         
-        if await engine.start() {
+        // Fires when RAW memory transfer finishes (~1s later)
+        await engine.setOnCaptureComplete { @Sendable [weak self] in
+            Task { @MainActor [weak self] in self?.isProcessing = false }
+        }
+        
+        await engine.setOnFocusLocked { @Sendable [weak self] in
+            Task { @MainActor [weak self] in
+                if self?.focusPointUI != nil {
+                    HapticManager.shared.playMedium()
+                }
+            }
+        }
+        
+        await engine.setOnStorageError { @Sendable [weak self] in
+            Task { @MainActor [weak self] in self?.showStorageAlert = true }
+        }
+        
+        let success = await engine.start()
+        self.isAuthorized = success
+        
+        if success {
             self.availableLenses = await engine.availableLenses
             self.currentLens = await engine.currentLens
         }
@@ -98,69 +113,50 @@ final class CameraViewModel: ObservableObject {
     }
     
     func toggleCameraPosition() {
-        guard !isFlipping, let currentCIImage = frameReceiver?.currentImage else { return }
-        
-        let context = CIContext(options: [.cacheIntermediates: false])
-        cameraSnapshot = context.createCGImage(currentCIImage, from: currentCIImage.extent)
-        isFlipping = true
-        flipDegrees = 0.0
-        isSwitchingLens = true
-        
+        isSettingsOpen = false
         cameraPosition = cameraPosition == .back ? .front : .back
         
         Task {
             if let newLens = await engine.switchCameraPosition(to: cameraPosition) {
-                currentLens = newLens
-                availableLenses = await engine.availableLenses
-            }
-            
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            await MainActor.run {
-                cameraSnapshot = nil
-                isFlipping = false
-                flipDegrees = 0.0
-                isSwitchingLens = false
+                let newLenses = await engine.availableLenses
+                
+                await MainActor.run {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        self.availableLenses = newLenses
+                        self.currentLens = newLens
+                    }
+                }
             }
         }
     }
     
     func selectLens(_ lens: Lens) {
         guard lens != currentLens else { return }
-        isSwitchingLens = true
         currentLens = lens
-        
-        Task {
-            await engine.selectLens(lens)
-            isSwitchingLens = false
-        }
+        Task { await engine.selectLens(lens) }
     }
     
     func capturePhoto() {
-        guard !isCapturing else { return }
-        isCapturing = true
+        guard !isProcessing else { return }
+        isSettingsOpen = false
+        isProcessing = true
         let flash = isFlashOn
-        
         triggerFlash()
         
-        Task.detached(priority: .userInitiated) { [engine] in
-            await engine.capturePhoto(flashEnabled: flash)
-        }
-    }
-    
-    func setProcessingPipeline(mode: ProcessingMode) {
         Task {
-            await engine.setProcessingPipeline(mode: mode)
+            await engine.capturePhoto(flashEnabled: flash)
         }
     }
     
     func focus(at uiPoint: CGPoint, normalized: CGPoint) {
         focusPointUI = uiPoint
-        
         Task { await engine.setFocus(point: normalized) }
         
         focusTimer?.invalidate()
         focusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-            self?.focusPointUI = nil
+            Task { @MainActor [weak self] in self?.focusPointUI = nil }
         }
     }
     

@@ -10,11 +10,9 @@ struct CompositionGrid: Shape {
         let fractions: [CGFloat] = [1.0/3.0, 2.0/3.0]
         
         for fraction in fractions {
-            // Vertical geometry
             path.move(to: CGPoint(x: rect.width * fraction, y: 0))
             path.addLine(to: CGPoint(x: rect.width * fraction, y: rect.height))
             
-            // Horizontal geometry
             path.move(to: CGPoint(x: 0, y: rect.height * fraction))
             path.addLine(to: CGPoint(x: rect.width, y: rect.height * fraction))
         }
@@ -29,28 +27,34 @@ struct ViewfinderView: View {
     let isActive: Bool
     let iconOrientation: Angle
     
-    private let hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
-    
     var body: some View {
         ZStack(alignment: .bottom) {
             MetalPreview(viewModel: viewModel, isActive: isActive)
                 .contentShape(Rectangle())
-                .onTapGesture { location in
-                    if viewModel.isSettingsOpen {
-                        withAnimation { viewModel.isSettingsOpen = false }
-                    } else {
-                        let viewfinderWidth = geometry.size.width - Theme.Layout.viewfinderInset
-                        let viewfinderHeight = viewfinderWidth * (4.0 / 3.0)
-                        
-                        let normalizedX = location.y / viewfinderHeight
-                        let normalizedY = 1.0 - (location.x / viewfinderWidth)
-                        let normalized = CGPoint(x: normalizedX, y: normalizedY)
-                        viewModel.focus(at: location, normalized: normalized)
-                    }
-                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onEnded { value in
+                            if viewModel.isSettingsOpen {
+                                withAnimation { viewModel.isSettingsOpen = false }
+                                return
+                            }
+                            
+                            let location = value.location
+                            let viewfinderWidth = geometry.size.width - (Theme.Layout.viewfinderInset * 2)
+                            let viewfinderHeight = viewfinderWidth * Theme.Layout.aspectRatio
+                            
+                            let safeInset: CGFloat = 30.0
+                            guard location.y > safeInset, location.y < viewfinderHeight - safeInset else { return }
+                            
+                            let normalizedX = location.y / viewfinderHeight
+                            let normalizedY = 1.0 - (location.x / viewfinderWidth)
+                            let normalized = CGPoint(x: normalizedX, y: normalizedY)
+                            viewModel.focus(at: location, normalized: normalized)
+                        }
+                )
             
             CompositionGrid(mode: viewModel.gridMode)
-                .stroke(Color.white.opacity(0.3), lineWidth: 0.5)
+                .stroke(Theme.Color.text.opacity(0.3), lineWidth: 0.5)
                 .allowsHitTesting(false)
             
             if let focusPoint = viewModel.focusPointUI {
@@ -69,15 +73,15 @@ struct ViewfinderView: View {
             }
         }
         .animation(Theme.Physics.menuTransition, value: viewModel.scannedURL)
-        .aspectRatio(3.0 / 4.0, contentMode: .fit)
-        .frame(width: geometry.size.width)
+        .aspectRatio(1.0 / Theme.Layout.aspectRatio, contentMode: .fit)
+        .frame(width: geometry.size.width - (Theme.Layout.viewfinderInset * 2))
         .clipped()
     }
     
     @ViewBuilder
     private func qrPill(for url: URL) -> some View {
         Button(action: {
-            hapticGenerator.impactOccurred()
+            HapticManager.shared.playMedium()
             UIApplication.shared.open(url)
         }) {
             HStack(spacing: Theme.Layout.paddingSmall) {
