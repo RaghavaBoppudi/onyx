@@ -73,7 +73,12 @@ actor PhotoProcessor {
         
         let rawImage: CIImage
         if let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) {
+            // Disable all hidden computational exposure and tone mapping
+            rawFilter.baselineExposure = 0.0
+            rawFilter.boostAmount = 0.0
             rawFilter.localToneMapAmount = 0.0
+            
+            // Disable standard noise and sharpening algorithms
             rawFilter.luminanceNoiseReductionAmount = 0.0
             rawFilter.colorNoiseReductionAmount = 0.0
             rawFilter.sharpnessAmount = 0.0

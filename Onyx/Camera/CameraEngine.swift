@@ -8,12 +8,12 @@ import Photos
 struct WeakReceiverBox: Sendable { weak var receiver: FrameReceiver? }
 
 actor CameraEngine {
-    private var session: AVCaptureSession!
+    private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "com.onyx.sessionQueue")
     
-    private lazy var videoOutput = AVCaptureVideoDataOutput()
-    private lazy var photoOutput = AVCapturePhotoOutput()
-    private lazy var metadataOutput = AVCaptureMetadataOutput()
+    private let videoOutput = AVCaptureVideoDataOutput()
+    private let photoOutput = AVCapturePhotoOutput()
+    private let metadataOutput = AVCaptureMetadataOutput()
     
     private let captureDelegate = EngineCaptureDelegate()
     private let locationProvider = LocationProvider()
@@ -52,68 +52,44 @@ actor CameraEngine {
     }
     
     func setFocus(point: CGPoint) {
-        guard let device = deviceInput?.device else { return }
-        do {
-            try device.lockForConfiguration()
-            
-            if device.isFocusPointOfInterestSupported {
-                device.focusPointOfInterest = point
+        guard let activeDevice = deviceInput?.device else { return }
+        
+        sessionQueue.async {
+            do {
+                try activeDevice.lockForConfiguration()
+                if activeDevice.isFocusPointOfInterestSupported { activeDevice.focusPointOfInterest = point }
+                if activeDevice.isFocusModeSupported(.continuousAutoFocus) { activeDevice.focusMode = .continuousAutoFocus }
+                if activeDevice.isExposurePointOfInterestSupported { activeDevice.exposurePointOfInterest = point }
+                if activeDevice.isExposureModeSupported(.continuousAutoExposure) { activeDevice.exposureMode = .continuousAutoExposure }
+                if activeDevice.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { activeDevice.whiteBalanceMode = .continuousAutoWhiteBalance }
+                if activeDevice.isFocusPointOfInterestSupported || activeDevice.isExposurePointOfInterestSupported {
+                    activeDevice.isSubjectAreaChangeMonitoringEnabled = true
+                }
+                activeDevice.unlockForConfiguration()
+            } catch {
+                print("Failed to lock device for focus update.")
             }
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
-            }
-            
-            if device.isExposurePointOfInterestSupported {
-                device.exposurePointOfInterest = point
-            }
-            if device.isExposureModeSupported(.continuousAutoExposure) {
-                device.exposureMode = .continuousAutoExposure
-            }
-            
-            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-                device.whiteBalanceMode = .continuousAutoWhiteBalance
-            }
-            
-            if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
-                device.isSubjectAreaChangeMonitoringEnabled = true
-            }
-            
-            device.unlockForConfiguration()
-        } catch {
-            print("Failed to lock device for focus update.")
         }
     }
     
-    private func resetFocusToContinuous() {
-        guard let device = deviceInput?.device else { return }
-        do {
-            try device.lockForConfiguration()
-            
-            if device.isFocusPointOfInterestSupported {
-                device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+    func resetFocusToContinuous() {
+        guard let activeDevice = deviceInput?.device else { return }
+        
+        sessionQueue.async {
+            do {
+                try activeDevice.lockForConfiguration()
+                if activeDevice.isFocusPointOfInterestSupported { activeDevice.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+                if activeDevice.isFocusModeSupported(.continuousAutoFocus) { activeDevice.focusMode = .continuousAutoFocus }
+                if activeDevice.isExposurePointOfInterestSupported { activeDevice.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+                if activeDevice.isExposureModeSupported(.continuousAutoExposure) { activeDevice.exposureMode = .continuousAutoExposure }
+                if activeDevice.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { activeDevice.whiteBalanceMode = .continuousAutoWhiteBalance }
+                if activeDevice.isFocusPointOfInterestSupported || activeDevice.isExposurePointOfInterestSupported {
+                    activeDevice.isSubjectAreaChangeMonitoringEnabled = true
+                }
+                activeDevice.unlockForConfiguration()
+            } catch {
+                print("Failed to lock device for continuous focus reset.")
             }
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
-            }
-            
-            if device.isExposurePointOfInterestSupported {
-                device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
-            }
-            if device.isExposureModeSupported(.continuousAutoExposure) {
-                device.exposureMode = .continuousAutoExposure
-            }
-            
-            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-                device.whiteBalanceMode = .continuousAutoWhiteBalance
-            }
-            
-            if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
-                device.isSubjectAreaChangeMonitoringEnabled = true
-            }
-            
-            device.unlockForConfiguration()
-        } catch {
-            print("Failed to lock device for continuous focus reset.")
         }
     }
     
@@ -133,54 +109,94 @@ actor CameraEngine {
             return false
         }
         
-        if session == nil {
-            session = AVCaptureSession()
-            session.automaticallyConfiguresApplicationAudioSession = false
-        }
-        
         guard !isConfigured else {
-            sessionQueue.async { [weak session] in
-                if let s = session, !s.isRunning { s.startRunning() }
+            sessionQueue.async { [session] in
+                if !session.isRunning { session.startRunning() }
             }
             return true
         }
         
+        session.automaticallyConfiguresApplicationAudioSession = false
+        
         availableLenses = CameraHardware.availableLenses(for: .back)
-        currentLens = availableLenses.first(where: { $0.label == "1x" }) ?? availableLenses.first
-        captureDelegate.activeDeviceType = currentLens?.type ?? .builtInWideAngleCamera
+        let initialLens = availableLenses.first(where: { $0.label == "1x" }) ?? availableLenses.first
+        currentLens = initialLens
+        captureDelegate.activeDeviceType = initialLens?.type ?? .builtInWideAngleCamera
+        
+        guard let lens = initialLens,
+              let device = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
+              let input = try? AVCaptureDeviceInput(device: device) else { return false }
+              
+        self.deviceInput = input
+        let zoomFactor = lens.videoZoomFactor
         
         let success: Bool = await withCheckedContinuation { continuation in
-            sessionQueue.async { [weak self] in
-                guard let self = self else {
-                    continuation.resume(returning: false)
-                    return
+            sessionQueue.async { [session, videoOutput, photoOutput, metadataOutput, captureDelegate] in
+                session.beginConfiguration()
+                session.sessionPreset = .photo
+                
+                if session.canAddInput(input) { session.addInput(input) }
+                
+                videoOutput.setSampleBufferDelegate(captureDelegate, queue: DispatchQueue(label: "com.onyx.videoQueue", qos: .userInteractive))
+                videoOutput.alwaysDiscardsLateVideoFrames = true
+                if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
+                
+                if let connection = videoOutput.connection(with: .video) {
+                    if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
+                    if connection.isVideoMirroringSupported { connection.isVideoMirrored = (device.position == .front) }
                 }
                 
-                self.session.beginConfiguration()
-                self.session.sessionPreset = .photo
-                
-                self.configureInput()
-                self.configureVideoOutput()
-                self.configurePhotoOutput()
-                self.configureMetadataOutput()
-                
-                self.session.commitConfiguration()
-                
-                if let device = self.deviceInput?.device {
-                    self.observeFocus(for: device)
+                if session.canAddOutput(photoOutput) {
+                    session.addOutput(photoOutput)
+                    if #available(iOS 17.0, *) {
+                        photoOutput.isResponsiveCaptureEnabled = photoOutput.isResponsiveCaptureSupported
+                    }
                 }
                 
-                self.session.startRunning()
+                if session.canAddOutput(metadataOutput) {
+                    session.addOutput(metadataOutput)
+                    metadataOutput.setMetadataObjectsDelegate(captureDelegate, queue: DispatchQueue(label: "com.onyx.metadataQueue", qos: .userInitiated))
+                    if metadataOutput.availableMetadataObjectTypes.contains(.qr) {
+                        metadataOutput.metadataObjectTypes = [.qr]
+                    }
+                }
+                
+                // CRITICAL: Commit configuration before mutating device properties to prevent thread starvation
+                session.commitConfiguration()
+                
+                do {
+                    try device.lockForConfiguration()
+                    if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+                    if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+                    if device.isExposurePointOfInterestSupported { device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+                    if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+                    if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { device.whiteBalanceMode = .continuousAutoWhiteBalance }
+                    device.setExposureTargetBias(-0.5, completionHandler: nil)
+                    device.videoZoomFactor = zoomFactor
+                    if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
+                        device.isSubjectAreaChangeMonitoringEnabled = true
+                    }
+                    device.unlockForConfiguration()
+                } catch {}
+                
+                // Resume immediately so UI loads instantly. Start hardware sequentially.
                 continuation.resume(returning: true)
+                session.startRunning()
             }
         }
         
         guard success else { return false }
         
+        Task {
+            let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil) }
+            self.rotationCoordinator = coordinator
+        }
+        observeFocus(for: device)
+        
         notificationTask?.cancel()
         notificationTask = Task {
             for await _ in NotificationCenter.default.notifications(named: AVCaptureDevice.subjectAreaDidChangeNotification) {
-                resetFocusToContinuous()
+                await self.resetFocusToContinuous()
             }
         }
         
@@ -195,55 +211,6 @@ actor CameraEngine {
         focusObservation = nil
         sessionQueue.async { [weak session] in
             if let s = session, s.isRunning { s.stopRunning() }
-        }
-    }
-    
-    private func configureInput() {
-        guard let lens = currentLens,
-              let device = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
-              let input = try? AVCaptureDeviceInput(device: device) else { return }
-              
-        if session.canAddInput(input) {
-            session.addInput(input)
-            deviceInput = input
-        }
-        applySettings(to: device)
-    }
-    
-    private func configureVideoOutput() {
-        videoOutput.setSampleBufferDelegate(captureDelegate, queue: DispatchQueue(label: "com.onyx.videoQueue", qos: .userInteractive))
-        videoOutput.alwaysDiscardsLateVideoFrames = true
-        if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
-        
-        guard let device = deviceInput?.device else { return }
-        if let connection = videoOutput.connection(with: .video) {
-            let portraitAngle: CGFloat = (device.position == .front) ? 0.0 : 90.0
-            if connection.isVideoRotationAngleSupported(portraitAngle) { connection.videoRotationAngle = portraitAngle }
-            if connection.isVideoMirroringSupported { connection.isVideoMirrored = (device.position == .front) }
-        }
-        
-        Task {
-            let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil) }
-            self.rotationCoordinator = coordinator
-        }
-    }
-    
-    private func configurePhotoOutput() {
-        if session.canAddOutput(photoOutput) {
-            session.addOutput(photoOutput)
-            if #available(iOS 17.0, *) {
-                photoOutput.isResponsiveCaptureEnabled = photoOutput.isResponsiveCaptureSupported
-            }
-        }
-    }
-    
-    private func configureMetadataOutput() {
-        if session.canAddOutput(metadataOutput) {
-            session.addOutput(metadataOutput)
-            metadataOutput.setMetadataObjectsDelegate(captureDelegate, queue: DispatchQueue(label: "com.onyx.metadataQueue", qos: .userInitiated))
-            if metadataOutput.availableMetadataObjectTypes.contains(.qr) {
-                metadataOutput.metadataObjectTypes = [.qr]
-            }
         }
     }
     
@@ -273,36 +240,54 @@ actor CameraEngine {
             guard let newDevice = AVCaptureDevice.default(lens.type, for: .video, position: lens.position),
                   let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
                   
-            session.beginConfiguration()
+            let oldInput = self.deviceInput
+            self.deviceInput = newInput
+            let zoomFactor = lens.videoZoomFactor
             
-            if let currentInput = deviceInput { session.removeInput(currentInput) }
-            if session.canAddInput(newInput) {
-                session.addInput(newInput)
-                deviceInput = newInput
+            sessionQueue.async { [session, videoOutput] in
+                session.beginConfiguration()
+                
+                if let old = oldInput { session.removeInput(old) }
+                if session.canAddInput(newInput) { session.addInput(newInput) }
+                
+                if let connection = videoOutput.connection(with: .video) {
+                    if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
+                    if connection.isVideoMirroringSupported { connection.isVideoMirrored = (newDevice.position == .front) }
+                }
+                
+                // CRITICAL: Commit configuration before mutating new hardware
+                session.commitConfiguration()
+                
+                do {
+                    try newDevice.lockForConfiguration()
+                    if newDevice.isFocusPointOfInterestSupported { newDevice.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+                    if newDevice.isFocusModeSupported(.continuousAutoFocus) { newDevice.focusMode = .continuousAutoFocus }
+                    if newDevice.isExposurePointOfInterestSupported { newDevice.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+                    if newDevice.isExposureModeSupported(.continuousAutoExposure) { newDevice.exposureMode = .continuousAutoExposure }
+                    if newDevice.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { newDevice.whiteBalanceMode = .continuousAutoWhiteBalance }
+                    newDevice.setExposureTargetBias(-0.5, completionHandler: nil)
+                    newDevice.videoZoomFactor = zoomFactor
+                    if newDevice.isFocusPointOfInterestSupported || newDevice.isExposurePointOfInterestSupported {
+                        newDevice.isSubjectAreaChangeMonitoringEnabled = true
+                    }
+                    newDevice.unlockForConfiguration()
+                } catch {}
             }
-            
-            if let connection = videoOutput.connection(with: .video) {
-                let portraitAngle: CGFloat = (newDevice.position == .front) ? 0.0 : 90.0
-                if connection.isVideoRotationAngleSupported(portraitAngle) { connection.videoRotationAngle = portraitAngle }
-                if connection.isVideoMirroringSupported { connection.isVideoMirrored = (newDevice.position == .front) }
-            }
-            
-            applySettings(to: newDevice)
-            session.commitConfiguration()
             
             Task {
                 let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil) }
                 self.rotationCoordinator = coordinator
             }
-            
             observeFocus(for: newDevice)
         } else {
             if let activeDevice = deviceInput?.device {
-                do {
-                    try activeDevice.lockForConfiguration()
-                    activeDevice.videoZoomFactor = lens.videoZoomFactor
-                    activeDevice.unlockForConfiguration()
-                } catch {}
+                sessionQueue.async {
+                    do {
+                        try activeDevice.lockForConfiguration()
+                        activeDevice.videoZoomFactor = lens.videoZoomFactor
+                        activeDevice.unlockForConfiguration()
+                    } catch {}
+                }
             }
         }
     }
@@ -315,48 +300,16 @@ actor CameraEngine {
         }
     }
     
-    private func applySettings(to device: AVCaptureDevice) {
-        do {
-            try device.lockForConfiguration()
-            
-            if device.isFocusPointOfInterestSupported {
-                device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
-            }
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
-            }
-            
-            if device.isExposurePointOfInterestSupported {
-                device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
-            }
-            if device.isExposureModeSupported(.continuousAutoExposure) {
-                device.exposureMode = .continuousAutoExposure
-            }
-            
-            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-                device.whiteBalanceMode = .continuousAutoWhiteBalance
-            }
-            
-            device.setExposureTargetBias(-0.5, completionHandler: nil)
-            
-            if let lens = currentLens {
-                device.videoZoomFactor = lens.videoZoomFactor
-            }
-            
-            if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
-                device.isSubjectAreaChangeMonitoringEnabled = true
-            }
-            
-            device.unlockForConfiguration()
-        } catch {
-            print("Failed to lock device for settings application.")
-        }
-    }
-    
     func capturePhoto(flashEnabled: Bool) {
-        if let photoConnection = photoOutput.connection(with: .video), let coordinator = rotationCoordinator {
-            let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
-            if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
+        if let photoConnection = photoOutput.connection(with: .video) {
+            if #available(iOS 17.0, *), let coordinator = rotationCoordinator {
+                let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+                if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
+            } else {
+                if photoConnection.isVideoOrientationSupported {
+                    photoConnection.videoOrientation = .portrait
+                }
+            }
         }
         
         let settings: AVCapturePhotoSettings

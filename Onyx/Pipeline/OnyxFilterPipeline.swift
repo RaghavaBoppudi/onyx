@@ -13,7 +13,7 @@ final class OnyxFilterPipeline: @unchecked Sendable {
     private let hardwareCalibrations: [AVCaptureDevice.DeviceType: LensCalibration] = [
         .builtInWideAngleCamera: LensCalibration(
             saturation: 1.05,
-            whitePoint: CIColor(red: 1.0, green: 0.98, blue: 0.96)
+            whitePoint: CIColor(red: 1.0, green: 1.0, blue: 1.0)
         ),
         .builtInUltraWideCamera: LensCalibration(
             saturation: 1.05,
@@ -44,10 +44,10 @@ final class OnyxFilterPipeline: @unchecked Sendable {
 
         return processingImage.applyingFilter("CIToneCurve", parameters: [
             "inputPoint0": CIVector(x: 0.0, y: 0.01),
-            "inputPoint1": CIVector(x: 0.25, y: 0.26),
-            "inputPoint2": CIVector(x: 0.50, y: 0.50),
-            "inputPoint3": CIVector(x: 0.75, y: 0.80),
-            "inputPoint4": CIVector(x: 1.0, y: 0.98)
+            "inputPoint1": CIVector(x: 0.25, y: 0.25),
+            "inputPoint2": CIVector(x: 0.50, y: 0.48),
+            "inputPoint3": CIVector(x: 0.75, y: 0.65),
+            "inputPoint4": CIVector(x: 1.0, y: 0.92)
         ])
     }
 }
