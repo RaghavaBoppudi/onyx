@@ -165,7 +165,7 @@ actor CameraEngine {
                     if device.isExposurePointOfInterestSupported { device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
                     if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
                     if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { device.whiteBalanceMode = .continuousAutoWhiteBalance }
-                    device.setExposureTargetBias(0.0, completionHandler: nil)
+                    device.setExposureTargetBias(-0.5, completionHandler: nil)
                     device.videoZoomFactor = zoomFactor
                     if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
                         device.isSubjectAreaChangeMonitoringEnabled = true
@@ -253,7 +253,7 @@ actor CameraEngine {
                     if newDevice.isExposurePointOfInterestSupported { newDevice.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
                     if newDevice.isExposureModeSupported(.continuousAutoExposure) { newDevice.exposureMode = .continuousAutoExposure }
                     if newDevice.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { newDevice.whiteBalanceMode = .continuousAutoWhiteBalance }
-                    newDevice.setExposureTargetBias(0.0, completionHandler: nil)
+                    newDevice.setExposureTargetBias(-0.5, completionHandler: nil)
                     newDevice.videoZoomFactor = zoomFactor
                     if newDevice.isFocusPointOfInterestSupported || newDevice.isExposurePointOfInterestSupported {
                         newDevice.isSubjectAreaChangeMonitoringEnabled = true
