@@ -12,15 +12,15 @@ final class OnyxFilterPipeline: @unchecked Sendable {
     
     private let hardwareCalibrations: [AVCaptureDevice.DeviceType: LensCalibration] = [
         .builtInWideAngleCamera: LensCalibration(
-            saturation: 1.05,
+            saturation: 1.15,
             whitePoint: CIColor(red: 1.0, green: 1.0, blue: 1.0)
         ),
         .builtInUltraWideCamera: LensCalibration(
-            saturation: 1.05,
+            saturation: 1.15,
             whitePoint: CIColor(red: 1.0, green: 1.0, blue: 1.0)
         ),
         .builtInTelephotoCamera: LensCalibration(
-            saturation: 1.05,
+            saturation: 1.15,
             whitePoint: CIColor(red: 1.0, green: 1.0, blue: 1.0)
         )
     ]
@@ -30,7 +30,6 @@ final class OnyxFilterPipeline: @unchecked Sendable {
     nonisolated func apply(to image: CIImage, deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, iso: Float = 100) -> CIImage {
         var processingImage = image
 
-        // Safely translates linear data to visible light without exploding shadow noise
         processingImage = processingImage.applyingFilter("CILinearToSRGBToneCurve")
 
         let calibration = hardwareCalibrations[deviceType] ?? hardwareCalibrations[.builtInWideAngleCamera]!
@@ -45,13 +44,12 @@ final class OnyxFilterPipeline: @unchecked Sendable {
             "inputColor": calibration.whitePoint
         ])
 
-        // Perfectly linear 1:1 curve to maintain the flat, unprocessed aesthetic
         return processingImage.applyingFilter("CIToneCurve", parameters: [
             "inputPoint0": CIVector(x: 0.0, y: 0.0),
-            "inputPoint1": CIVector(x: 0.25, y: 0.25),
-            "inputPoint2": CIVector(x: 0.50, y: 0.50),
+            "inputPoint1": CIVector(x: 0.25, y: 0.15),
+            "inputPoint2": CIVector(x: 0.50, y: 0.45),
             "inputPoint3": CIVector(x: 0.75, y: 0.75),
-            "inputPoint4": CIVector(x: 1.0, y: 1.0)
+            "inputPoint4": CIVector(x: 1.0, y: 0.95)
         ])
     }
 }
