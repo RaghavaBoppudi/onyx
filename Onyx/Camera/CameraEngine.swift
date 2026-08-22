@@ -22,7 +22,6 @@ actor CameraEngine {
     var currentLens: Lens?
     
     private var deviceInput: AVCaptureDeviceInput?
-    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
     private var notificationTask: Task<Void, Never>?
     private var focusObservation: NSKeyValueObservation?
@@ -66,9 +65,7 @@ actor CameraEngine {
                     activeDevice.isSubjectAreaChangeMonitoringEnabled = true
                 }
                 activeDevice.unlockForConfiguration()
-            } catch {
-                print("Failed to lock device for focus update.")
-            }
+            } catch {}
         }
     }
     
@@ -87,9 +84,7 @@ actor CameraEngine {
                     activeDevice.isSubjectAreaChangeMonitoringEnabled = true
                 }
                 activeDevice.unlockForConfiguration()
-            } catch {
-                print("Failed to lock device for continuous focus reset.")
-            }
+            } catch {}
         }
     }
     
@@ -161,7 +156,6 @@ actor CameraEngine {
                     }
                 }
                 
-                // CRITICAL: Commit configuration before mutating device properties to prevent thread starvation
                 session.commitConfiguration()
                 
                 do {
@@ -171,7 +165,7 @@ actor CameraEngine {
                     if device.isExposurePointOfInterestSupported { device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
                     if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
                     if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { device.whiteBalanceMode = .continuousAutoWhiteBalance }
-                    device.setExposureTargetBias(-0.5, completionHandler: nil)
+                    device.setExposureTargetBias(0.0, completionHandler: nil)
                     device.videoZoomFactor = zoomFactor
                     if device.isFocusPointOfInterestSupported || device.isExposurePointOfInterestSupported {
                         device.isSubjectAreaChangeMonitoringEnabled = true
@@ -179,7 +173,6 @@ actor CameraEngine {
                     device.unlockForConfiguration()
                 } catch {}
                 
-                // Resume immediately so UI loads instantly. Start hardware sequentially.
                 continuation.resume(returning: true)
                 session.startRunning()
             }
@@ -187,10 +180,6 @@ actor CameraEngine {
         
         guard success else { return false }
         
-        Task {
-            let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil) }
-            self.rotationCoordinator = coordinator
-        }
         observeFocus(for: device)
         
         notificationTask?.cancel()
@@ -255,7 +244,6 @@ actor CameraEngine {
                     if connection.isVideoMirroringSupported { connection.isVideoMirrored = (newDevice.position == .front) }
                 }
                 
-                // CRITICAL: Commit configuration before mutating new hardware
                 session.commitConfiguration()
                 
                 do {
@@ -265,7 +253,7 @@ actor CameraEngine {
                     if newDevice.isExposurePointOfInterestSupported { newDevice.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
                     if newDevice.isExposureModeSupported(.continuousAutoExposure) { newDevice.exposureMode = .continuousAutoExposure }
                     if newDevice.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { newDevice.whiteBalanceMode = .continuousAutoWhiteBalance }
-                    newDevice.setExposureTargetBias(-0.5, completionHandler: nil)
+                    newDevice.setExposureTargetBias(0.0, completionHandler: nil)
                     newDevice.videoZoomFactor = zoomFactor
                     if newDevice.isFocusPointOfInterestSupported || newDevice.isExposurePointOfInterestSupported {
                         newDevice.isSubjectAreaChangeMonitoringEnabled = true
@@ -274,10 +262,6 @@ actor CameraEngine {
                 } catch {}
             }
             
-            Task {
-                let coordinator = await MainActor.run { AVCaptureDevice.RotationCoordinator(device: newDevice, previewLayer: nil) }
-                self.rotationCoordinator = coordinator
-            }
             observeFocus(for: newDevice)
         } else {
             if let activeDevice = deviceInput?.device {
@@ -302,13 +286,8 @@ actor CameraEngine {
     
     func capturePhoto(flashEnabled: Bool) {
         if let photoConnection = photoOutput.connection(with: .video) {
-            if #available(iOS 17.0, *), let coordinator = rotationCoordinator {
-                let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
-                if photoConnection.isVideoRotationAngleSupported(captureAngle) { photoConnection.videoRotationAngle = captureAngle }
-            } else {
-                if photoConnection.isVideoOrientationSupported {
-                    photoConnection.videoOrientation = .portrait
-                }
+            if photoConnection.isVideoOrientationSupported {
+                photoConnection.videoOrientation = .portrait
             }
         }
         
@@ -452,7 +431,7 @@ final class EngineCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBuffe
         
         Task {
             do {
-                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, context: OnyxGlobals.sharedContext, deviceType: deviceType, iso: capturedISO)
+                try await PhotoProcessor.shared.processAndSave(photoData: photoData, location: location, deviceType: deviceType, iso: capturedISO)
             } catch ProcessorError.insufficientStorage {
                 onStorageError?()
             } catch {

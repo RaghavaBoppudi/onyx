@@ -4,7 +4,6 @@ import QuartzCore
 import CoreImage
 import os
 
-// 1. A dedicated UIView that strictly manages a raw CAMetalLayer
 class MetalVideoView: UIView {
     var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
     
@@ -18,11 +17,11 @@ class MetalVideoView: UIView {
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.backgroundColor = UIColor.black.cgColor
         metalLayer.isOpaque = true
+        metalLayer.allowsNextDrawableTimeout = true
     }
     
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     
-    // Ensure the drawable size precisely matches physical screen pixels, not UI points
     override func layoutSubviews() {
         super.layoutSubviews()
         let scale = window?.screen.nativeScale ?? UIScreen.main.nativeScale
@@ -49,8 +48,9 @@ struct MetalPreview: UIViewRepresentable {
     
     class Coordinator: NSObject, FrameReceiver, @unchecked Sendable {
         private let _isActive = OSAllocatedUnfairLock(initialState: true)
-        
         private var commandQueue: MTLCommandQueue?
+        
+        private let previewContext = CIContext(mtlDevice: MTLCreateSystemDefaultDevice()!, options: [.cacheIntermediates: false, .priorityRequestLow: true])
         private let defaultColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()
         
         weak var metalLayer: CAMetalLayer?
@@ -67,17 +67,17 @@ struct MetalPreview: UIViewRepresentable {
             self.commandQueue = layer.device?.makeCommandQueue()
         }
         
-        // Executed entirely on the com.onyx.videoQueue background thread
         nonisolated func receive(image: CIImage?) {
             guard _isActive.withLock({ $0 }), let image = image else { return }
             
             autoreleasepool {
-                // Pull a completely fresh drawable directly from the layer
                 guard let layer = self.metalLayer,
                       let drawable = layer.nextDrawable(),
                       let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
 
                 let bounds = CGRect(origin: .zero, size: layer.drawableSize)
+                guard bounds.width > 0, bounds.height > 0 else { return }
+                
                 let colorSpace = image.colorSpace ?? defaultColorSpace
 
                 let scaleX = bounds.width / image.extent.width
@@ -88,7 +88,7 @@ struct MetalPreview: UIViewRepresentable {
                     .translatedBy(x: (bounds.width - (image.extent.width * scale)) / (2 * scale),
                                   y: (bounds.height - (image.extent.height * scale)) / (2 * scale))
 
-                OnyxGlobals.sharedContext.render(image.transformed(by: transform),
+                self.previewContext.render(image.transformed(by: transform),
                                 to: drawable.texture,
                                 commandBuffer: commandBuffer,
                                 bounds: bounds,

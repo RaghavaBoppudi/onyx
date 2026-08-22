@@ -16,6 +16,9 @@ actor PhotoProcessor {
     static let shared = PhotoProcessor()
     private var isLibraryAuthorized = false
     
+    // Isolated background context prevents viewfinder freezing
+    private let exportContext = CIContext(options: [.cacheIntermediates: false])
+    
     private init() {}
     
     private func getOrCreateOnyxAlbum() async throws -> PHAssetCollection {
@@ -53,7 +56,7 @@ actor PhotoProcessor {
         return availableBytes > 500_000_000
     }
     
-    func processAndSave(photoData: Data, location: CLLocation?, context: CIContext, deviceType: AVCaptureDevice.DeviceType, iso: Float) async throws {
+    func processAndSave(photoData: Data, location: CLLocation?, deviceType: AVCaptureDevice.DeviceType, iso: Float) async throws {
         guard hasSufficientStorage() else { throw ProcessorError.insufficientStorage }
         
         let backgroundTaskID = await MainActor.run {
@@ -73,12 +76,10 @@ actor PhotoProcessor {
         
         let rawImage: CIImage
         if let rawFilter = CIRAWFilter(imageData: photoData, identifierHint: nil) {
-            // Disable all hidden computational exposure and tone mapping
             rawFilter.baselineExposure = 0.0
             rawFilter.boostAmount = 0.0
             rawFilter.localToneMapAmount = 0.0
             
-            // Disable standard noise and sharpening algorithms
             rawFilter.luminanceNoiseReductionAmount = 0.0
             rawFilter.colorNoiseReductionAmount = 0.0
             rawFilter.sharpnessAmount = 0.0
@@ -95,7 +96,7 @@ actor PhotoProcessor {
         
         let options = [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 1.0]
         guard let colorSpace = rawImage.colorSpace ?? CGColorSpace(name: CGColorSpace.displayP3),
-              let jpegData = context.jpegRepresentation(of: processedImage, colorSpace: colorSpace, options: options) else {
+              let jpegData = exportContext.jpegRepresentation(of: processedImage, colorSpace: colorSpace, options: options) else {
             throw ProcessorError.renderFailure
         }
         
