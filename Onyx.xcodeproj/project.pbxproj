@@ -22,7 +22,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		A05FFC122FF45655004918E9 /* Exceptions for "Onyx" folder in "Onyx" target */ = {
+		A0A60BC5303D01D8005AA254 /* Exceptions for "Onyx" folder in "Onyx" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -32,10 +32,10 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A05FFBF92FF44585004918E9 /* Onyx */ = {
+		A0A609A9303CA3C4005AA254 /* Onyx */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				A05FFC122FF45655004918E9 /* Exceptions for "Onyx" folder in "Onyx" target */,
+				A0A60BC5303D01D8005AA254 /* Exceptions for "Onyx" folder in "Onyx" target */,
 			);
 			path = Onyx;
 			sourceTree = "<group>";
@@ -54,7 +54,7 @@
 		A05FFBEE2FF44585004918E9 = {
 			isa = PBXGroup;
 			children = (
-				A05FFBF92FF44585004918E9 /* Onyx */,
+				A0A609A9303CA3C4005AA254 /* Onyx */,
 				A05FFBF82FF44585004918E9 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -82,7 +82,7 @@
 			buildRules = (
 			);
 			fileSystemSynchronizedGroups = (
-				A05FFBF92FF44585004918E9 /* Onyx */,
+				A0A609A9303CA3C4005AA254 /* Onyx */,
 			);
 			name = Onyx;
 			productName = Monolith;
@@ -272,13 +272,15 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Onyx/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Required to save DNG files to the camera roll.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Onyx uses the camera to capture unprocessed photographs";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Required to embed GPS coordinates into EXIF metadata.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Required to save DNG files to the camera roll.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Onyx saves your captures to your photo library";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Onyx checks whether your saved photos are still in your library, so it doesn't show a thumbnail for one you've deleted";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -314,13 +316,15 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Onyx/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Required to save DNG files to the camera roll.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Onyx uses the camera to capture unprocessed photographs";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Required to embed GPS coordinates into EXIF metadata.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Required to save DNG files to the camera roll.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Onyx saves your captures to your photo library";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Onyx checks whether your saved photos are still in your library, so it doesn't show a thumbnail for one you've deleted";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
