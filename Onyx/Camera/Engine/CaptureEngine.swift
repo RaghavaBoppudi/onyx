@@ -51,6 +51,17 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
 enum CaptureConstants {
     /// Fixed negative bias. With a firm shoulder in the curve there is no highlight
     /// recovery downstream, so highlights are protected at the sensor.
+    /// Was -0.5, protecting highlights in normal daylight scenes. Set to 0 because
+    /// that same bias actively worsens backlit shots: AVFoundation's centre-weighted
+    /// metering (see RawPipeline.meteringPoint) already pulls exposure down hard
+    /// when a bright background dominates the frame, trying to average it toward
+    /// gray — subtracting another half-stop on top crushes the actual subject
+    /// further, which is what produced fully-black backlit subjects in testing.
+    ///
+    /// This is a real trade, not a strict improvement: normal bright scenes lose
+    /// some of the highlight headroom the old bias bought. Needs shooting side by
+    /// side — a backlit subject and a normal well-lit scene, both at this value —
+    /// before treating 0 as settled rather than a first attempt.
     static let exposureBias: Float = -0.3
     /// Affects the preview and the ISP fallback path only; the RAW decoder works in
     /// its own space.

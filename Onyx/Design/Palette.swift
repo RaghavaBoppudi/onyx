@@ -7,8 +7,11 @@ import SwiftUI
 enum Palette {
 
     // MARK: Brand
-    /// Shutter only. Chrome icons never use the accent — an active toggle reads
-    /// white so the accent stays unambiguous: it means "this takes the picture".
+    /// Was shutter-only, on the reasoning that reusing accent elsewhere would blur
+    /// its one meaning — "this takes the picture." The low-light banner
+    /// (ViewfinderScreen) now uses it too, a deliberate exception: if you're
+    /// adding a third use, revisit whether that reasoning still holds rather than
+    /// assuming the door's open.
     static let accent = Duo(light: .hex(0xD6F03C), dark: .hex(0xD6F03C))
 
     // MARK: Surfaces

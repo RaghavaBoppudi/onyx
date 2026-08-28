@@ -49,15 +49,25 @@ final class RotationTracker {
         previewAngle = coordinator.videoRotationAngleForHorizonLevelPreview
 
         observations = [
+            // KVO fires on whatever thread AVFoundation picks, so the outer
+            // closure here isn't provably tied to any actor. The fix isn't a
+            // capture-list modifier — nonisolated(unsafe) is only valid on a
+            // property declaration, not inside [...], and using it here doesn't
+            // compile. Instead, `weak self` moves onto the *inner*
+            // `Task { @MainActor in ... }` closure: the outer closure's own body
+            // never references `self` directly, only inside that nested closure,
+            // so it captures nothing that needs a Sendable guarantee. The inner
+            // closure's explicit `@MainActor` pin is a real, compiler-trusted
+            // isolation guarantee, so capturing `self` there is fully legitimate.
             coordinator.observe(\.videoRotationAngleForHorizonLevelCapture, options: [.new]) {
-                [weak self] _, change in
+                _, change in
                 guard let angle = change.newValue else { return }
-                Task { @MainActor in self?.captureAngle = angle }
+                Task { @MainActor [weak self] in self?.captureAngle = angle }
             },
             coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) {
-                [weak self] _, change in
+                _, change in
                 guard let angle = change.newValue else { return }
-                Task { @MainActor in self?.previewAngle = angle }
+                Task { @MainActor [weak self] in self?.previewAngle = angle }
             }
         ]
     }

@@ -89,6 +89,13 @@ enum RawPipeline {
             device.exposureMode = .continuousAutoExposure
         }
 
+        // Uniform across every lens. A per-lens version — full bias on the
+        // reference lens, none on the others — was tried specifically to help the
+        // ultra-wide/telephoto's low-light ceiling problem. It didn't demonstrate
+        // improvement, so it's gone rather than left as untested complexity; the
+        // real fix for that gap turned out to be telling the user about it
+        // honestly (see CameraModel.isOnDimmerLens), not trying to computationally
+        // paper over a genuine aperture difference.
         let bias = min(max(CaptureConstants.exposureBias, device.minExposureTargetBias),
                        device.maxExposureTargetBias)
         device.setExposureTargetBias(bias, completionHandler: nil)
@@ -127,7 +134,12 @@ enum RawPipeline {
             .sorted { lhs, rhs in
                 let l = lhs.supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
                 let r = rhs.supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
-                return l > r
+                if l != r { return l > r }
+                // Tiebreaker only — resolution always wins first. Among formats
+                // that already tied on it, prefer more native ISO headroom: real
+                // low-light margin for lenses that have less to spare than the
+                // main one, not a resolution trade of any kind.
+                return lhs.maxISO > rhs.maxISO
             }
 
         let originalFormat = device.activeFormat

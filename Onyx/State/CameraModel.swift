@@ -44,6 +44,19 @@ final class CameraModel {
     let rotation = RotationTracker()
     let recentPhoto = RecentPhotoWatcher()
 
+    /// True whenever the selected lens isn't the reference (1.0x) one. Not a
+    /// scene-dependent measurement — the aperture gap between the main lens and
+    /// the ultra-wide/telephoto is a permanent property of the hardware, not a
+    /// sometimes-condition, so this doesn't try to detect "is it dim enough right
+    /// now." An ISO-threshold version of this was tried and it missed real cases,
+    /// because it can only ever measure the ceiling being hit, not the fact that a
+    /// smaller-aperture lens is always working with less headroom than the main
+    /// one — even below that ceiling, and even in light where it looks fine.
+    var isOnDimmerLens: Bool {
+        guard let lens = selectedLens else { return false }
+        return abs(lens.factor - 1.0) >= 0.01
+    }
+
     var sessionBox: CaptureSessionBox { engine.box }
 
     private let engine = CaptureEngine()
@@ -128,8 +141,8 @@ final class CameraModel {
             shot = try await engine.capturePhoto(
                 rotationAngle: rotation.captureAngle,
                 flashMode: settings.flashMode,
-                onShutterFire: { [weak self] in
-                    Task { @MainActor in self?.fireShutterFeedback() }
+                onShutterFire: {
+                    Task { @MainActor [weak self] in self?.fireShutterFeedback() }
                 }
             )
         } catch {

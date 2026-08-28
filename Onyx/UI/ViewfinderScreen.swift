@@ -94,7 +94,38 @@ struct ViewfinderScreen: View {
                 AppearancePanel(selection: $settings.appearance)
                     .padding(8)
             }
+
+            if model.isOnDimmerLens, !isAppearancePanelVisible {
+                LowLightBanner()
+                    .padding(.top, 14)
+            }
         }
+        .animation(Metrics.Motion.gridFade, value: model.isOnDimmerLens)
+    }
+}
+
+/// A small, honest notice — not a workaround. The ultra-wide and telephoto have
+/// smaller apertures than the main lens, which is a permanent property of the
+/// hardware, not a sometimes-condition — so this shows whenever a non-reference
+/// lens is selected, full stop, rather than trying to detect "is it dim enough
+/// right now." An ISO-threshold version of that detection was tried and it missed
+/// real cases: it could only measure the ceiling actually being hit, not the fact
+/// that the constrained lens has less headroom than the main one at every light
+/// level, not just at the extreme. Saying so plainly, always, is the honest
+/// alternative to a heuristic that quietly gets it wrong sometimes. Single caller,
+/// simple view — folded in here rather than given its own file, same reasoning as
+/// RuleOfThirdsGrid.
+private struct LowLightBanner: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Text("Caution: Smaller apertures result in darker images")
+            .font(Typography.caption)
+            .foregroundStyle(theme.accent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .onyxGlass(in: .capsule)
+            .transition(.opacity)
     }
 }
 
