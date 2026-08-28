@@ -176,7 +176,12 @@ enum RawPipeline {
         }
 
         settings.photoQualityPrioritization = .speed
-        settings.flashMode = flashMode
+        // Not every lens supports flash the same way — checked rather than assumed,
+        // failing to .off if the current optic doesn't list this mode as supported.
+        // The same "no surprises" principle that dropped auto-flash applies to
+        // hardware capability too: never let the app request something the lens
+        // can't actually honour and hope AVFoundation quietly does the right thing.
+        settings.flashMode = output.supportedFlashModes.contains(flashMode) ? flashMode : .off
         settings.isAutoRedEyeReductionEnabled = false
         settings.isDepthDataDeliveryEnabled = false
         settings.isPortraitEffectsMatteDeliveryEnabled = false

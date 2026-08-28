@@ -51,7 +51,7 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
 enum CaptureConstants {
     /// Fixed negative bias. With a firm shoulder in the curve there is no highlight
     /// recovery downstream, so highlights are protected at the sensor.
-    static let exposureBias: Float = -0.5
+    static let exposureBias: Float = -0.3
     /// Affects the preview and the ISP fallback path only; the RAW decoder works in
     /// its own space.
     static let colorSpace: AVCaptureColorSpace = .sRGB

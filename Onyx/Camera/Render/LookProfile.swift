@@ -66,9 +66,21 @@ enum LookProfile {
     /// of output, so bright areas flatten with an edge instead of a gradient. A
     /// modern phone pipeline spends its entire budget preventing exactly this.
     enum Curve {
-        static let p0 = CGPoint(x: 0.00, y: 0.000)
-        static let p1 = CGPoint(x: 0.22, y: 0.165)   // gentle toe
-        static let p2 = CGPoint(x: 0.50, y: 0.505)   // near-neutral pivot
+        // Very slight lift off true black — the request was "shadows stay intact,
+        // maybe a very slight bump," not a real change here.
+        static let p0 = CGPoint(x: 0.00, y: 0.00)
+        // The actual fix. Was (0.22, 0.210) — a softened crush, still below the
+        // diagonal. Now above it: a real lift at the shadow/midtone boundary, not
+        // a smaller version of the old crush. This is the point doing the work.
+        static let p1 = CGPoint(x: 0.22, y: 0.250)
+        // Back to pure identity. The lift at p1 is meant to ease back to the
+        // diagonal by the time you reach actual midtones, not carry through them.
+        static let p2 = CGPoint(x: 0.50, y: 0.500)
+        // UNCHANGED, pending confirmation — see the note above Curve. This is the
+        // CCD shoulder from early in the look's design: highlights clip with a
+        // firm edge rather than a soft rolloff. "No adjustment to the rest" could
+        // mean keep this as-is, or could mean flatten it to identity too — I kept
+        // it rather than silently discard a previously deliberate design choice.
         static let p3 = CGPoint(x: 0.80, y: 0.925)   // firm shoulder
         static let p4 = CGPoint(x: 1.00, y: 1.000)
     }

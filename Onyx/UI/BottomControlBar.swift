@@ -11,7 +11,7 @@ struct BottomControlBar: View {
     let thumbnail: UIImage?
     let thumbnailAssetIdentifier: String?
     let flashMode: AVCaptureDevice.FlashMode
-    let isCapturing: Bool
+    let isBusy: Bool
     let glyphRotation: Angle
     let onOpenPhotos: () -> Void
     let onCycleFlash: () -> Void
@@ -27,7 +27,7 @@ struct BottomControlBar: View {
             )
             .frame(maxWidth: .infinity)
 
-            ShutterButton(isEnabled: !isCapturing, action: onCapture)
+            ShutterButton(isEnabled: !isBusy, action: onCapture)
                 .frame(maxWidth: .infinity)
 
             ChromeIcon(

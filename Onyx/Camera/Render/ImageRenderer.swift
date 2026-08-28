@@ -25,9 +25,9 @@
 //  restructuring on our side reaches code we don't own.
 //
 //  The only lever left is not running it on the GPU. Every render in this app
-//  — RAW decode, the five look filters, HEIC encode — now goes through Core
+//  — RAW decode, the look filters, HEIC encode — now goes through Core
 //  Image's software rasterizer. This is categorically slower: full CPU RAW
-//  demosaic plus a five-filter chain on a 12 MP image, on an A13, is a real
+//  demosaic plus a multi-pass filter chain on a 12 MP image, on an A13, is a real
 //  multi-second cost per shot. It is happening in `CameraModel.develop(_:)`,
 //  which already runs after the shutter has returned control to the user — so
 //  the capture itself stays instant and the cost lands entirely in the wait
@@ -60,7 +60,11 @@ actor ImageRenderer {
             .cacheIntermediates: false
         ])
 
-        channelCurves = ToneCurveSampler.interleavedRGBData(
+        channelCurves = ToneCurveSampler.composedInterleavedRGBData(
+            toneCurve: [
+                LookProfile.Curve.p0, LookProfile.Curve.p1, LookProfile.Curve.p2,
+                LookProfile.Curve.p3, LookProfile.Curve.p4
+            ],
             red: LookProfile.ChannelResponse.red,
             green: LookProfile.ChannelResponse.green,
             blue: LookProfile.ChannelResponse.blue,
@@ -75,7 +79,7 @@ actor ImageRenderer {
     /// This does NOT warm `CIRAWFilter`'s own demosaic kernel — that only compiles
     /// against real RAW image data, and nothing exists at launch to warm it with.
     /// The first real shot will likely still be slower than the rest; this removes
-    /// the five-filter-chain-plus-HEIF-encode portion of that cost, not all of it.
+    /// the look-and-encode portion of that cost, not all of it.
     func warmUp() {
         let synthetic = CIImage(color: CIColor(red: 0.4, green: 0.4, blue: 0.4))
             .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
@@ -147,18 +151,14 @@ actor ImageRenderer {
     }
 
     // MARK: - The look
+    //
+    // Four passes now, not five: the luminance tone curve used to be its own
+    // CIFilter.toneCurve() call before the channel curves ran. It's composed into
+    // `channelCurves` instead (see ToneCurveSampler), so a single CIColorCurves
+    // call now does the work of both — same output, one less full-image pass.
 
     private func applyLook(to image: CIImage) -> CIImage {
         var result = image.applyingFilter("CILinearToSRGBToneCurve")
-
-        let tone = CIFilter.toneCurve()
-        tone.inputImage = result
-        tone.point0 = LookProfile.Curve.p0
-        tone.point1 = LookProfile.Curve.p1
-        tone.point2 = LookProfile.Curve.p2
-        tone.point3 = LookProfile.Curve.p3
-        tone.point4 = LookProfile.Curve.p4
-        result = tone.outputImage ?? result
 
         let curves = CIFilter.colorCurves()
         curves.inputImage = result

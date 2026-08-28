@@ -32,6 +32,12 @@ final class CameraModel {
     private(set) var selectedLens: Lens?
     private(set) var isCapturing = false
     private(set) var isDeveloping = false
+
+    /// True while either a capture or a develop is in flight. Drives the shutter's
+    /// enabled state — bounds how many shots can queue up waiting on the render
+    /// pipeline to one, rather than letting rapid taps pile up raw capture bytes
+    /// faster than an older device can process them.
+    var isBusy: Bool { isCapturing || isDeveloping }
     private(set) var isSwitching = false
     var blinkOpacity: Double = 0
 
@@ -114,7 +120,7 @@ final class CameraModel {
     // MARK: - Capture
 
     func capture() async {
-        guard phase == .running, !isCapturing else { return }
+        guard phase == .running, !isBusy else { return }
         isCapturing = true
 
         let shot: RawCapture

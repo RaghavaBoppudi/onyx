@@ -51,7 +51,7 @@ struct ViewfinderScreen: View {
                 thumbnail: model.recentPhoto.thumbnail,
                 thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
                 flashMode: settings.flashMode,
-                isCapturing: model.isCapturing,
+                isBusy: model.isBusy,
                 glyphRotation: glyphRotation,
                 onOpenPhotos: { model.openPhotosApp() },
                 onCycleFlash: {

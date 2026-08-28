@@ -40,7 +40,11 @@ final class RecentPhotoWatcher: NSObject, PHPhotoLibraryChangeObserver {
 
     private var fetchResult: PHFetchResult<PHAsset>?
     private var isRegistered = false
-    private let imageManager = PHCachingImageManager()
+    // PHImageManager, not PHCachingImageManager: caching is for pre-fetching many
+    // assets ahead of a scrolling list, which this never does — it only ever asks
+    // for one image at a time. The plain shared manager does the same single
+    // request/cancel work for less weight.
+    private let imageManager = PHImageManager.default()
     private var currentRequestID: PHImageRequestID?
 
     /// Pixels, not points — `PHImageManager` wants pixels, and a corner-slot
