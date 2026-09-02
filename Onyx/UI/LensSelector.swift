@@ -20,37 +20,49 @@ struct LensSelector: View {
     }
 
     var body: some View {
-        GlassEffectContainer {
+        ZStack {
+            GlassEffectContainer {
+                ZStack {
+                    ForEach(Array(lenses.enumerated()), id: \.element.id) { index, lens in
+                        let isActive = lens.id == displayedID
+
+                        Group {
+                            if isActive {
+                                Color.clear
+                                    .onyxGlass(in: .capsule, interactive: true, tint: theme.canvas.opacity(0.3))
+                                    .glassEffectID("lens.active", in: glassNamespace)
+                            } else {
+                                Color.clear
+                            }
+                        }
+                        .frame(width: Metrics.LensSelector.itemWidth,
+                               height: Metrics.LensSelector.pillHeight)
+                        .offset(x: slotOffset(for: index))
+                    }
+                }
+            }
+            .animation(Metrics.Motion.lensPill, value: displayedID)
+
             ZStack {
                 ForEach(Array(lenses.enumerated()), id: \.element.id) { index, lens in
                     let isActive = lens.id == displayedID
-                    let slotOffset = slotOffset(for: index)
 
                     Text(lens.label)
                         .font(Typography.lens(active: isActive))
-                        .foregroundStyle(isActive ? theme.accent : theme.icon(active: false))
+                        .foregroundStyle(isActive ? theme.accent : theme.secondary)
                         .fontWeight(isActive ? .bold : nil)
-                        .saturation(isActive ? 1.6 : 1)
-                        .brightness(isActive ? 0.08 : 0)
                         .monospacedDigit()
                         .frame(width: Metrics.LensSelector.itemWidth,
                                height: Metrics.LensSelector.pillHeight)
-                        .background {
-                            if isActive {
-                                Color.clear
-                                    .onyxGlass(in: .capsule, style: .clear, interactive: true, tint: .black.opacity(0.3))
-                                    .glassEffectID("lens.active", in: glassNamespace)
-                            }
-                        }
-                        .offset(x: slotOffset)
+                        .offset(x: slotOffset(for: index))
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("\(lens.label) lens")
                         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
                         .accessibilityAction { select(lens) }
                 }
             }
+            .animation(Metrics.Motion.lensPill, value: displayedID)
         }
-        .animation(Metrics.Motion.lensPill, value: displayedID)
         .frame(width: totalWidth, height: Metrics.LensSelector.pillHeight)
         .contentShape(.rect)
         .gesture(dialGesture)

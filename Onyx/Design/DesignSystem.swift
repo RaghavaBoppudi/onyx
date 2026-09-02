@@ -38,47 +38,25 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Sendable, Codable {
 
 extension View {
     @ViewBuilder
-    func onyxGlass(
-        in shape: some Shape, style: OnyxGlassStyle = .regular, interactive: Bool = false, tint: Color? = nil
-    ) -> some View {
+    func onyxGlass(in shape: some Shape, interactive: Bool = false, tint: Color? = nil) -> some View {
         if #available(iOS 26.0, *) {
-            if style == .clear {
-                if interactive {
-                    if let tint {
-                        self.glassEffect(.clear.tint(tint).interactive(), in: shape)
-                    } else {
-                        self.glassEffect(.clear.interactive(), in: shape)
-                    }
+            if interactive {
+                if let tint {
+                    self.glassEffect(.regular.tint(tint).interactive(), in: shape)
                 } else {
-                    if let tint {
-                        self.glassEffect(.clear.tint(tint), in: shape)
-                    } else {
-                        self.glassEffect(.clear, in: shape)
-                    }
+                    self.glassEffect(.regular.interactive(), in: shape)
                 }
             } else {
-                if interactive {
-                    if let tint {
-                        self.glassEffect(.regular.tint(tint).interactive(), in: shape)
-                    } else {
-                        self.glassEffect(.regular.interactive(), in: shape)
-                    }
+                if let tint {
+                    self.glassEffect(.regular.tint(tint), in: shape)
                 } else {
-                    if let tint {
-                        self.glassEffect(.regular.tint(tint), in: shape)
-                    } else {
-                        self.glassEffect(.regular, in: shape)
-                    }
+                    self.glassEffect(.regular, in: shape)
                 }
             }
         } else {
             self.background(.ultraThinMaterial, in: shape)
         }
     }
-}
-
-enum OnyxGlassStyle {
-    case regular, clear
 }
 
 struct SymbolPair {

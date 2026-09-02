@@ -9,7 +9,7 @@ struct AppearancePanel: View {
             Text("APPEARANCE")
                 .font(Typography.panelHeader)
                 .tracking(1.6)
-                .foregroundStyle(theme.accent)
+                .foregroundStyle(theme.secondary)
 
             Picker("Appearance", selection: Binding(
                 get: { selection },
@@ -27,7 +27,7 @@ struct AppearancePanel: View {
         }
         .padding(Metrics.Panel.padding + 4)
         .frame(maxWidth: .infinity)
-        .onyxGlass(in: .rect(cornerRadius: Metrics.Panel.cornerRadius), style: .clear, tint: .black.opacity(0.3))
+        .onyxGlass(in: .rect(cornerRadius: Metrics.Panel.cornerRadius), tint: theme.canvas.opacity(0.3))
         .transition(.opacity)
     }
 }
