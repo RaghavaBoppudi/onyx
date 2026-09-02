@@ -1,14 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-    <key>NSCameraUsageDescription</key>
-    <string>Camera access is required to capture photos.</string>
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Location access is required to embed GPS metadata.</string>
-    <key>NSPhotoLibraryUsageDescription</key>
-    <string>Onyx requires access to your photo library to check for and create a dedicated album for your images.</string>
-    <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>Onyx needs permission to save processed photos to your camera roll.</string>
-</dict>
+<dict/>
 </plist>
