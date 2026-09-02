@@ -1,20 +1,4 @@
-//  CaptureEngine.swift
-//  Owns the AVCaptureSession. Nothing here runs on the main thread.
-//
-//  There is deliberately no AVCaptureVideoDataOutput: no delegate callback can race
-//  `beginConfiguration()`, which is the whole class of hang that appears when
-//  filtering runs on a video queue during a lens swap. Preview-layer apps built
-//  against iOS 26+ also get Deferred Start for free.
-//
-//  CaptureError and the fixed capture constants live here rather than in their own
-//  files — both exist for, and only for, this actor and RawPipeline. A one-enum
-//  file and a three-constant file were separate types wearing separate files for no
-//  reason a reader could find; the split cost more in navigation than it bought in
-//  isolation, since nothing about either changes independently of this file.
-
 import AVFoundation
-
-// MARK: - Errors
 
 enum CaptureError: LocalizedError, Sendable, Equatable {
     case cameraAccessDenied
@@ -44,39 +28,14 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
     }
 }
 
-// MARK: - Fixed capture values
-
-/// Everything that shapes the image and isn't a user-facing option. Onyx has no
-/// capture settings by design — this, plus `LookProfile`, is the whole knob set.
 enum CaptureConstants {
-    /// Fixed negative bias. With a firm shoulder in the curve there is no highlight
-    /// recovery downstream, so highlights are protected at the sensor.
-    /// Was -0.5, protecting highlights in normal daylight scenes. Set to 0 because
-    /// that same bias actively worsens backlit shots: AVFoundation's centre-weighted
-    /// metering (see RawPipeline.meteringPoint) already pulls exposure down hard
-    /// when a bright background dominates the frame, trying to average it toward
-    /// gray — subtracting another half-stop on top crushes the actual subject
-    /// further, which is what produced fully-black backlit subjects in testing.
-    ///
-    /// This is a real trade, not a strict improvement: normal bright scenes lose
-    /// some of the highlight headroom the old bias bought. Needs shooting side by
-    /// side — a backlit subject and a normal well-lit scene, both at this value —
-    /// before treating 0 as settled rather than a first attempt.
     static let exposureBias: Float = -0.3
-    /// Affects the preview and the ISP fallback path only; the RAW decoder works in
-    /// its own space.
     static let colorSpace: AVCaptureColorSpace = .sRGB
 }
 
-// MARK: - Session box
-
-/// AVCaptureSession is not `Sendable`; this box lets the preview layer read it from
-/// the main actor without crossing isolation.
 final class CaptureSessionBox: @unchecked Sendable {
     let session = AVCaptureSession()
 }
-
-// MARK: - Engine
 
 actor CaptureEngine {
 
@@ -89,14 +48,6 @@ actor CaptureEngine {
     private var bayerFormat: OSType?
     private var isOutputAttached = false
     private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
-
-    /// Answer, per lens, to "does this optic expose Bayer RAW on some format?" —
-    /// probing this means iterating every `AVCaptureDevice.Format` and locking
-    /// configuration on candidates one at a time, which is real cost. Without this
-    /// cache, switching 0.5x → 1x → 0.5x paid that cost twice for two answers it
-    /// already had. `OSType??` is deliberate: the outer optional is "have we probed
-    /// this lens," the inner is "did probing find RAW" — a lens with no RAW is a
-    /// cached `nil`, not an unprobed one.
     private var bayerFormatCache: [String: OSType?] = [:]
 
     var deliversRAW: Bool { bayerFormat != nil }
@@ -108,22 +59,6 @@ actor CaptureEngine {
         default: false
         }
     }
-
-    // MARK: - Reentrancy guard
-    //
-    // Actors are reentrant: an `await` inside one call lets another call run in the
-    // gap before the first resumes. `capturePhoto` suspends for the length of the
-    // exposure — a delegate callback resumes its continuation — and in that gap
-    // `select(lens:)` could call `session.beginConfiguration()` and swap the input
-    // device out from under a capture AVFoundation is still processing against the
-    // old one. That's not merely untidy; AVFoundation makes no guarantee about what
-    // happens to a photo request whose input disappears mid-flight, and this is
-    // reachable from the UI as it stands — tap the shutter, then immediately tap a
-    // different lens.
-    //
-    // `runExclusively` gives every mutating operation a real FIFO queue across
-    // suspension points, which actor isolation alone does not provide. This is the
-    // standard fix for this exact class of hazard, not a bespoke one.
 
     private var lastOperation: Task<Void, Never>?
 
@@ -141,21 +76,19 @@ actor CaptureEngine {
         return try await task.value.get()
     }
 
-    // MARK: - Lifecycle
-
     func start(with lens: Lens) async throws {
         try await runExclusively { [self] in try configure(for: lens) }
     }
 
-    func stop() {
-        if session.isRunning { session.stopRunning() }
+    func stop() async {
+        try? await runExclusively { [self] in
+            if session.isRunning { session.stopRunning() }
+        }
     }
 
     func select(lens: Lens) async throws {
         try await runExclusively { [self] in try configure(for: lens) }
     }
-
-    // MARK: - Configuration
 
     private func configure(for lens: Lens) throws {
         guard let device = lens.resolveDevice() else {
@@ -197,8 +130,6 @@ actor CaptureEngine {
 
         RawPipeline.configure(output: photoOutput, device: device)
 
-        // Format probing has to happen inside the configuration block: changing
-        // activeFormat outside one would restart the session mid-flight.
         if let cached = bayerFormatCache[lens.id] {
             bayerFormat = cached
         } else {
@@ -225,8 +156,6 @@ actor CaptureEngine {
         }
         Log.lens.info("Configured \(lens.label), RAW: \(self.bayerFormat != nil)")
     }
-
-    // MARK: - Capture
 
     func capturePhoto(
         rotationAngle: CGFloat,

@@ -1,28 +1,6 @@
-//  RawPipeline.swift
-//  Configures the session so the capture is a single, unfused exposure.
-//
-//  `photoQualityPrioritization = .speed` is the load-bearing line. With `.quality`
-//  or `.balanced` the system runs Fusion-style processing across multiple exposures
-//  and overrides manual controls entirely. Everything else here is switching off
-//  optional ISP stages one at a time.
-//
-//  This is about the *computational* layer, not the ISP itself. The ISP still
-//  demosaics — that is unavoidable, and it is why the RAW path exists: CIRAWFilter
-//  lets us do that step ourselves with Apple's tone curve disabled.
-//
-//  Metering — focus, exposure and white balance — lives here rather than in its own
-//  file. It was split out once; the split never earned itself, because it was only
-//  ever called from one place, immediately, as part of the same device
-//  configuration this file already owns. Centre-weighted metering with the point of
-//  interest at the frame centre is what "focus on the middle, meter for the whole
-//  shot" means in AVFoundation terms, and applying it identically on every lens is
-//  what keeps 0.5x, 1x and 2x/4x from reading as differently-behaved cameras.
-
 import AVFoundation
 
 enum RawPipeline {
-
-    // MARK: - Output
 
     static func configure(output: AVCapturePhotoOutput, device: AVCaptureDevice) {
         output.maxPhotoQualityPrioritization = .speed
@@ -50,10 +28,6 @@ enum RawPipeline {
         }
     }
 
-    // MARK: - Device
-
-    /// No zoom parameter: rear lenses are always at 1.0. We switch glass rather than
-    /// crop, because a crop never reaches the RAW readout anyway.
     static func configure(device: AVCaptureDevice) {
         if device.activeFormat.isVideoHDRSupported {
             device.automaticallyAdjustsVideoHDREnabled = false
@@ -71,7 +45,6 @@ enum RawPipeline {
         device.videoZoomFactor = max(1.0, device.minAvailableVideoZoomFactor)
     }
 
-    /// Centre of the frame in AVFoundation's normalised coordinate space.
     private static let meteringPoint = CGPoint(x: 0.5, y: 0.5)
 
     private static func applyMetering(to device: AVCaptureDevice) {
@@ -89,13 +62,6 @@ enum RawPipeline {
             device.exposureMode = .continuousAutoExposure
         }
 
-        // Uniform across every lens. A per-lens version — full bias on the
-        // reference lens, none on the others — was tried specifically to help the
-        // ultra-wide/telephoto's low-light ceiling problem. It didn't demonstrate
-        // improvement, so it's gone rather than left as untested complexity; the
-        // real fix for that gap turned out to be telling the user about it
-        // honestly (see CameraModel.isOnDimmerLens), not trying to computationally
-        // paper over a genuine aperture difference.
         let bias = min(max(CaptureConstants.exposureBias, device.minExposureTargetBias),
                        device.maxExposureTargetBias)
         device.setExposureTargetBias(bias, completionHandler: nil)
@@ -105,21 +71,6 @@ enum RawPipeline {
         }
     }
 
-    // MARK: - RAW availability
-
-    /// `availableRawPhotoPixelFormatTypes` is a property of the *active format*, not
-    /// of the device. A device can support RAW on one format and not another, and
-    /// the `.photo` preset does not always land on a RAW-capable one — which is why
-    /// the iPhone 11 Pro ultra-wide reported no Bayer format.
-    ///
-    /// Probes `device.formats` largest-first and switches `activeFormat` if that
-    /// finds RAW, restoring the preset's choice if nothing does. Checked explicitly
-    /// for Bayer, since the list can also contain Apple ProRAW formats.
-    ///
-    /// This is genuinely expensive — locking configuration and checking each
-    /// candidate format in turn — which is why `CaptureEngine` caches the result
-    /// per lens rather than calling this on every switch back to a lens it has
-    /// already probed.
     static func resolveBayerFormat(
         output: AVCapturePhotoOutput,
         device: AVCaptureDevice
@@ -135,10 +86,6 @@ enum RawPipeline {
                 let l = lhs.supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
                 let r = rhs.supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
                 if l != r { return l > r }
-                // Tiebreaker only — resolution always wins first. Among formats
-                // that already tied on it, prefer more native ISO headroom: real
-                // low-light margin for lenses that have less to spare than the
-                // main one, not a resolution trade of any kind.
                 return lhs.maxISO > rhs.maxISO
             }
 
@@ -168,8 +115,6 @@ enum RawPipeline {
         }
     }
 
-    // MARK: - Per-shot settings
-
     static func makeSettings(
         output: AVCapturePhotoOutput,
         bayerFormat: OSType?,
@@ -188,11 +133,6 @@ enum RawPipeline {
         }
 
         settings.photoQualityPrioritization = .speed
-        // Not every lens supports flash the same way — checked rather than assumed,
-        // failing to .off if the current optic doesn't list this mode as supported.
-        // The same "no surprises" principle that dropped auto-flash applies to
-        // hardware capability too: never let the app request something the lens
-        // can't actually honour and hope AVFoundation quietly does the right thing.
         settings.flashMode = output.supportedFlashModes.contains(flashMode) ? flashMode : .off
         settings.isAutoRedEyeReductionEnabled = false
         settings.isDepthDataDeliveryEnabled = false

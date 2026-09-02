@@ -1,10 +1,3 @@
-//  ChromeIcon.swift
-//  Every glyph in the app goes through here: one point size, one weight, one square
-//  tap target. Uniform by construction rather than by eye.
-//
-//  Active state is white (near-black in light mode), never the accent. The accent
-//  belongs to the shutter alone so its meaning stays unambiguous.
-
 import SwiftUI
 
 struct ChromeIcon: View {

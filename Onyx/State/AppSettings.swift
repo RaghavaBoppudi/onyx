@@ -1,7 +1,3 @@
-//  AppSettings.swift
-//  The complete set of user-facing options: grid, flash, appearance. Nothing about
-//  capture or the look is configurable — that is the product.
-
 import AVFoundation
 import SwiftUI
 
@@ -21,8 +17,6 @@ final class AppSettings {
         didSet { defaults.set(flashMode.rawValue, forKey: Keys.flash) }
     }
 
-    /// off ↔ on. No auto — an app whose whole premise is "no surprises" can't
-    /// have the flash making its own call about whether to fire.
     func cycleFlash() {
         flashMode = flashMode == .off ? .on : .off
     }

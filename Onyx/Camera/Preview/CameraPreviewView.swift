@@ -1,10 +1,3 @@
-//  CameraPreviewView.swift
-//  AVCaptureVideoPreviewLayer wrapped for SwiftUI.
-//
-//  The layer registers itself with RotationTracker on creation. The rotation
-//  coordinator needs the layer to compute a correct preview angle — constructing it
-//  with `previewLayer: nil` is what made the first build render sideways.
-
 import AVFoundation
 import SwiftUI
 

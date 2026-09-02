@@ -1,10 +1,3 @@
-//  TopControlBar.swift
-//  Grid · (empty) · Settings.
-//
-//  Three equal columns with the glyph centred in each, so grid and settings land at
-//  one sixth and five sixths of the width — the same x as the thumbnail and flash
-//  below. The two bars read as one frame around the viewfinder.
-
 import SwiftUI
 
 struct TopControlBar: View {

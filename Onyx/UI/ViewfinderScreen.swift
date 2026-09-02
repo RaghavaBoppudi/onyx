@@ -1,6 +1,3 @@
-//  ViewfinderScreen.swift
-//  Composition root for the capture UI. Holds no camera logic.
-
 import SwiftUI
 
 struct ViewfinderScreen: View {
@@ -11,6 +8,7 @@ struct ViewfinderScreen: View {
     let model: CameraModel
 
     @State private var isAppearancePanelVisible = false
+    @State private var lifecycleTask: Task<Void, Never>?
 
     private var glyphRotation: Angle {
         .degrees(model.rotation.glyphRotationDegrees)
@@ -37,15 +35,7 @@ struct ViewfinderScreen: View {
             viewfinder
                 .padding(.horizontal, Metrics.Viewfinder.inset)
 
-            Spacer(minLength: 12)
-
-            LensSelector(
-                lenses: model.lenses,
-                selectedID: model.selectedLens?.id,
-                onSelect: { lens in Task { await model.select(lens) } }
-            )
-
-            Spacer(minLength: 20)
+            Spacer()
 
             BottomControlBar(
                 thumbnail: model.recentPhoto.thumbnail,
@@ -60,12 +50,21 @@ struct ViewfinderScreen: View {
                 },
                 onCapture: { Task { await model.capture() } }
             )
-            .padding(.bottom, 24)
+
+            Spacer()
         }
         .background(theme.canvas.ignoresSafeArea())
         .task { await model.start() }
         .onChange(of: scenePhase) { _, phase in
-            Task { phase == .active ? await model.start() : await model.stop() }
+            let previous = lifecycleTask
+            lifecycleTask = Task {
+                _ = await previous?.value
+                if phase == .active {
+                    await model.start()
+                } else {
+                    await model.stop()
+                }
+            }
         }
     }
 
@@ -79,12 +78,17 @@ struct ViewfinderScreen: View {
             .background(theme.viewfinderVoid)
             .overlay { if settings.isGridVisible { RuleOfThirdsGrid() } }
             .overlay {
-                // A blink, not a flash: the frame darkens for a moment the way a
-                // mechanical shutter does. Legible as confirmation, invisible as an
-                // interruption.
                 theme.shutterBlink
                     .opacity(model.blinkOpacity)
                     .allowsHitTesting(false)
+            }
+            .overlay(alignment: .bottom) {
+                LensSelector(
+                    lenses: model.lenses,
+                    selectedID: model.selectedLens?.id,
+                    onSelect: { lens in Task { await model.select(lens) } }
+                )
+                .padding(.bottom, Metrics.LensSelector.bottomInset)
             }
             .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
             .opacity(model.isSwitching ? 0.55 : 1)
@@ -104,17 +108,6 @@ struct ViewfinderScreen: View {
     }
 }
 
-/// A small, honest notice — not a workaround. The ultra-wide and telephoto have
-/// smaller apertures than the main lens, which is a permanent property of the
-/// hardware, not a sometimes-condition — so this shows whenever a non-reference
-/// lens is selected, full stop, rather than trying to detect "is it dim enough
-/// right now." An ISO-threshold version of that detection was tried and it missed
-/// real cases: it could only measure the ceiling actually being hit, not the fact
-/// that the constrained lens has less headroom than the main one at every light
-/// level, not just at the extreme. Saying so plainly, always, is the honest
-/// alternative to a heuristic that quietly gets it wrong sometimes. Single caller,
-/// simple view — folded in here rather than given its own file, same reasoning as
-/// RuleOfThirdsGrid.
 private struct LowLightBanner: View {
     @Environment(\.theme) private var theme
 
@@ -129,9 +122,6 @@ private struct LowLightBanner: View {
     }
 }
 
-/// The only grid Onyx has, and the only view in the tree that uses it — folded in
-/// here as private rather than kept as its own file, since it has exactly one
-/// caller and nothing about it is independently reusable or independently tested.
 private struct RuleOfThirdsGrid: View {
     @Environment(\.theme) private var theme
 

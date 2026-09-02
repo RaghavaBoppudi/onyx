@@ -1,6 +1,3 @@
-//  Theme.swift
-//  Semantic tokens. Views read these; they never touch Palette.
-
 import SwiftUI
 
 struct Theme: Sendable {
@@ -8,14 +5,8 @@ struct Theme: Sendable {
 
     var accent: Color          { Palette.accent.resolve(scheme) }
     var canvas: Color          { Palette.canvas.resolve(scheme) }
-    var panel: Color           { Palette.panel.resolve(scheme) }
     var segmentTrack: Color    { Palette.segmentTrack.resolve(scheme) }
-    var segmentThumb: Color    { Palette.segmentThumb.resolve(scheme) }
-    var primary: Color         { Palette.primary.resolve(scheme) }
     var secondary: Color       { Palette.secondary.resolve(scheme) }
-    var inactive: Color        { Palette.inactive.resolve(scheme) }
-    var onThumb: Color         { Palette.onThumb.resolve(scheme) }
-    var onAccent: Color        { Palette.onAccent.resolve(scheme) }
     var iconActive: Color      { Palette.iconActive.resolve(scheme) }
     var iconInactive: Color    { Palette.iconInactive.resolve(scheme) }
     var viewfinderVoid: Color  { Palette.viewfinderVoid.resolve(scheme) }
@@ -23,10 +14,15 @@ struct Theme: Sendable {
     var shutterRing: Color     { Palette.shutterRing.resolve(scheme) }
     var shutterBlink: Color    { Palette.shutterBlink.resolve(scheme) }
     var thumbnailBorder: Color { Palette.thumbnailBorder.resolve(scheme) }
-    var warning: Color         { Palette.warning.resolve(scheme) }
-    var error: Color           { Palette.error.resolve(scheme) }
 
-    /// One call site for every chrome glyph.
+    var shutterGradient: LinearGradient {
+        LinearGradient(
+            colors: [Palette.onyx, Palette.blueSlate, Palette.alabaster],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
     func icon(active: Bool) -> Color { active ? iconActive : iconInactive }
 }
 

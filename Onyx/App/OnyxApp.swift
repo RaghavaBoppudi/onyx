@@ -1,5 +1,3 @@
-//  OnyxApp.swift
-
 import SwiftUI
 
 @main

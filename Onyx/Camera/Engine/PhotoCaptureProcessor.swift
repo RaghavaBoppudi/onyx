@@ -1,7 +1,3 @@
-//  PhotoCaptureProcessor.swift
-//  Bridges AVCapturePhotoCaptureDelegate into structured concurrency.
-//  Returns raw bytes only — every pixel decision happens in ImageRenderer.
-
 import AVFoundation
 import ImageIO
 

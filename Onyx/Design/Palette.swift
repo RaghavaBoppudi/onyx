@@ -1,52 +1,25 @@
-//  Palette.swift
-//  Onyx — THE colour file. Every colour literal lives here and nowhere else.
-//  No view may declare a Color. Views read Theme; Theme reads Palette.
-
 import SwiftUI
 
 enum Palette {
+    static let onyx = Color.hex(0x0A0A0A)
+    static let blueSlate = Color.hex(0x536878)
+    static let alabaster = Color.hex(0xE5E4E2)
 
-    // MARK: Brand
-    /// Was shutter-only, on the reasoning that reusing accent elsewhere would blur
-    /// its one meaning — "this takes the picture." The low-light banner
-    /// (ViewfinderScreen) now uses it too, a deliberate exception: if you're
-    /// adding a third use, revisit whether that reasoning still holds rather than
-    /// assuming the door's open.
-    static let accent = Duo(light: .hex(0xD6F03C), dark: .hex(0xD6F03C))
+    static let accent = Duo(light: blueSlate, dark: blueSlate)
 
-    // MARK: Surfaces
-    static let canvas = Duo(light: .hex(0xF7F7EC), dark: .hex(0x2C2C2C))
-    static let panel  = Duo(light: Color.hex(0xFFFFFF).opacity(0.55),
-                            dark:  Color.hex(0x3A3A3A).opacity(0.72))
-    static let segmentTrack = Duo(light: Color.hex(0x000000).opacity(0.10),
-                                  dark:  Color.hex(0x000000).opacity(0.22))
-    static let segmentThumb = Duo(light: .hex(0xFFFFFF), dark: .hex(0xFFFFFF))
+    static let canvas = Duo(light: alabaster, dark: onyx)
 
-    // MARK: Content
-    static let primary   = Duo(light: .hex(0x0A0A0A), dark: .hex(0xF2F2F2))
-    static let secondary = Duo(light: .hex(0x6E6E73), dark: .hex(0x9A9A9E))
-    static let inactive  = Duo(light: .hex(0xA8A8AD), dark: .hex(0x8A8A8E))
-    static let onThumb   = Duo(light: .hex(0x0A0A0A), dark: .hex(0x0A0A0A))
-    static let onAccent  = Duo(light: .hex(0x0A0A0A), dark: .hex(0x0A0A0A))
+    static let secondary = Duo(light: onyx.opacity(0.6), dark: alabaster.opacity(0.6))
 
-    // MARK: Chrome icons — one pair, used by every glyph in the app.
-    static let iconActive   = Duo(light: .hex(0x0A0A0A), dark: .hex(0xFFFFFF))
-    static let iconInactive = Duo(light: .hex(0xA8A8AD), dark: .hex(0x8A8A8E))
+    static let iconActive   = Duo(light: onyx, dark: alabaster)
+    static let iconInactive = Duo(light: onyx.opacity(0.4), dark: alabaster.opacity(0.4))
 
-    // MARK: Viewfinder
-    static let viewfinderVoid = Duo(light: .hex(0x000000), dark: .hex(0x000000))
-    static let gridLine = Duo(light: Color.hex(0xFFFFFF).opacity(0.42),
-                              dark:  Color.hex(0xFFFFFF).opacity(0.34))
-    static let shutterRing = Duo(light: .hex(0xD8D8D0), dark: .hex(0x555555))
-
-    /// Shutter confirmation overlay. Dark, not white — a blink, not a flash.
-    static let shutterBlink = Duo(light: .hex(0x000000), dark: .hex(0x000000))
-    static let thumbnailBorder = Duo(light: Color.hex(0x000000).opacity(0.18),
-                                     dark:  Color.hex(0xFFFFFF).opacity(0.22))
-
-    // MARK: Status
-    static let warning = Duo(light: .hex(0xE0761B), dark: .hex(0xFF9F45))
-    static let error   = Duo(light: .hex(0xC7362B), dark: .hex(0xFF6B5E))
+    static let viewfinderVoid = Duo(light: onyx, dark: onyx)
+    static let gridLine = Duo(light: alabaster.opacity(0.42), dark: alabaster.opacity(0.34))
+    static let shutterRing = Duo(light: onyx, dark: alabaster)
+    static let shutterBlink = Duo(light: onyx, dark: onyx)
+    static let thumbnailBorder = Duo(light: onyx.opacity(0.18), dark: alabaster.opacity(0.22))
+    static let segmentTrack = Duo(light: onyx.opacity(0.10), dark: alabaster.opacity(0.14))
 }
 
 struct Duo: Sendable {

@@ -1,6 +1,3 @@
-//  Haptics.swift
-//  One vocabulary for the app. Views call semantic events, never raw generators.
-
 import UIKit
 
 @MainActor
@@ -21,7 +18,6 @@ final class Haptics {
 
     private init() {}
 
-    /// Cuts the Taptic Engine's spin-up latency.
     func prepare() {
         light.prepare(); rigid.prepare(); soft.prepare()
         selectionGenerator.prepare(); notification.prepare()

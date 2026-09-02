@@ -1,29 +1,8 @@
-//  ToneCurveSampler.swift
-//  Samples LookProfile's curves into the flat LUT buffer CIColorCurves wants — and
-//  composes the luminance tone curve into that same LUT ahead of time, so Core
-//  Image only has to walk the image once for both effects combined.
-//
-//  Composing rather than chaining two CIFilter passes (CIToneCurve, then
-//  CIColorCurves) produces the identical final image: both are simple per-channel
-//  monotone remaps, and applying f then g to a value is the same result whether
-//  Core Image does it in two image-wide passes or Swift precomputes g(f(x)) once
-//  per LUT entry and Core Image applies the combined result in one. On a 12 MP
-//  image that's one fewer full-image filter pass, for every device, with zero
-//  change to what the photo looks like.
-//
-//  Monotone cubic Hermite (Fritsch–Carlson), not linear and not Catmull-Rom. Linear
-//  interpolation between five points leaves visible kinks in skies and skin.
-//  Catmull-Rom is smooth but can overshoot, which on a colour curve means a channel
-//  briefly rising above its neighbours — a coloured fringe in a gradient.
-//  Fritsch–Carlson is smooth and provably never overshoots.
-
 import CoreGraphics
 import Foundation
 
 enum ToneCurveSampler {
 
-    /// Builds the interleaved RGB LUT for `CIColorCurves`, with `toneCurve`
-    /// pre-composed into each channel.
     static func composedInterleavedRGBData(
         toneCurve: [CGPoint],
         red: [CGPoint],
@@ -55,9 +34,6 @@ enum ToneCurveSampler {
     }
 }
 
-/// A single monotone curve, evaluable at any point in its domain — not just at
-/// fixed grid positions. Composition (feeding one curve's output into another as
-/// input) needs that; sampling onto a fixed grid alone doesn't allow it.
 struct CurveEvaluator {
     private let xs: [Double]
     private let ys: [Double]
@@ -87,7 +63,6 @@ struct CurveEvaluator {
         let t2 = t * t
         let t3 = t2 * t
 
-        // Hermite basis.
         let h00 =  2 * t3 - 3 * t2 + 1
         let h10 =      t3 - 2 * t2 + t
         let h01 = -2 * t3 + 3 * t2
@@ -98,8 +73,6 @@ struct CurveEvaluator {
              + h01 * ys[segment + 1]
              + h11 * h * tangents[segment + 1]
     }
-
-    // MARK: - Fritsch–Carlson
 
     private static func monotoneTangents(xs: [Double], ys: [Double]) -> [Double] {
         let n = xs.count
@@ -118,7 +91,6 @@ struct CurveEvaluator {
             tangents[i] = (slopes[i - 1] + slopes[i]) / 2
         }
 
-        // Clamp so the curve can never reverse direction between control points.
         for i in 0..<(n - 1) {
             if slopes[i] == 0 {
                 tangents[i] = 0
