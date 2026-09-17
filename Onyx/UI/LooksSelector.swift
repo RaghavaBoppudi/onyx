@@ -1,47 +1,33 @@
 import SwiftUI
 
-struct LensSelector: View {
+struct LooksSelector: View {
     @Environment(\.theme) private var theme
     @Namespace private var glassNamespace
 
-    let lenses: [Lens]
-    let selectedID: String?
-    let onSelect: (Lens) -> Void
+    let looks: [LookKind]
+    let selectedID: LookKind.ID
+    let onSelect: (LookKind) -> Void
 
-    @State private var pendingID: String?
-
-    private var displayedID: String? { pendingID ?? selectedID }
-    private var activeIndex: Int? { lenses.firstIndex(where: { $0.id == displayedID }) }
+    private var activeIndex: Int? { looks.firstIndex(where: { $0.id == selectedID }) }
 
     private var totalWidth: CGFloat {
-        guard !lenses.isEmpty else { return 0 }
-        return CGFloat(lenses.count) * Metrics.LensSelector.itemWidth
-            + CGFloat(lenses.count - 1) * Metrics.LensSelector.itemSpacing
+        guard !looks.isEmpty else { return 0 }
+        return CGFloat(looks.count) * Metrics.LensSelector.itemWidth
+            + CGFloat(looks.count - 1) * Metrics.LensSelector.itemSpacing
     }
 
     var body: some View {
-        Group {
-            if selectedID == nil {
-                Color.clear
-                    .frame(width: totalWidth, height: Metrics.LensSelector.pillHeight)
-            } else {
-                dial
-            }
-        }
-    }
-
-    private var dial: some View {
         ZStack {
             GlassEffectContainer {
                 ZStack {
-                    ForEach(Array(lenses.enumerated()), id: \.element.id) { index, lens in
-                        let isActive = lens.id == displayedID
+                    ForEach(Array(looks.enumerated()), id: \.element.id) { index, look in
+                        let isActive = look.id == selectedID
 
                         Group {
                             if isActive {
                                 Color.clear
-                                    .onyxGlass(in: .capsule, interactive: true)
-                                    .glassEffectID("lens.active", in: glassNamespace)
+                                    .onyxGlass(in: .capsule, interactive: true, tint: theme.canvas.opacity(0.3))
+                                    .glassEffectID("looks.active", in: glassNamespace)
                             } else {
                                 Color.clear
                             }
@@ -52,34 +38,30 @@ struct LensSelector: View {
                     }
                 }
             }
-            .animation(Metrics.Motion.lensPill, value: displayedID)
+            .animation(Metrics.Motion.lensPill, value: selectedID)
 
             ZStack {
-                ForEach(Array(lenses.enumerated()), id: \.element.id) { index, lens in
-                    let isActive = lens.id == displayedID
+                ForEach(Array(looks.enumerated()), id: \.element.id) { index, look in
+                    let isActive = look.id == selectedID
 
-                    Text(lens.label)
+                    Text(look.displayName)
                         .font(Typography.lens(active: isActive))
                         .foregroundStyle(isActive ? theme.accent : theme.secondary)
                         .fontWeight(isActive ? .bold : nil)
-                        .monospacedDigit()
                         .frame(width: Metrics.LensSelector.itemWidth,
                                height: Metrics.LensSelector.pillHeight)
                         .offset(x: slotOffset(for: index))
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(lens.label) lens")
+                        .accessibilityLabel("\(look.displayName) look")
                         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
-                        .accessibilityAction { select(lens) }
+                        .accessibilityAction { onSelect(look) }
                 }
             }
-            .animation(Metrics.Motion.lensPill, value: displayedID)
+            .animation(Metrics.Motion.lensPill, value: selectedID)
         }
         .frame(width: totalWidth, height: Metrics.LensSelector.pillHeight)
         .contentShape(.rect)
         .gesture(dialGesture)
-        .onChange(of: selectedID) { _, _ in
-            pendingID = nil
-        }
     }
 
     private func slotOffset(for index: Int) -> CGFloat {
@@ -87,27 +69,17 @@ struct LensSelector: View {
         return CGFloat(index - activeIdx) * (Metrics.LensSelector.itemWidth + Metrics.LensSelector.itemSpacing)
     }
 
-    private func lens(at location: CGPoint) -> Lens? {
+    private func look(at location: CGPoint) -> LookKind? {
         let dialCenter = totalWidth / 2
-        for (index, lens) in lenses.enumerated() {
+        for (index, look) in looks.enumerated() {
             let slotCenter = dialCenter + slotOffset(for: index)
             let slotMinX = slotCenter - Metrics.LensSelector.itemWidth / 2
             let slotMaxX = slotCenter + Metrics.LensSelector.itemWidth / 2
             if location.x >= slotMinX, location.x <= slotMaxX {
-                return lens
+                return look
             }
         }
         return nil
-    }
-
-    private func select(_ lens: Lens) {
-        guard lens.id != displayedID else { return }
-        pendingID = lens.id
-        onSelect(lens)
-        Task {
-            try? await Task.sleep(for: .seconds(3))
-            if pendingID == lens.id { pendingID = nil }
-        }
     }
 
     private var dialGesture: some Gesture {
@@ -120,8 +92,8 @@ struct LensSelector: View {
                     && abs(vertical) < Metrics.LensSelector.tapMovementThreshold
 
                 if isTap {
-                    if let tapped = lens(at: value.startLocation) {
-                        select(tapped)
+                    if let tapped = look(at: value.startLocation) {
+                        onSelect(tapped)
                     }
                     return
                 }
@@ -132,9 +104,9 @@ struct LensSelector: View {
                 guard let currentIndex = activeIndex else { return }
 
                 let nextIndex = horizontal < 0 ? currentIndex + 1 : currentIndex - 1
-                guard lenses.indices.contains(nextIndex) else { return }
+                guard looks.indices.contains(nextIndex) else { return }
 
-                select(lenses[nextIndex])
+                onSelect(looks[nextIndex])
             }
     }
 }

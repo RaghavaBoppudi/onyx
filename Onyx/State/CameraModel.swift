@@ -15,11 +15,13 @@ final class CameraModel {
     private(set) var isCapturing = false
     private(set) var isDeveloping = false
     private(set) var isSwitching = false
+    private(set) var selectedLook: LookKind = .standard
     var blinkOpacity: Double = 0
 
     var isBusy: Bool { isCapturing || isDeveloping }
 
     let rotation = RotationTracker()
+    let whiteBalance = WhiteBalanceReadiness()
     let recentPhoto = RecentPhotoWatcher()
 
     var isOnDimmerLens: Bool {
@@ -57,6 +59,7 @@ final class CameraModel {
         do {
             try await engine.start(with: initial)
             apply(initial)
+            whiteBalance.bind(to: initial)
             phase = .running
             Haptics.shared.prepare()
             Task { await renderer.warmUp() }
@@ -89,6 +92,12 @@ final class CameraModel {
     private func apply(_ lens: Lens) {
         selectedLens = lens
         rotation.bind(to: lens)
+    }
+
+    func setLook(_ look: LookKind) {
+        guard look != selectedLook else { return }
+        Haptics.shared.fire(.selection)
+        selectedLook = look
     }
 
     private func closestToWide(in lenses: [Lens]) -> Lens? {
@@ -125,8 +134,8 @@ final class CameraModel {
 
         do {
             let output = shot.isRAW
-                ? try await renderer.renderRAW(dngData: shot.data, orientation: shot.orientation)
-                : try await renderer.renderProcessed(imageData: shot.data, orientation: shot.orientation)
+                ? try await renderer.renderRAW(dngData: shot.data, orientation: shot.orientation, look: selectedLook)
+                : try await renderer.renderProcessed(imageData: shot.data, orientation: shot.orientation, look: selectedLook)
 
             try await library.save(heic: output.heic)
             Haptics.shared.fire(.success)

@@ -34,6 +34,10 @@ enum Metrics {
         static let bottomInset: CGFloat = 16
     }
 
+    enum LooksToggle {
+        static let width: CGFloat = 160
+    }
+
     enum Panel {
         static let cornerRadius: CGFloat = 20
         static let padding: CGFloat = 12
