@@ -34,8 +34,12 @@ enum Metrics {
         static let bottomInset: CGFloat = 16
     }
 
-    enum LooksToggle {
-        static let width: CGFloat = 160
+    enum LookCarousel {
+        static let cardSpacing: CGFloat = 36
+        static let edgeMargin: CGFloat = 80
+        static let verticalInset: CGFloat = 48
+        static let textSpacing: CGFloat = 16
+        static let captionHeight: CGFloat = 78
     }
 
     enum Panel {

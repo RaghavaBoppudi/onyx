@@ -1,82 +1,87 @@
 import SwiftUI
 
-struct LooksSelector: View {
+struct SelectorDial<Item: Identifiable & Equatable>: View {
     @Environment(\.theme) private var theme
     @Namespace private var glassNamespace
 
-    let looks: [LookKind]
-    let selectedID: LookKind.ID
-    let onSelect: (LookKind) -> Void
+    let items: [Item]
+    let selectedID: Item.ID?
+    let accessibilityNoun: String
+    let glassNamespaceID: String
+    var tint: Color? = nil
+    let label: (Item) -> String
+    let onSelect: (Item) -> Void
 
-    private var activeIndex: Int? { looks.firstIndex(where: { $0.id == selectedID }) }
+    private var activeIndex: Int? { items.firstIndex(where: { $0.id == selectedID }) }
 
     private var totalWidth: CGFloat {
-        guard !looks.isEmpty else { return 0 }
-        return CGFloat(looks.count) * Metrics.LensSelector.itemWidth
-            + CGFloat(looks.count - 1) * Metrics.LensSelector.itemSpacing
+        guard !items.isEmpty else { return 0 }
+        return CGFloat(items.count) * Metrics.LensSelector.itemWidth
+            + CGFloat(items.count - 1) * Metrics.LensSelector.itemSpacing
     }
 
     var body: some View {
         ZStack {
             GlassEffectContainer {
                 ZStack {
-                    ForEach(Array(looks.enumerated()), id: \.element.id) { index, look in
-                        let isActive = look.id == selectedID
+                    ForEach(items) { item in
+                        let isActive = item.id == selectedID
 
                         Group {
                             if isActive {
                                 Color.clear
-                                    .onyxGlass(in: .capsule, interactive: true, tint: theme.canvas.opacity(0.3))
-                                    .glassEffectID("looks.active", in: glassNamespace)
+                                    .onyxGlass(in: .capsule, interactive: true, tint: tint)
+                                    .glassEffectID(glassNamespaceID, in: glassNamespace)
                             } else {
                                 Color.clear
                             }
                         }
                         .frame(width: Metrics.LensSelector.itemWidth,
                                height: Metrics.LensSelector.pillHeight)
-                        .offset(x: slotOffset(for: index))
+                        .offset(x: slotOffset(for: item))
                     }
                 }
             }
             .animation(Metrics.Motion.lensPill, value: selectedID)
 
             ZStack {
-                ForEach(Array(looks.enumerated()), id: \.element.id) { index, look in
-                    let isActive = look.id == selectedID
+                ForEach(items) { item in
+                    let isActive = item.id == selectedID
 
-                    Text(look.displayName)
+                    Text(label(item))
                         .font(Typography.lens(active: isActive))
                         .foregroundStyle(isActive ? theme.accent : theme.secondary)
                         .fontWeight(isActive ? .bold : nil)
+                        .monospacedDigit()
                         .frame(width: Metrics.LensSelector.itemWidth,
                                height: Metrics.LensSelector.pillHeight)
-                        .offset(x: slotOffset(for: index))
+                        .offset(x: slotOffset(for: item))
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(look.displayName) look")
+                        .accessibilityLabel("\(label(item)) \(accessibilityNoun)")
                         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
-                        .accessibilityAction { onSelect(look) }
+                        .accessibilityAction { onSelect(item) }
                 }
             }
-            .animation(Metrics.Motion.lensPill, value: selectedID)
+            .animation(.reduceMotionAware(Metrics.Motion.lensPill), value: selectedID)
         }
         .frame(width: totalWidth, height: Metrics.LensSelector.pillHeight)
         .contentShape(.rect)
         .gesture(dialGesture)
     }
 
-    private func slotOffset(for index: Int) -> CGFloat {
-        guard let activeIdx = activeIndex else { return 0 }
+    private func slotOffset(for item: Item) -> CGFloat {
+        guard let activeIdx = activeIndex, let index = items.firstIndex(of: item) else { return 0 }
         return CGFloat(index - activeIdx) * (Metrics.LensSelector.itemWidth + Metrics.LensSelector.itemSpacing)
     }
 
-    private func look(at location: CGPoint) -> LookKind? {
+    private func item(at location: CGPoint) -> Item? {
         let dialCenter = totalWidth / 2
-        for (index, look) in looks.enumerated() {
-            let slotCenter = dialCenter + slotOffset(for: index)
+        for item in items {
+            let slotCenter = dialCenter + slotOffset(for: item)
             let slotMinX = slotCenter - Metrics.LensSelector.itemWidth / 2
             let slotMaxX = slotCenter + Metrics.LensSelector.itemWidth / 2
             if location.x >= slotMinX, location.x <= slotMaxX {
-                return look
+                return item
             }
         }
         return nil
@@ -92,7 +97,7 @@ struct LooksSelector: View {
                     && abs(vertical) < Metrics.LensSelector.tapMovementThreshold
 
                 if isTap {
-                    if let tapped = look(at: value.startLocation) {
+                    if let tapped = item(at: value.startLocation) {
                         onSelect(tapped)
                     }
                     return
@@ -104,9 +109,9 @@ struct LooksSelector: View {
                 guard let currentIndex = activeIndex else { return }
 
                 let nextIndex = horizontal < 0 ? currentIndex + 1 : currentIndex - 1
-                guard looks.indices.contains(nextIndex) else { return }
+                guard items.indices.contains(nextIndex) else { return }
 
-                onSelect(looks[nextIndex])
+                onSelect(items[nextIndex])
             }
     }
 }

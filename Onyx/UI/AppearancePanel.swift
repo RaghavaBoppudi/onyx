@@ -11,14 +11,7 @@ struct AppearancePanel: View {
                 .tracking(1.6)
                 .foregroundStyle(theme.secondary)
 
-            Picker("Appearance", selection: Binding(
-                get: { selection },
-                set: { newValue in
-                    guard newValue != selection else { return }
-                    Haptics.shared.fire(.selection)
-                    selection = newValue
-                }
-            )) {
+            Picker("Appearance", selection: $selection.hapticFeedback(.selection)) {
                 ForEach(AppearanceMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }

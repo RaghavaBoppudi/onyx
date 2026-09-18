@@ -6,6 +6,10 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A03D816F305CE5DB00C355F8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A03D816E305CE5DB00C355F8 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		A030B2DB3001C2EF00EE202F /* Embed Watch Content */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -18,6 +22,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A03D816E305CE5DB00C355F8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A05FFBF72FF44585004918E9 /* Onyx.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Onyx.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -54,6 +59,7 @@
 		A05FFBEE2FF44585004918E9 = {
 			isa = PBXGroup;
 			children = (
+				A03D816E305CE5DB00C355F8 /* Assets.xcassets */,
 				A0A609A9303CA3C4005AA254 /* Onyx */,
 				A05FFBF82FF44585004918E9 /* Products */,
 			);
@@ -127,6 +133,7 @@
 		A05FFBF52FF44585004918E9 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				A03D816F305CE5DB00C355F8 /* Assets.xcassets in Resources */,
 			);
 		};
 /* End PBXResourcesBuildPhase section */

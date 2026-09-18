@@ -15,7 +15,7 @@ struct ChromeIcon: View {
                 .foregroundStyle(theme.icon(active: isActive))
                 .contentTransition(.symbolEffect(.replace))
                 .rotationEffect(rotation)
-                .animation(Metrics.Motion.glyphRotation, value: rotation)
+                .animation(.reduceMotionAware(Metrics.Motion.glyphRotation), value: rotation)
                 .frame(width: Metrics.Chrome.tapTarget,
                        height: Metrics.Chrome.tapTarget)
                 .contentShape(.rect)

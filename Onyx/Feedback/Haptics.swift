@@ -25,13 +25,27 @@ final class Haptics {
 
     func fire(_ event: Event) {
         switch event {
-        case .shutterArm:    soft.impactOccurred(intensity: 0.55)
-        case .shutterFire:   rigid.impactOccurred(intensity: 1.0)
-        case .lensSwitch:    light.impactOccurred(intensity: 0.7)
-        case .selection:     selectionGenerator.selectionChanged()
-        case .toggle:        light.impactOccurred(intensity: 0.5)
-        case .success:       notification.notificationOccurred(.success)
-        case .failure:       notification.notificationOccurred(.error)
+        case .shutterArm:
+            soft.impactOccurred(intensity: 0.55)
+            soft.prepare()
+        case .shutterFire:
+            rigid.impactOccurred(intensity: 1.0)
+            rigid.prepare()
+        case .lensSwitch:
+            light.impactOccurred(intensity: 0.7)
+            light.prepare()
+        case .selection:
+            selectionGenerator.selectionChanged()
+            selectionGenerator.prepare()
+        case .toggle:
+            light.impactOccurred(intensity: 0.5)
+            light.prepare()
+        case .success:
+            notification.notificationOccurred(.success)
+            notification.prepare()
+        case .failure:
+            notification.notificationOccurred(.error)
+            notification.prepare()
         }
     }
 }

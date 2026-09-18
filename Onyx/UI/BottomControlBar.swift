@@ -13,16 +13,20 @@ struct BottomControlBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            Spacer()
+
             CaptureThumbnail(
                 image: thumbnail,
                 assetIdentifier: thumbnailAssetIdentifier,
                 rotation: glyphRotation,
                 onTap: onOpenPhotos
             )
-            .frame(maxWidth: .infinity)
+
+            Spacer()
 
             ShutterButton(isEnabled: !isBusy, action: onCapture)
-                .frame(maxWidth: .infinity)
+
+            Spacer()
 
             ChromeIcon(
                 symbol: flashSymbol,
@@ -32,7 +36,8 @@ struct BottomControlBar: View {
             )
             .accessibilityLabel("Flash")
             .accessibilityValue(flashValue)
-            .frame(maxWidth: .infinity)
+
+            Spacer()
         }
         .padding(.horizontal, Metrics.Chrome.edgeInset)
     }
@@ -83,7 +88,7 @@ private struct CaptureThumbnail: View {
             }
             .scaleEffect(scale)
             .rotationEffect(rotation)
-            .animation(Metrics.Motion.glyphRotation, value: rotation)
+            .animation(.reduceMotionAware(Metrics.Motion.glyphRotation), value: rotation)
             .frame(width: Metrics.Chrome.tapTarget, height: Metrics.Chrome.tapTarget)
         }
         .buttonStyle(.plain)
@@ -92,7 +97,7 @@ private struct CaptureThumbnail: View {
         .accessibilityHint("Opens Photos")
         .onChange(of: assetIdentifier) { _, _ in
             scale = Metrics.Thumbnail.popScale
-            withAnimation(Metrics.Motion.thumbnailPop) { scale = 1 }
+            withAnimation(.reduceMotionAware(Metrics.Motion.thumbnailPop)) { scale = 1 }
         }
     }
 }

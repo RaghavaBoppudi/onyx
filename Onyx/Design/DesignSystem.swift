@@ -2,12 +2,13 @@ import SwiftUI
 
 enum Typography {
     static func lens(active: Bool) -> Font {
-        .system(size: 16, weight: active ? .semibold : .regular)
+        .body.weight(active ? .semibold : .regular)
     }
 
-    static let panelHeader = Font.system(size: 12, weight: .semibold)
-    static let caption     = Font.system(size: 13, weight: .regular)
-    static let body        = Font.system(size: 16, weight: .regular)
+    static let panelHeader = Font.footnote.weight(.semibold)
+    static let caption     = Font.caption
+    static let body        = Font.body
+    static let lookTitle   = Font.title2.weight(.semibold)
 }
 
 enum AppearanceMode: String, CaseIterable, Identifiable, Sendable, Codable {

@@ -31,6 +31,10 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
 enum CaptureConstants {
     static let exposureBias: Float = -0.3
     static let colorSpace: AVCaptureColorSpace = .sRGB
+    /// Ceiling on how long setExposureBias waits for isAdjustingExposure to
+    /// clear before giving up and letting capture proceed anyway. A capture
+    /// path should never be able to hang indefinitely on AE convergence.
+    static let exposureConvergenceTimeout: Duration = .seconds(1)
 }
 
 final class CaptureSessionBox: @unchecked Sendable {
@@ -88,6 +92,72 @@ actor CaptureEngine {
 
     func select(lens: Lens) async throws {
         try await runExclusively { [self] in try configure(for: lens) }
+    }
+
+    /// Sets an absolute exposure target bias on the active device and waits
+    /// for the sensor to actually converge to it before returning — setting
+    /// the bias alone only *requests* the change; isAdjustingExposure is what
+    /// confirms the device has caught up, same pattern WhiteBalanceReadiness
+    /// already uses for white balance. Capped at
+    /// CaptureConstants.exposureConvergenceTimeout so a scene that never
+    /// fully settles can't hang a capture.
+    ///
+    /// NOTE: this only has an effect in .autoExpose or .continuousAutoExposure
+    /// mode. If RawPipeline.configure(device:) puts the device in .locked or
+    /// .custom exposure mode, this call may be a silent no-op — check the
+    /// per-capture exposure log in performCapture() below to confirm whether
+    /// it actually reached the sensor.
+    ///
+    /// This replaces whatever bias is currently set — including
+    /// CaptureConstants.exposureBias, the normal baseline — it does not stack
+    /// with it. Callers are responsible for resetting back to
+    /// CaptureConstants.exposureBias when done.
+    func setExposureBias(_ bias: Float) async throws {
+        try await runExclusively { [self] in
+            guard let device = activeDevice else {
+                throw CaptureError.deviceUnavailable("active")
+            }
+            do {
+                try device.lockForConfiguration()
+            } catch {
+                throw CaptureError.configurationFailed(error.localizedDescription)
+            }
+
+            let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
+
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                device.setExposureTargetBias(clamped) { _ in continuation.resume() }
+            }
+            device.unlockForConfiguration()
+
+            await Self.waitForExposureConvergence(device: device)
+
+            Log.capture.debug(
+                "setExposureBias(\(bias)) → mode: \(device.exposureMode.rawValue), targetBias now: \(device.exposureTargetBias)"
+            )
+        }
+    }
+
+    private static func waitForExposureConvergence(device: AVCaptureDevice) async {
+        guard device.isAdjustingExposure else { return }
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    var observation: NSKeyValueObservation?
+                    observation = device.observe(\.isAdjustingExposure, options: [.new]) { _, change in
+                        guard change.newValue == false else { return }
+                        observation?.invalidate()
+                        continuation.resume()
+                    }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: CaptureConstants.exposureConvergenceTimeout)
+            }
+            await group.next()
+            group.cancelAll()
+        }
     }
 
     private func configure(for lens: Lens) throws {
@@ -174,9 +244,18 @@ actor CaptureEngine {
         flashMode: AVCaptureDevice.FlashMode,
         onShutterFire: @escaping @Sendable () -> Void
     ) async throws -> RawCapture {
-        guard activeDevice != nil else {
+        guard let device = activeDevice else {
             throw CaptureError.deviceUnavailable("active")
         }
+
+        // Diagnostic: confirms what the sensor is actually doing at the
+        // instant of capture, independent of whatever setExposureBias
+        // requested. exposureMode 0 = locked, 1 = autoExpose,
+        // 2 = continuousAutoExposure, 3 = custom. If mode is 0 or 3 while a
+        // double exposure is in progress, that's why bias isn't taking effect.
+        Log.capture.debug(
+            "Capturing — exposureMode: \(device.exposureMode.rawValue), targetBias: \(device.exposureTargetBias), ISO: \(device.iso), duration: \(device.exposureDuration.seconds)s"
+        )
 
         let settings = RawPipeline.makeSettings(
             output: photoOutput, bayerFormat: bayerFormat, flashMode: flashMode
