@@ -21,50 +21,84 @@ struct ViewfinderScreen: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            TopControlBar(
-                isGridVisible: settings.isGridVisible,
-                isSettingsOpen: isAppearancePanelVisible,
-                glyphRotation: glyphRotation,
-                onToggleGrid: {
-                    Haptics.shared.fire(.toggle)
-                    withAnimation(.reduceMotionAware(Metrics.Motion.gridFade)) { settings.isGridVisible.toggle() }
-                },
-                onOpenSettings: {
-                    Haptics.shared.fire(.toggle)
-                    withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) {
-                        isAppearancePanelVisible.toggle()
+        ZStack {
+            VStack(spacing: 0) {
+                TopControlBar(
+                    isGridVisible: settings.isGridVisible,
+                    isSettingsOpen: isAppearancePanelVisible,
+                    glyphRotation: glyphRotation,
+                    onToggleGrid: {
+                        Haptics.shared.fire(.toggle)
+                        withAnimation(.reduceMotionAware(Metrics.Motion.gridFade)) { settings.isGridVisible.toggle() }
+                    },
+                    onOpenSettings: {
+                        Haptics.shared.fire(.toggle)
+                        withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) {
+                            isAppearancePanelVisible.toggle()
+                        }
                     }
+                )
+                .visible(!isBrowsingLooks)
+                .disabled(model.isAwaitingSecondFrame)
+                .opacity(model.isAwaitingSecondFrame ? 0.35 : 1)
+
+                viewfinder
+                    .padding(.horizontal, Metrics.Viewfinder.inset)
+                    .opacity(isBrowsingLooks ? 0 : 1)
+
+                Spacer()
+
+                BottomControlBar(
+                    thumbnail: model.recentPhoto.thumbnail,
+                    thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
+                    flashMode: settings.flashMode,
+                    isBusy: model.isBusy,
+                    isCaptureRestricted: model.isAwaitingSecondFrame,
+                    glyphRotation: glyphRotation,
+                    onOpenPhotos: { model.openPhotosApp() },
+                    onCycleFlash: {
+                        Haptics.shared.fire(.toggle)
+                        settings.cycleFlash()
+                    },
+                    onCapture: { Task { await model.capture() } }
+                )
+                .visible(!isBrowsingLooks)
+
+                Spacer()
+
+                looksEntryButton
+                    .frame(maxWidth: .infinity)
+
+                Spacer()
+            }
+
+            if isBrowsingLooks {
+                GeometryReader { proxy in
+                    let carouselWidth = proxy.size.width
+                    let carouselHeight = carouselWidth / Metrics.Viewfinder.aspect
+
+                    LookCardCarousel(
+                        looks: LookKind.allCases,
+                        selectedID: pendingLook.id,
+                        boxSize: CGSize(width: carouselWidth, height: carouselHeight),
+                        onPreview: { look in
+                            Haptics.shared.fire(.selection)
+                            pendingLook = look
+                        },
+                        onConfirm: { look in
+                            Haptics.shared.fire(.selection)
+                            model.setLook(look)
+                            pendingLook = look
+                            isBrowsingLooks = false
+                        }
+                    )
+                    .frame(width: carouselWidth, height: carouselHeight)
+                    .position(
+                        x: proxy.size.width / 2,
+                        y: proxy.size.height / 2 + Metrics.LookCarousel.centerOffsetY
+                    )
                 }
-            )
-            .visible(!isBrowsingLooks)
-
-            viewfinder
-                .padding(.horizontal, Metrics.Viewfinder.inset)
-
-            Spacer()
-
-            BottomControlBar(
-                thumbnail: model.recentPhoto.thumbnail,
-                thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
-                flashMode: settings.flashMode,
-                isBusy: model.isBusy,
-                glyphRotation: glyphRotation,
-                onOpenPhotos: { model.openPhotosApp() },
-                onCycleFlash: {
-                    Haptics.shared.fire(.toggle)
-                    settings.cycleFlash()
-                },
-                onCapture: { Task { await model.capture() } }
-            )
-            .visible(!isBrowsingLooks)
-
-            Spacer()
-
-            looksEntryButton
-                .frame(maxWidth: .infinity)
-
-            Spacer()
+            }
         }
         .background(theme.canvas.ignoresSafeArea())
         .task { await model.start() }
@@ -86,6 +120,8 @@ struct ViewfinderScreen: View {
             if isBrowsingLooks {
                 model.setLook(pendingLook)
                 withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = false }
+            } else if model.isAwaitingSecondFrame {
+                model.cancelDoubleExposureSequence()
             } else {
                 Haptics.shared.fire(.toggle)
                 pendingLook = model.selectedLook
@@ -98,6 +134,11 @@ struct ViewfinderScreen: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: Metrics.Chrome.iconPointSize, weight: .bold))
                         .frame(width: Metrics.Chrome.tapTarget, height: Metrics.Chrome.tapTarget)
+                } else if model.isAwaitingSecondFrame {
+                    Text("Cancel")
+                        .font(Typography.panelHeader)
+                        .padding(.horizontal, 24)
+                        .frame(height: Metrics.Chrome.tapTarget)
                 } else {
                     Text("Looks")
                         .font(Typography.panelHeader)
@@ -105,91 +146,80 @@ struct ViewfinderScreen: View {
                         .frame(height: Metrics.Chrome.tapTarget)
                 }
             }
-            .foregroundStyle(!isBrowsingLooks && isNonDefaultLookActive ? theme.accent : theme.iconActive)
+            .foregroundStyle(
+                !isBrowsingLooks && (model.isAwaitingSecondFrame || isNonDefaultLookActive)
+                    ? theme.accent
+                    : theme.iconActive
+            )
         }
         .buttonStyle(.plain)
         .onyxGlass(in: .capsule)
-        .accessibilityLabel(isBrowsingLooks ? "Back" : "Looks")
-        .accessibilityValue(!isBrowsingLooks && isNonDefaultLookActive ? model.selectedLook.displayName : "")
+        .accessibilityLabel(
+            isBrowsingLooks ? "Back" : (model.isAwaitingSecondFrame ? "Cancel double exposure" : "Looks")
+        )
+        .accessibilityValue(
+            !isBrowsingLooks && !model.isAwaitingSecondFrame && isNonDefaultLookActive
+                ? model.selectedLook.displayName
+                : ""
+        )
         .animation(.reduceMotionAware(Metrics.Motion.panelReveal), value: isBrowsingLooks)
+        .animation(.reduceMotionAware(Metrics.Motion.panelReveal), value: model.isAwaitingSecondFrame)
     }
 
     private var viewfinder: some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
-                if isBrowsingLooks {
-                    LookCardCarousel(
-                        looks: LookKind.allCases,
-                        selectedID: pendingLook.id,
-                        boxSize: CGSize(
-                            width: proxy.size.width + Metrics.Viewfinder.inset * 2,
-                            height: proxy.size.height
-                        ),
-                        onPreview: { look in
-                            Haptics.shared.fire(.selection)
-                            pendingLook = look
-                        },
-                        onConfirm: { look in
-                            Haptics.shared.fire(.selection)
-                            model.setLook(look)
-                            pendingLook = look
-                            isBrowsingLooks = false
-                        }
-                    )
-                    .padding(.horizontal, -Metrics.Viewfinder.inset)
-                } else {
-                    CameraPreviewView(
-                        sessionBox: model.sessionBox,
-                        rotation: model.rotation
-                    )
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .saturation(model.selectedLook == .mono || model.selectedLook == .doubleExposureMono ? 0 : 1)
-                    .background(theme.viewfinderVoid)
-                    .overlay {
-                        if !model.whiteBalance.hasConverged {
-                            theme.viewfinderVoid
-                                .transition(.opacity)
-                        }
+                CameraPreviewView(
+                    sessionBox: model.sessionBox,
+                    rotation: model.rotation
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .saturation(model.selectedLook == .mono || model.selectedLook == .doubleExposureMono ? 0 : 1)
+                .background(theme.viewfinderVoid)
+                .overlay {
+                    if !model.whiteBalance.hasConverged {
+                        theme.viewfinderVoid
+                            .transition(.opacity)
                     }
-                    .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.whiteBalance.hasConverged)
-                    .overlay { if settings.isGridVisible { RuleOfThirdsGrid() } }
-                    .overlay {
-                        theme.shutterBlink
-                            .opacity(model.blinkOpacity)
+                }
+                .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.whiteBalance.hasConverged)
+                .overlay { if settings.isGridVisible { RuleOfThirdsGrid() } }
+                .overlay {
+                    theme.shutterBlink
+                        .opacity(model.blinkOpacity)
+                        .allowsHitTesting(false)
+                }
+                .overlay {
+                    if case .awaitingSecondFrame(let ghost) = model.exposureStage {
+                        Image(uiImage: ghost)
+                            .resizable()
+                            .scaledToFill()
+                            .opacity(DoubleExposureProfile.ghostOverlayOpacity)
                             .allowsHitTesting(false)
+                            .transition(.opacity)
                     }
-                    .overlay {
-                        if case .awaitingSecondFrame(let ghost) = model.exposureStage {
-                            Image(uiImage: ghost)
-                                .resizable()
-                                .scaledToFill()
-                                .opacity(DoubleExposureProfile.ghostOverlayOpacity)
-                                .allowsHitTesting(false)
-                                .transition(.opacity)
-                        }
-                    }
-                    .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.isAwaitingSecondFrame)
-                    .overlay(alignment: .bottom) {
-                        LensSelector(
-                            lenses: model.lenses,
-                            selectedID: model.selectedLens?.id,
-                            onSelect: { lens in Task { await model.select(lens) } }
-                        )
-                        .padding(.bottom, Metrics.LensSelector.bottomInset)
-                    }
-                    .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
-                    .opacity(model.isSwitching ? 0.55 : 1)
-                    .animation(.reduceMotionAware(Metrics.Motion.lensSwitch), value: model.isSwitching)
+                }
+                .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.isAwaitingSecondFrame)
+                .overlay(alignment: .bottom) {
+                    LensSelector(
+                        lenses: model.lenses,
+                        selectedID: model.selectedLens?.id,
+                        onSelect: { lens in Task { await model.select(lens) } }
+                    )
+                    .padding(.bottom, Metrics.LensSelector.bottomInset)
+                }
+                .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
+                .opacity(model.isSwitching ? 0.55 : 1)
+                .animation(.reduceMotionAware(Metrics.Motion.lensSwitch), value: model.isSwitching)
 
-                    if isAppearancePanelVisible {
-                        AppearancePanel(selection: $settings.appearance)
-                            .padding(8)
-                    }
+                if isAppearancePanelVisible {
+                    AppearancePanel(selection: $settings.appearance)
+                        .padding(8)
+                }
 
-                    if model.isOnDimmerLens, !isAppearancePanelVisible {
-                        LowLightBanner()
-                            .padding(.top, 14)
-                    }
+                if model.isOnDimmerLens, !isAppearancePanelVisible {
+                    LowLightBanner()
+                        .padding(.top, 14)
                 }
             }
             .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.isOnDimmerLens)

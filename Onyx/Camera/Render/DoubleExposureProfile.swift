@@ -1,7 +1,7 @@
 import CoreGraphics
 
 enum DoubleExposureProfile {
-    static let exposureBias: Float = -1.6
+    static let exposureBias: Float = -1.0
 
     static let ghostOverlayOpacity: Double = 0.35
 

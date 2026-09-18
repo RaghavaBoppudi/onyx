@@ -19,11 +19,11 @@ enum LookKind: String, CaseIterable, Identifiable, Sendable {
 
     var summary: String {
         switch self {
-        case .standard: "Onyx's signature warm color look"
-        case .mono: "Black and white, baked into the RAW decode"
-        case .glass: "Sectioned refraction, like shooting through glass panes"
+        case .standard: "Our signature zero processed look"
+        case .mono: "Our signature zero processed look, but in black and white"
+        case .glass: "Nothing like shooting through glass panes"
         case .doubleExposure: "Two frames blended like a physical double exposure"
-        case .doubleExposureMono: "Double exposure, developed in black and white"
+        case .doubleExposureMono: "Double exposure, but in black and white"
         }
     }
 

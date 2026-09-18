@@ -108,11 +108,7 @@ final class CameraModel {
         guard look != selectedLook else { return }
 
         if isAwaitingSecondFrame, !look.isDoubleExposure {
-            Task {
-                await renderer.cancelDoubleExposure()
-                try? await engine.setExposureBias(CaptureConstants.exposureBias)
-            }
-            exposureStage = .idle
+            cancelDoubleExposureSequence()
         }
 
         if look.isDoubleExposure, !selectedLook.isDoubleExposure {
@@ -123,6 +119,16 @@ final class CameraModel {
 
         Haptics.shared.fire(.selection)
         selectedLook = look
+    }
+
+    func cancelDoubleExposureSequence() {
+        guard isAwaitingSecondFrame else { return }
+        Task {
+            await renderer.cancelDoubleExposure()
+            try? await engine.setExposureBias(CaptureConstants.exposureBias)
+        }
+        exposureStage = .idle
+        Haptics.shared.fire(.failure)
     }
 
     private func closestToWide(in lenses: [Lens]) -> Lens? {

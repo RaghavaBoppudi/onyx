@@ -40,6 +40,7 @@ enum Metrics {
         static let verticalInset: CGFloat = 48
         static let textSpacing: CGFloat = 16
         static let captionHeight: CGFloat = 78
+        static let centerOffsetY: CGFloat = 0
     }
 
     enum Panel {

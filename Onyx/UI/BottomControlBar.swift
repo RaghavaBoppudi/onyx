@@ -6,6 +6,7 @@ struct BottomControlBar: View {
     let thumbnailAssetIdentifier: String?
     let flashMode: AVCaptureDevice.FlashMode
     let isBusy: Bool
+    let isCaptureRestricted: Bool
     let glyphRotation: Angle
     let onOpenPhotos: () -> Void
     let onCycleFlash: () -> Void
@@ -21,6 +22,8 @@ struct BottomControlBar: View {
                 rotation: glyphRotation,
                 onTap: onOpenPhotos
             )
+            .disabled(isCaptureRestricted)
+            .opacity(isCaptureRestricted ? 0.35 : 1)
 
             Spacer()
 
@@ -36,6 +39,8 @@ struct BottomControlBar: View {
             )
             .accessibilityLabel("Flash")
             .accessibilityValue(flashValue)
+            .disabled(isCaptureRestricted)
+            .opacity(isCaptureRestricted ? 0.35 : 1)
 
             Spacer()
         }
