@@ -21,9 +21,12 @@ enum Metrics {
         static let tapTarget: CGFloat = 48
         static let edgeInset: CGFloat = 8
         static let symbolFont = Font.system(size: iconPointSize, weight: iconWeight)
-        static let verticalControlsAspectThreshold: CGFloat = 1.6
-        static let railVerticalInset: CGFloat = 28
+        static let verticalControlsAspectThreshold: CGFloat = 1.8
+        static let railVerticalInset: CGFloat = 40
+        static let railHorizontalGap: CGFloat = 16
         static let railItemSpacing: CGFloat = 22
+        static let railGroupSpacing: CGFloat = 44
+        static let statusRailWidth: CGFloat = tapTarget + edgeInset * 2
 
         static var railWidth: CGFloat {
             Shutter.diameter + Shutter.ringGap * 2 + edgeInset * 2

@@ -27,6 +27,7 @@ struct RootView: View {
         .themed(settings.appearance.resolved(against: systemScheme))
         .preferredColorScheme(settings.appearance.preferredColorScheme)
         .persistentSystemOverlays(.hidden)
+        .statusBar(hidden: true)
         .onAppear {
             if model == nil { model = CameraModel(settings: settings) }
         }

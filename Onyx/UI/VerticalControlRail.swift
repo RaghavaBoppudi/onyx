@@ -1,7 +1,14 @@
 import AVFoundation
 import SwiftUI
 
-private struct RailContentHeightKey: PreferenceKey {
+private struct TopGroupHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct BottomGroupHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
@@ -26,43 +33,68 @@ struct VerticalControlRail: View {
     let onCapture: () -> Void
     let onLooksAction: () -> Void
 
-    @State private var contentHeight: CGFloat = 0
+    @State private var topGroupHeight: CGFloat = 0
+    @State private var bottomGroupHeight: CGFloat = 0
+
+    private var shutterOuterDiameter: CGFloat {
+        Metrics.Shutter.diameter + Metrics.Shutter.ringGap * 2
+    }
 
     var body: some View {
         GeometryReader { proxy in
-            let available = max(proxy.size.height - Metrics.Chrome.railVerticalInset * 2, 1)
-            let scale = (contentHeight > 0 && contentHeight > available) ? available / contentHeight : 1
-            let scaledHeight = contentHeight * scale
-            let topOffset = max((proxy.size.height - scaledHeight) / 2, 0)
+            let centerX = proxy.size.width / 2
+            let centerY = proxy.size.height / 2
 
-            stack
-                .background(
-                    GeometryReader { measureProxy in
-                        Color.clear.preference(key: RailContentHeightKey.self, value: measureProxy.size.height)
-                    }
-                )
-                .scaleEffect(scale)
-                .frame(width: proxy.size.width, height: contentHeight, alignment: .top)
-                .position(x: proxy.size.width / 2, y: topOffset + scaledHeight / 2)
+            let halfSpan = max(
+                shutterOuterDiameter / 2 + Metrics.Chrome.railItemSpacing + topGroupHeight,
+                shutterOuterDiameter / 2 + Metrics.Chrome.railItemSpacing + bottomGroupHeight
+            )
+            let available = max(centerY - Metrics.Chrome.railVerticalInset, 1)
+            let scale = halfSpan > available ? available / halfSpan : 1
+
+            let topCenterY = centerY - (shutterOuterDiameter / 2 + Metrics.Chrome.railItemSpacing + topGroupHeight / 2) * scale
+            let bottomCenterY = centerY + (shutterOuterDiameter / 2 + Metrics.Chrome.railItemSpacing + bottomGroupHeight / 2) * scale
+
+            ZStack {
+                topGroup
+                    .background(
+                        GeometryReader { measureProxy in
+                            Color.clear.preference(key: TopGroupHeightKey.self, value: measureProxy.size.height)
+                        }
+                    )
+                    .scaleEffect(scale)
+                    .position(x: centerX, y: topCenterY)
+
+                ShutterButton(isEnabled: !isBusy, action: onCapture)
+                    .opacity(isBrowsingLooks ? 0 : 1)
+                    .disabled(isBrowsingLooks)
+                    .scaleEffect(scale)
+                    .position(x: centerX, y: centerY)
+
+                bottomGroup
+                    .background(
+                        GeometryReader { measureProxy in
+                            Color.clear.preference(key: BottomGroupHeightKey.self, value: measureProxy.size.height)
+                        }
+                    )
+                    .scaleEffect(scale)
+                    .position(x: centerX, y: bottomCenterY)
+            }
         }
-        .onPreferenceChange(RailContentHeightKey.self) { contentHeight = $0 }
+        .onPreferenceChange(TopGroupHeightKey.self) { topGroupHeight = $0 }
+        .onPreferenceChange(BottomGroupHeightKey.self) { bottomGroupHeight = $0 }
     }
 
-    @ViewBuilder
-    private var stack: some View {
+    private var topGroup: some View {
         VStack(spacing: Metrics.Chrome.railItemSpacing) {
             ChromeIcon(
-                symbol: flashSymbol,
-                isActive: flashMode != .off,
+                symbol: Symbols.appearance,
+                isActive: isSettingsOpen,
                 rotation: glyphRotation,
-                action: onCycleFlash
+                action: onOpenSettings
             )
-            .accessibilityLabel("Flash")
-            .accessibilityValue(flashMode == .off ? "Off" : "On")
-            .opacity(isBrowsingLooks ? 0 : 1)
-            .allowsHitTesting(!isBrowsingLooks)
-            .disabled(isCaptureRestricted)
-            .opacity(isCaptureRestricted ? 0.35 : 1)
+            .accessibilityLabel("Appearance")
+            .accessibilityValue(isSettingsOpen ? "Open" : "Closed")
 
             ChromeIcon(
                 symbol: Symbols.grid,
@@ -72,31 +104,27 @@ struct VerticalControlRail: View {
             )
             .accessibilityLabel("Rule of thirds grid")
             .accessibilityValue(isGridVisible ? "On" : "Off")
-            .opacity(isBrowsingLooks ? 0 : 1)
-            .allowsHitTesting(!isBrowsingLooks)
-            .disabled(isCaptureRestricted)
-            .opacity(isCaptureRestricted ? 0.35 : 1)
 
             ChromeIcon(
-                symbol: Symbols.appearance,
-                isActive: isSettingsOpen,
+                symbol: flashSymbol,
+                isActive: flashMode != .off,
                 rotation: glyphRotation,
-                action: onOpenSettings
+                action: onCycleFlash
             )
-            .accessibilityLabel("Appearance")
-            .accessibilityValue(isSettingsOpen ? "Open" : "Closed")
-            .opacity(isBrowsingLooks ? 0 : 1)
-            .allowsHitTesting(!isBrowsingLooks)
-            .disabled(isCaptureRestricted)
-            .opacity(isCaptureRestricted ? 0.35 : 1)
+            .accessibilityLabel("Flash")
+            .accessibilityValue(flashMode == .off ? "Off" : "On")
+        }
+        .opacity(isBrowsingLooks ? 0 : 1)
+        .allowsHitTesting(!isBrowsingLooks)
+        .disabled(isCaptureRestricted)
+        .opacity(isCaptureRestricted ? 0.35 : 1)
+    }
 
+    private var bottomGroup: some View {
+        VStack(spacing: Metrics.Chrome.railItemSpacing) {
             LooksButton(state: looksState, rotation: glyphRotation, action: onLooksAction)
-                .opacity(isBrowsingLooks ? 0 : 1)
-                .allowsHitTesting(!isBrowsingLooks)
-
-            ShutterButton(isEnabled: !isBusy, action: onCapture)
-                .opacity(isBrowsingLooks ? 0 : 1)
-                .disabled(isBrowsingLooks)
+                .opacity(looksState == .browsing ? 0 : 1)
+                .allowsHitTesting(looksState != .browsing)
 
             CaptureThumbnail(
                 image: thumbnail,

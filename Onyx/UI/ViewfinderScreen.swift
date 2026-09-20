@@ -68,32 +68,78 @@ struct ViewfinderScreen: View {
                 }
 
                 if useVerticalControls {
-                    HStack(spacing: 0) {
-                        viewfinder(isLandscape: isLandscape)
-                            .padding(.horizontal, Metrics.Viewfinder.inset)
-                            .padding(.vertical, Metrics.Chrome.railVerticalInset)
-                            .opacity(isBrowsingLooks ? 0 : 1)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if isLandscape {
+                        HStack(spacing: 0) {
+                            viewfinder(isLandscape: true)
+                                .padding(.leading, Metrics.Viewfinder.inset)
+                                .padding(.vertical, Metrics.Chrome.railVerticalInset)
+                                .opacity(isBrowsingLooks ? 0 : 1)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        VerticalControlRail(
-                            isGridVisible: settings.isGridVisible,
-                            isSettingsOpen: isAppearancePanelVisible,
-                            flashMode: settings.flashMode,
-                            thumbnail: model.recentPhoto.thumbnail,
-                            thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
-                            isBusy: model.isBusy,
-                            isCaptureRestricted: model.isAwaitingSecondFrame,
-                            isBrowsingLooks: isBrowsingLooks,
-                            looksState: looksState,
-                            glyphRotation: glyphRotation,
-                            onToggleGrid: toggleGrid,
-                            onCycleFlash: cycleFlash,
-                            onOpenSettings: openSettings,
-                            onOpenPhotos: openPhotos,
-                            onCapture: capture,
-                            onLooksAction: handleLooksAction
-                        )
-                        .frame(width: Metrics.Chrome.railWidth)
+                            VerticalControlRail(
+                                isGridVisible: settings.isGridVisible,
+                                isSettingsOpen: isAppearancePanelVisible,
+                                flashMode: settings.flashMode,
+                                thumbnail: model.recentPhoto.thumbnail,
+                                thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
+                                isBusy: model.isBusy,
+                                isCaptureRestricted: model.isAwaitingSecondFrame,
+                                isBrowsingLooks: isBrowsingLooks,
+                                looksState: looksState,
+                                glyphRotation: glyphRotation,
+                                onToggleGrid: toggleGrid,
+                                onCycleFlash: cycleFlash,
+                                onOpenSettings: openSettings,
+                                onOpenPhotos: openPhotos,
+                                onCapture: capture,
+                                onLooksAction: handleLooksAction
+                            )
+                            .frame(width: Metrics.Chrome.railWidth)
+                            .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
+                        }
+                        .ignoresSafeArea()
+                    } else {
+                        VStack(spacing: 0) {
+                            HStack(spacing: 0) {
+                                viewfinder(isLandscape: false)
+                                    .padding(.leading, Metrics.Viewfinder.inset)
+                                    .opacity(isBrowsingLooks ? 0 : 1)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                                StatusIconRail(
+                                    isGridVisible: settings.isGridVisible,
+                                    isSettingsOpen: isAppearancePanelVisible,
+                                    flashMode: settings.flashMode,
+                                    isBrowsingLooks: isBrowsingLooks,
+                                    isCaptureRestricted: model.isAwaitingSecondFrame,
+                                    glyphRotation: glyphRotation,
+                                    onToggleGrid: toggleGrid,
+                                    onCycleFlash: cycleFlash,
+                                    onOpenSettings: openSettings
+                                )
+                                .frame(width: Metrics.Chrome.statusRailWidth)
+                                .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
+                            }
+                            .padding(.top, Metrics.Chrome.railVerticalInset)
+                            .frame(maxHeight: .infinity)
+
+                            Spacer(minLength: Metrics.Chrome.railVerticalInset)
+
+                            BottomControlBar(
+                                thumbnail: model.recentPhoto.thumbnail,
+                                thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
+                                isBusy: model.isBusy,
+                                isCaptureRestricted: model.isAwaitingSecondFrame,
+                                isBrowsingLooks: isBrowsingLooks,
+                                looksState: looksState,
+                                glyphRotation: glyphRotation,
+                                onOpenPhotos: openPhotos,
+                                onCapture: capture,
+                                onLooksAction: handleLooksAction
+                            )
+                            .padding(.bottom, Metrics.Chrome.railVerticalInset)
+                        }
+                        .ignoresSafeArea()
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -106,8 +152,8 @@ struct ViewfinderScreen: View {
                             onCycleFlash: cycleFlash,
                             onOpenSettings: openSettings
                         )
-                        .visible(!isBrowsingLooks)
-                        .disabled(model.isAwaitingSecondFrame)
+                        .opacity(isBrowsingLooks ? 0 : 1)
+                        .disabled(isBrowsingLooks || model.isAwaitingSecondFrame)
                         .opacity(model.isAwaitingSecondFrame ? 0.35 : 1)
 
                         viewfinder(isLandscape: isLandscape)
@@ -263,13 +309,5 @@ private struct RuleOfThirdsGrid: View {
         }
         .allowsHitTesting(false)
         .transition(.opacity)
-    }
-}
-
-fileprivate extension View {
-    func visible(_ isVisible: Bool, interactive: Bool = true) -> some View {
-        self
-            .opacity(isVisible ? 1 : 0)
-            .allowsHitTesting(isVisible && interactive)
     }
 }
