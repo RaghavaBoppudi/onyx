@@ -22,8 +22,6 @@ struct Theme: Sendable {
             endPoint: .bottomTrailing
         )
     }
-
-    func icon(active: Bool) -> Color { active ? iconActive : iconInactive }
 }
 
 private struct ThemeKey: EnvironmentKey {
@@ -42,4 +40,3 @@ extension View {
         environment(\.theme, Theme(scheme: scheme))
     }
 }
-

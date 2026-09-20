@@ -8,7 +8,6 @@ struct SelectorDial<Item: Identifiable & Equatable>: View {
     let selectedID: Item.ID?
     let accessibilityNoun: String
     let glassNamespaceID: String
-    var tint: Color? = nil
     let label: (Item) -> String
     let onSelect: (Item) -> Void
 
@@ -30,7 +29,7 @@ struct SelectorDial<Item: Identifiable & Equatable>: View {
                         Group {
                             if isActive {
                                 Color.clear
-                                    .onyxGlass(in: .capsule, interactive: true, tint: tint)
+                                    .onyxGlass(in: .capsule, interactive: true)
                                     .glassEffectID(glassNamespaceID, in: glassNamespace)
                             } else {
                                 Color.clear

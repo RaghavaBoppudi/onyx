@@ -62,6 +62,14 @@ final class CameraModel {
 
         lenses = LensCatalog.lenses()
 
+        #if targetEnvironment(simulator)
+        if lenses.isEmpty {
+            Log.capture.warning("No lenses discovered — proceeding in Simulator UI-preview mode")
+            phase = .running
+            return
+        }
+        #endif
+
         guard let initial = closestToWide(in: lenses) else {
             phase = .failed(CaptureError.noLensesAvailable.localizedDescription)
             return

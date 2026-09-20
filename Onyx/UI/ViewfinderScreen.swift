@@ -20,67 +20,40 @@ struct ViewfinderScreen: View {
         model.selectedLook != .standard
     }
 
+    private var looksState: LooksControlState {
+        if isBrowsingLooks { return .browsing }
+        if model.isAwaitingSecondFrame { return .awaitingSecondFrame }
+        return .closed(isNonDefaultActive: isNonDefaultLookActive)
+    }
+
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                TopControlBar(
-                    isGridVisible: settings.isGridVisible,
-                    isSettingsOpen: isAppearancePanelVisible,
-                    glyphRotation: glyphRotation,
-                    onToggleGrid: {
-                        Haptics.shared.fire(.toggle)
-                        withAnimation(.reduceMotionAware(Metrics.Motion.gridFade)) { settings.isGridVisible.toggle() }
-                    },
-                    onOpenSettings: {
-                        Haptics.shared.fire(.toggle)
-                        withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) {
-                            isAppearancePanelVisible.toggle()
-                        }
-                    }
-                )
-                .visible(!isBrowsingLooks)
-                .disabled(model.isAwaitingSecondFrame)
-                .opacity(model.isAwaitingSecondFrame ? 0.35 : 1)
+        GeometryReader { screenProxy in
+            let heightToWidth = screenProxy.size.height / max(screenProxy.size.width, 1)
+            let isLandscape = screenProxy.size.width > screenProxy.size.height
+            let useVerticalControls = heightToWidth < Metrics.Chrome.verticalControlsAspectThreshold
 
-                viewfinder
-                    .padding(.horizontal, Metrics.Viewfinder.inset)
-                    .opacity(isBrowsingLooks ? 0 : 1)
-
-                Spacer()
-
-                BottomControlBar(
-                    thumbnail: model.recentPhoto.thumbnail,
-                    thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
-                    flashMode: settings.flashMode,
-                    isBusy: model.isBusy,
-                    isCaptureRestricted: model.isAwaitingSecondFrame,
-                    glyphRotation: glyphRotation,
-                    onOpenPhotos: { model.openPhotosApp() },
-                    onCycleFlash: {
-                        Haptics.shared.fire(.toggle)
-                        settings.cycleFlash()
-                    },
-                    onCapture: { Task { await model.capture() } }
-                )
-                .visible(!isBrowsingLooks)
-
-                Spacer()
-
-                looksEntryButton
-                    .frame(maxWidth: .infinity)
-
-                Spacer()
+            let toggleGrid = {
+                Haptics.shared.fire(.toggle)
+                withAnimation(.reduceMotionAware(Metrics.Motion.gridFade)) { settings.isGridVisible.toggle() }
             }
+            let cycleFlash = {
+                Haptics.shared.fire(.toggle)
+                settings.cycleFlash()
+            }
+            let openSettings = {
+                Haptics.shared.fire(.toggle)
+                withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) {
+                    isAppearancePanelVisible.toggle()
+                }
+            }
+            let openPhotos = { model.openPhotosApp() }
+            let capture: () -> Void = { Task { await model.capture() } }
 
-            if isBrowsingLooks {
-                GeometryReader { proxy in
-                    let carouselWidth = proxy.size.width
-                    let carouselHeight = carouselWidth / Metrics.Viewfinder.aspect
-
+            ZStack {
+                if isBrowsingLooks {
                     LookCardCarousel(
                         looks: LookKind.allCases,
                         selectedID: pendingLook.id,
-                        boxSize: CGSize(width: carouselWidth, height: carouselHeight),
                         onPreview: { look in
                             Haptics.shared.fire(.selection)
                             pendingLook = look
@@ -92,15 +65,76 @@ struct ViewfinderScreen: View {
                             isBrowsingLooks = false
                         }
                     )
-                    .frame(width: carouselWidth, height: carouselHeight)
-                    .position(
-                        x: proxy.size.width / 2,
-                        y: proxy.size.height / 2 + Metrics.LookCarousel.centerOffsetY
-                    )
+                }
+
+                if useVerticalControls {
+                    HStack(spacing: 0) {
+                        viewfinder(isLandscape: isLandscape)
+                            .padding(.horizontal, Metrics.Viewfinder.inset)
+                            .padding(.vertical, Metrics.Chrome.railVerticalInset)
+                            .opacity(isBrowsingLooks ? 0 : 1)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        VerticalControlRail(
+                            isGridVisible: settings.isGridVisible,
+                            isSettingsOpen: isAppearancePanelVisible,
+                            flashMode: settings.flashMode,
+                            thumbnail: model.recentPhoto.thumbnail,
+                            thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
+                            isBusy: model.isBusy,
+                            isCaptureRestricted: model.isAwaitingSecondFrame,
+                            isBrowsingLooks: isBrowsingLooks,
+                            looksState: looksState,
+                            glyphRotation: glyphRotation,
+                            onToggleGrid: toggleGrid,
+                            onCycleFlash: cycleFlash,
+                            onOpenSettings: openSettings,
+                            onOpenPhotos: openPhotos,
+                            onCapture: capture,
+                            onLooksAction: handleLooksAction
+                        )
+                        .frame(width: Metrics.Chrome.railWidth)
+                    }
+                } else {
+                    VStack(spacing: 0) {
+                        TopControlBar(
+                            isGridVisible: settings.isGridVisible,
+                            isSettingsOpen: isAppearancePanelVisible,
+                            flashMode: settings.flashMode,
+                            glyphRotation: glyphRotation,
+                            onToggleGrid: toggleGrid,
+                            onCycleFlash: cycleFlash,
+                            onOpenSettings: openSettings
+                        )
+                        .visible(!isBrowsingLooks)
+                        .disabled(model.isAwaitingSecondFrame)
+                        .opacity(model.isAwaitingSecondFrame ? 0.35 : 1)
+
+                        viewfinder(isLandscape: isLandscape)
+                            .padding(.horizontal, Metrics.Viewfinder.inset)
+                            .opacity(isBrowsingLooks ? 0 : 1)
+
+                        Spacer()
+
+                        BottomControlBar(
+                            thumbnail: model.recentPhoto.thumbnail,
+                            thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
+                            isBusy: model.isBusy,
+                            isCaptureRestricted: model.isAwaitingSecondFrame,
+                            isBrowsingLooks: isBrowsingLooks,
+                            looksState: looksState,
+                            glyphRotation: glyphRotation,
+                            onOpenPhotos: openPhotos,
+                            onCapture: capture,
+                            onLooksAction: handleLooksAction
+                        )
+
+                        Spacer()
+                    }
                 }
             }
+            .background(theme.canvas.ignoresSafeArea())
         }
-        .background(theme.canvas.ignoresSafeArea())
         .task { await model.start() }
         .onChange(of: scenePhase) { _, phase in
             let previous = lifecycleTask
@@ -115,58 +149,21 @@ struct ViewfinderScreen: View {
         }
     }
 
-    private var looksEntryButton: some View {
-        Button(action: {
-            if isBrowsingLooks {
-                model.setLook(pendingLook)
-                withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = false }
-            } else if model.isAwaitingSecondFrame {
-                model.cancelDoubleExposureSequence()
-            } else {
-                Haptics.shared.fire(.toggle)
-                pendingLook = model.selectedLook
-                withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = true }
-                Haptics.shared.prepare()
-            }
-        }) {
-            Group {
-                if isBrowsingLooks {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: Metrics.Chrome.iconPointSize, weight: .bold))
-                        .frame(width: Metrics.Chrome.tapTarget, height: Metrics.Chrome.tapTarget)
-                } else if model.isAwaitingSecondFrame {
-                    Text("Cancel")
-                        .font(Typography.panelHeader)
-                        .padding(.horizontal, 24)
-                        .frame(height: Metrics.Chrome.tapTarget)
-                } else {
-                    Text("Looks")
-                        .font(Typography.panelHeader)
-                        .padding(.horizontal, 24)
-                        .frame(height: Metrics.Chrome.tapTarget)
-                }
-            }
-            .foregroundStyle(
-                !isBrowsingLooks && (model.isAwaitingSecondFrame || isNonDefaultLookActive)
-                    ? theme.accent
-                    : theme.iconActive
-            )
+    private func handleLooksAction() {
+        if isBrowsingLooks {
+            model.setLook(pendingLook)
+            withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = false }
+        } else if model.isAwaitingSecondFrame {
+            model.cancelDoubleExposureSequence()
+        } else {
+            Haptics.shared.fire(.toggle)
+            pendingLook = model.selectedLook
+            withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = true }
+            Haptics.shared.prepare()
         }
-        .buttonStyle(.plain)
-        .onyxGlass(in: .capsule)
-        .accessibilityLabel(
-            isBrowsingLooks ? "Back" : (model.isAwaitingSecondFrame ? "Cancel double exposure" : "Looks")
-        )
-        .accessibilityValue(
-            !isBrowsingLooks && !model.isAwaitingSecondFrame && isNonDefaultLookActive
-                ? model.selectedLook.displayName
-                : ""
-        )
-        .animation(.reduceMotionAware(Metrics.Motion.panelReveal), value: isBrowsingLooks)
-        .animation(.reduceMotionAware(Metrics.Motion.panelReveal), value: model.isAwaitingSecondFrame)
     }
 
-    private var viewfinder: some View {
+    private func viewfinder(isLandscape: Bool) -> some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
                 CameraPreviewView(
@@ -224,7 +221,8 @@ struct ViewfinderScreen: View {
             }
             .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.isOnDimmerLens)
         }
-        .aspectRatio(Metrics.Viewfinder.aspect, contentMode: .fit)
+        .aspectRatio(Metrics.Viewfinder.aspect(isLandscape: isLandscape), contentMode: .fit)
+        .animation(.reduceMotionAware(Metrics.Motion.lensSwitch), value: isLandscape)
     }
 }
 

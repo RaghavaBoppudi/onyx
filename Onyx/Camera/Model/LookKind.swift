@@ -20,10 +20,10 @@ enum LookKind: String, CaseIterable, Identifiable, Sendable {
     var summary: String {
         switch self {
         case .standard: "Our signature zero processed look"
-        case .mono: "Our signature zero processed look, but in black and white"
+        case .mono: "Our signature zero processed look \nin black and white"
         case .glass: "Nothing like shooting through glass panes"
-        case .doubleExposure: "Two frames blended like a physical double exposure"
-        case .doubleExposureMono: "Double exposure, but in black and white"
+        case .doubleExposure: "Two frames blended \nlike a physical double exposure"
+        case .doubleExposureMono: "Double exposure, \nin black and white"
         }
     }
 

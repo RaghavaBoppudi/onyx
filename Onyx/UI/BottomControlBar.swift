@@ -1,16 +1,22 @@
-import AVFoundation
 import SwiftUI
+
+enum LooksControlState: Equatable {
+    case closed(isNonDefaultActive: Bool)
+    case browsing
+    case awaitingSecondFrame
+}
 
 struct BottomControlBar: View {
     let thumbnail: UIImage?
     let thumbnailAssetIdentifier: String?
-    let flashMode: AVCaptureDevice.FlashMode
     let isBusy: Bool
     let isCaptureRestricted: Bool
+    let isBrowsingLooks: Bool
+    let looksState: LooksControlState
     let glyphRotation: Angle
     let onOpenPhotos: () -> Void
-    let onCycleFlash: () -> Void
     let onCapture: () -> Void
+    let onLooksAction: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -22,49 +28,29 @@ struct BottomControlBar: View {
                 rotation: glyphRotation,
                 onTap: onOpenPhotos
             )
-            .disabled(isCaptureRestricted)
-            .opacity(isCaptureRestricted ? 0.35 : 1)
+            .disabled(isCaptureRestricted || isBrowsingLooks)
+            .opacity(isBrowsingLooks ? 0 : (isCaptureRestricted ? 0.35 : 1))
 
             Spacer()
 
             ShutterButton(isEnabled: !isBusy, action: onCapture)
+                .opacity(isBrowsingLooks ? 0 : 1)
+                .disabled(isBrowsingLooks)
 
             Spacer()
 
-            ChromeIcon(
-                symbol: flashSymbol,
-                isActive: flashMode != .off,
-                rotation: glyphRotation,
-                action: onCycleFlash
-            )
-            .accessibilityLabel("Flash")
-            .accessibilityValue(flashValue)
-            .disabled(isCaptureRestricted)
-            .opacity(isCaptureRestricted ? 0.35 : 1)
+            LooksButton(state: looksState, rotation: glyphRotation, action: onLooksAction)
+                .frame(width: Metrics.Chrome.tapTarget, height: Metrics.Chrome.tapTarget)
+                .opacity(isBrowsingLooks ? 0 : 1)
+                .allowsHitTesting(!isBrowsingLooks)
 
             Spacer()
         }
         .padding(.horizontal, Metrics.Chrome.edgeInset)
     }
-
-    private var flashSymbol: SymbolPair {
-        switch flashMode {
-        case .on: Symbols.flashOn
-        case .off, .auto: Symbols.flashOff
-        @unknown default: Symbols.flashOff
-        }
-    }
-
-    private var flashValue: String {
-        switch flashMode {
-        case .on: "On"
-        case .off, .auto: "Off"
-        @unknown default: "Off"
-        }
-    }
 }
 
-private struct CaptureThumbnail: View {
+struct CaptureThumbnail: View {
     @Environment(\.theme) private var theme
 
     let image: UIImage?
@@ -107,7 +93,7 @@ private struct CaptureThumbnail: View {
     }
 }
 
-private struct ShutterButton: View {
+struct ShutterButton: View {
     @Environment(\.theme) private var theme
     @State private var isPressed = false
 
@@ -141,5 +127,64 @@ private struct ShutterButton: View {
 
     private var outerDiameter: CGFloat {
         Metrics.Shutter.diameter + Metrics.Shutter.ringGap * 2
+    }
+}
+
+struct LooksButton: View {
+    let state: LooksControlState
+    let rotation: Angle
+    let action: () -> Void
+
+    var body: some View {
+        ChromeIcon(
+            symbol: symbol,
+            isActive: isFilled,
+            tint: tint,
+            rotation: rotation,
+            action: action
+        )
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValue)
+    }
+
+    @Environment(\.theme) private var theme
+
+    private var symbol: SymbolPair {
+        switch state {
+        case .closed: Symbols.looks
+        case .browsing: Symbols.looks
+        case .awaitingSecondFrame: Symbols.cancel
+        }
+    }
+
+    private var isFilled: Bool {
+        switch state {
+        case .closed(let isNonDefaultActive): isNonDefaultActive
+        case .browsing: false
+        case .awaitingSecondFrame: true
+        }
+    }
+
+    private var tint: Color {
+        switch state {
+        case .closed(let isNonDefaultActive): isNonDefaultActive ? theme.accent : theme.iconActive
+        case .browsing: theme.iconActive
+        case .awaitingSecondFrame: theme.accent
+        }
+    }
+
+    private var accessibilityLabel: String {
+        switch state {
+        case .closed: "Looks"
+        case .browsing: "Looks"
+        case .awaitingSecondFrame: "Cancel double exposure"
+        }
+    }
+
+    private var accessibilityValue: String {
+        if case .closed(let isNonDefaultActive) = state, isNonDefaultActive {
+            return "Active"
+        }
+        return ""
     }
 }

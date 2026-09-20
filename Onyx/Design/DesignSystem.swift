@@ -39,23 +39,11 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Sendable, Codable {
 
 extension View {
     @ViewBuilder
-    func onyxGlass(in shape: some Shape, interactive: Bool = false, tint: Color? = nil) -> some View {
-        if #available(iOS 26.0, *) {
-            if interactive {
-                if let tint {
-                    self.glassEffect(.regular.tint(tint).interactive(), in: shape)
-                } else {
-                    self.glassEffect(.regular.interactive(), in: shape)
-                }
-            } else {
-                if let tint {
-                    self.glassEffect(.regular.tint(tint), in: shape)
-                } else {
-                    self.glassEffect(.regular, in: shape)
-                }
-            }
+    func onyxGlass(in shape: some Shape, interactive: Bool = false) -> some View {
+        if interactive {
+            self.glassEffect(.regular.interactive(), in: shape)
         } else {
-            self.background(.ultraThinMaterial, in: shape)
+            self.glassEffect(.regular, in: shape)
         }
     }
 }
@@ -67,10 +55,13 @@ struct SymbolPair {
 
 enum Symbols {
     static let grid = SymbolPair(outline: "square.grid.3x3", filled: "square.grid.3x3.fill")
-    static let settings = SymbolPair(outline: "gearshape", filled: "gearshape.fill")
+    static let appearance = SymbolPair(outline: "circle.lefthalf.filled", filled: "circle.lefthalf.filled.inverse")
 
     static let flashOff = SymbolPair(outline: "bolt.slash", filled: "bolt.slash.fill")
     static let flashOn  = SymbolPair(outline: "bolt", filled: "bolt.fill")
+
+    static let looks = SymbolPair(outline: "camera.filters", filled: "camera.filters")
+    static let cancel = SymbolPair(outline: "xmark.circle", filled: "xmark.circle.fill")
 
     static let noPermission = "camera.metering.unknown"
 }

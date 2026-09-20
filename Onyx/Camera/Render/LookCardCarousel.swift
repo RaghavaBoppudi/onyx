@@ -1,95 +1,106 @@
 import SwiftUI
+import UIKit
 
 struct LookCardCarousel: View {
     @Environment(\.theme) private var theme
 
     let looks: [LookKind]
-    let boxSize: CGSize
     let onPreview: (LookKind) -> Void
     let onConfirm: (LookKind) -> Void
 
     @State private var activeIndex: Int
+    @State private var dragTranslation: CGFloat = 0
+    @State private var isTransitioning = false
 
     init(
         looks: [LookKind],
         selectedID: LookKind.ID,
-        boxSize: CGSize,
         onPreview: @escaping (LookKind) -> Void,
         onConfirm: @escaping (LookKind) -> Void
     ) {
         self.looks = looks
-        self.boxSize = boxSize
         self.onPreview = onPreview
         self.onConfirm = onConfirm
         _activeIndex = State(initialValue: looks.firstIndex(where: { $0.id == selectedID }) ?? 0)
     }
 
-    private var imageRegionHeight: CGFloat {
-        boxSize.height - Metrics.LookCarousel.textSpacing - Metrics.LookCarousel.captionHeight
-    }
-    private var cardWidth: CGFloat {
-        boxSize.width - Metrics.LookCarousel.edgeMargin * 2
-    }
-    private var cardHeight: CGFloat {
-        imageRegionHeight - Metrics.LookCarousel.verticalInset * 2
-    }
-    private var slotStride: CGFloat {
-        cardWidth + Metrics.LookCarousel.cardSpacing
-    }
     private var currentLook: LookKind {
         looks.indices.contains(activeIndex) ? looks[activeIndex] : (looks.first ?? .standard)
     }
 
+    private var fadeColor: Color {
+        theme.scheme == .dark ? Palette.onyx : Palette.alabaster
+    }
+
     var body: some View {
-        VStack(spacing: Metrics.LookCarousel.textSpacing) {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+            let height = max(proxy.size.height, 1)
+            let progress = min(max(dragTranslation / width, -1), 1)
+
             ZStack {
-                ForEach(Array(looks.enumerated()), id: \.element.id) { index, look in
-                    LookPreviewCard(look: look)
-                        .frame(width: cardWidth, height: cardHeight)
-                        .offset(x: slotOffset(for: index))
+                LookPreviewCard(look: looks[activeIndex])
+                    .opacity(1 - abs(progress))
+
+                if progress < 0, looks.indices.contains(activeIndex + 1) {
+                    LookPreviewCard(look: looks[activeIndex + 1])
+                        .opacity(-progress)
                 }
+                if progress > 0, looks.indices.contains(activeIndex - 1) {
+                    LookPreviewCard(look: looks[activeIndex - 1])
+                        .opacity(progress)
+                }
+
+                LinearGradient(
+                    colors: [.clear, fadeColor.opacity(0.55), fadeColor],
+                    startPoint: UnitPoint(x: 0.5, y: 0.35),
+                    endPoint: .bottom
+                )
+                .allowsHitTesting(false)
             }
-            .frame(width: boxSize.width, height: imageRegionHeight)
+            .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
             .contentShape(.rect)
-            .gesture(dragGesture)
-
-            VStack(spacing: 4) {
-                Text(currentLook.displayName)
-                    .font(Typography.lookTitle)
-                    .foregroundStyle(theme.iconActive)
-                    .lineLimit(1)
-                Text(currentLook.summary)
-                    .font(Typography.caption)
-                    .foregroundStyle(theme.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .padding(.horizontal, 24)
+            .gesture(dragGesture(width: width))
+            .overlay(alignment: .bottom) {
+                PageIndicator(count: looks.count, activeIndex: activeIndex, theme: theme)
+                    .padding(.horizontal, Metrics.LookCarousel.horizontalInset)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, height * Metrics.LookCarousel.dotsBottomFraction)
+                    .allowsHitTesting(false)
             }
-            .frame(height: Metrics.LookCarousel.captionHeight, alignment: .top)
-        }
-    }
-
-    private func slotOffset(for index: Int) -> CGFloat {
-        CGFloat(index - activeIndex) * slotStride
-    }
-
-    private func look(at location: CGPoint) -> LookKind? {
-        let center = boxSize.width / 2
-        for (index, look) in looks.enumerated() {
-            let slotCenter = center + slotOffset(for: index)
-            let slotMinX = slotCenter - cardWidth / 2
-            let slotMaxX = slotCenter + cardWidth / 2
-            if location.x >= slotMinX, location.x <= slotMaxX {
-                return look
+            .overlay(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(currentLook.displayName)
+                        .font(Typography.lookTitle)
+                        .foregroundStyle(theme.iconActive)
+                        .lineLimit(1)
+                    Text(currentLook.summary)
+                        .font(Typography.caption)
+                        .foregroundStyle(theme.secondary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, Metrics.LookCarousel.horizontalInset)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, height * Metrics.LookCarousel.captionBottomFraction)
+                .allowsHitTesting(false)
             }
         }
-        return nil
+        .ignoresSafeArea()
     }
 
-    private var dragGesture: some Gesture {
+    private func dragGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard !isTransitioning else { return }
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) else { return }
+                dragTranslation = horizontal
+            }
             .onEnded { value in
+                guard !isTransitioning else { return }
                 let horizontal = value.translation.width
                 let vertical = value.translation.height
 
@@ -97,24 +108,69 @@ struct LookCardCarousel: View {
                     && abs(vertical) < Metrics.LensSelector.tapMovementThreshold
 
                 if isTap {
-                    guard let tapped = look(at: value.startLocation) else { return }
-                    if tapped == currentLook {
-                        onConfirm(tapped)
-                    } else if let index = looks.firstIndex(of: tapped) {
-                        withAnimation(.reduceMotionAware(Metrics.Motion.lensPill)) { activeIndex = index }
-                        onPreview(tapped)
-                    }
+                    withAnimation(.reduceMotionAware(Metrics.Motion.lensPill)) { dragTranslation = 0 }
+                    onConfirm(currentLook)
                     return
                 }
 
-                guard abs(horizontal) > abs(vertical) * Metrics.LensSelector.swipeHorizontalDominance
-                else { return }
+                guard abs(horizontal) > abs(vertical) * Metrics.LensSelector.swipeHorizontalDominance else {
+                    withAnimation(.reduceMotionAware(Metrics.Motion.lensPill)) { dragTranslation = 0 }
+                    return
+                }
 
-                let nextIndex = horizontal < 0 ? activeIndex + 1 : activeIndex - 1
-                guard looks.indices.contains(nextIndex) else { return }
-                withAnimation(.reduceMotionAware(Metrics.Motion.lensPill)) { activeIndex = nextIndex }
-                onPreview(looks[nextIndex])
+                let progress = horizontal / width
+                let threshold: CGFloat = 0.25
+
+                if progress <= -threshold, activeIndex < looks.count - 1 {
+                    commit(direction: 1, width: width)
+                } else if progress >= threshold, activeIndex > 0 {
+                    commit(direction: -1, width: width)
+                } else {
+                    withAnimation(.reduceMotionAware(Metrics.Motion.lensPill)) { dragTranslation = 0 }
+                }
             }
+    }
+
+    private func commit(direction: Int, width: CGFloat) {
+        let nextIndex = activeIndex + direction
+        guard looks.indices.contains(nextIndex) else { return }
+
+        if UIAccessibility.isReduceMotionEnabled {
+            activeIndex = nextIndex
+            dragTranslation = 0
+            onPreview(looks[nextIndex])
+            return
+        }
+
+        isTransitioning = true
+        withAnimation(Metrics.Motion.lensPill) {
+            dragTranslation = CGFloat(-direction) * width
+        }
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            activeIndex = nextIndex
+            dragTranslation = 0
+            isTransitioning = false
+            onPreview(looks[nextIndex])
+        }
+    }
+}
+
+private struct PageIndicator: View {
+    let count: Int
+    let activeIndex: Int
+    let theme: Theme
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<count, id: \.self) { index in
+                Circle()
+                    .fill(index == activeIndex ? theme.iconActive : theme.iconInactive)
+                    .frame(width: index == activeIndex ? 7 : 5, height: index == activeIndex ? 7 : 5)
+            }
+        }
+        .animation(.reduceMotionAware(Metrics.Motion.lensPill), value: activeIndex)
     }
 }
 
@@ -137,6 +193,6 @@ private struct LookPreviewCard: View {
                     }
             }
         }
-        .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
+        .clipped()
     }
 }
