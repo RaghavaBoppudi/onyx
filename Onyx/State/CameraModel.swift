@@ -33,6 +33,7 @@ final class CameraModel {
     let rotation = RotationTracker()
     let whiteBalance = WhiteBalanceReadiness()
     let recentPhoto = RecentPhotoWatcher()
+    let location = LocationProvider()
 
     var isOnDimmerLens: Bool {
         guard let lens = selectedLens else { return false }
@@ -72,6 +73,7 @@ final class CameraModel {
             whiteBalance.bind(to: initial)
             phase = .running
             Haptics.shared.prepare()
+            location.start()
             Task { await renderer.warmUp() }
             Task { await recentPhoto.start() }
         } catch {
@@ -80,6 +82,7 @@ final class CameraModel {
     }
 
     func stop() async {
+        location.stop()
         await engine.stop()
         if phase == .running { phase = .idle }
     }
@@ -208,7 +211,7 @@ final class CameraModel {
                     : try await renderer.renderProcessed(imageData: shot.data, orientation: shot.orientation, look: selectedLook)
             }
 
-            try await library.save(heic: output.heic)
+            try await library.save(heic: output.heic, location: location.latestLocation)
             Haptics.shared.fire(.success)
 
             Log.render.info("Developed via \(output.usedRAWPath ? "RAW" : "ISP fallback") path")

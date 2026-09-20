@@ -1,5 +1,6 @@
 import Photos
 import UniformTypeIdentifiers
+import CoreLocation
 
 enum PhotosAuthorization {
     static func requestReadWrite() async -> Bool {
@@ -17,7 +18,7 @@ enum PhotosAuthorization {
 
 actor PhotoLibraryWriter {
 
-    func save(heic: Data) async throws {
+    func save(heic: Data, location: CLLocation?) async throws {
         guard await PhotosAuthorization.requestReadWrite() else {
             throw CaptureError.photoLibraryAccessDenied
         }
@@ -27,8 +28,9 @@ actor PhotoLibraryWriter {
             let options = PHAssetResourceCreationOptions()
             options.uniformTypeIdentifier = UTType.heic.identifier
             request.addResource(with: .photo, data: heic, options: options)
+            request.location = location
         }
 
-        Log.library.info("Saved HEIC, \(heic.count / 1024) KB")
+        Log.library.info("Saved HEIC, \(heic.count / 1024) KB, location: \(location != nil)")
     }
 }
