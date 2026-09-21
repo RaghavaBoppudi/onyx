@@ -6,7 +6,12 @@ enum Metrics {
     enum Viewfinder {
         static let cornerRadius: CGFloat = 22
         static let inset: CGFloat = 14
-        static let aspect: CGFloat = 3.0 / 4.0
+        static let portraitAspect: CGFloat = 3.0 / 4.0
+        static let landscapeAspect: CGFloat = 4.0 / 3.0
+
+        static func aspect(isLandscape: Bool) -> CGFloat {
+            isLandscape ? landscapeAspect : portraitAspect
+        }
     }
 
     enum Chrome {
@@ -16,6 +21,16 @@ enum Metrics {
         static let tapTarget: CGFloat = 48
         static let edgeInset: CGFloat = 8
         static let symbolFont = Font.system(size: iconPointSize, weight: iconWeight)
+        static let verticalControlsAspectThreshold: CGFloat = 1.8
+        static let railVerticalInset: CGFloat = 40
+        static let railHorizontalGap: CGFloat = 16
+        static let railItemSpacing: CGFloat = 22
+        static let railGroupSpacing: CGFloat = 44
+        static let statusRailWidth: CGFloat = tapTarget + edgeInset * 2
+
+        static var railWidth: CGFloat {
+            Shutter.diameter + Shutter.ringGap * 2 + edgeInset * 2
+        }
     }
 
     enum Shutter {
@@ -32,6 +47,12 @@ enum Metrics {
         static let tapMovementThreshold: CGFloat = 10
         static let swipeHorizontalDominance: CGFloat = 1.5
         static let bottomInset: CGFloat = 16
+    }
+
+    enum LookCarousel {
+        static let horizontalInset: CGFloat = 28
+        static let dotsBottomFraction: CGFloat = 0.22
+        static let captionBottomFraction: CGFloat = 0.14
     }
 
     enum Panel {

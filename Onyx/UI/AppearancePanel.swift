@@ -11,14 +11,7 @@ struct AppearancePanel: View {
                 .tracking(1.6)
                 .foregroundStyle(theme.secondary)
 
-            Picker("Appearance", selection: Binding(
-                get: { selection },
-                set: { newValue in
-                    guard newValue != selection else { return }
-                    Haptics.shared.fire(.selection)
-                    selection = newValue
-                }
-            )) {
+            Picker("Appearance", selection: $selection.hapticFeedback(.selection)) {
                 ForEach(AppearanceMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }
@@ -27,7 +20,7 @@ struct AppearancePanel: View {
         }
         .padding(Metrics.Panel.padding + 4)
         .frame(maxWidth: .infinity)
-        .onyxGlass(in: .rect(cornerRadius: Metrics.Panel.cornerRadius), tint: theme.canvas.opacity(0.3))
+        .onyxGlass(in: .rect(cornerRadius: Metrics.Panel.cornerRadius))
         .transition(.opacity)
     }
 }

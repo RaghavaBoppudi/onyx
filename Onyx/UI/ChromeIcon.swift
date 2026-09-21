@@ -5,6 +5,7 @@ struct ChromeIcon: View {
 
     let symbol: SymbolPair
     var isActive: Bool = false
+    var tint: Color? = nil
     let rotation: Angle
     let action: () -> Void
 
@@ -12,10 +13,10 @@ struct ChromeIcon: View {
         Button(action: action) {
             Image(systemName: isActive ? symbol.filled : symbol.outline)
                 .font(Metrics.Chrome.symbolFont)
-                .foregroundStyle(theme.icon(active: isActive))
+                .foregroundStyle(tint ?? (isActive ? theme.accent : theme.iconInactive))
                 .contentTransition(.symbolEffect(.replace))
                 .rotationEffect(rotation)
-                .animation(Metrics.Motion.glyphRotation, value: rotation)
+                .animation(.reduceMotionAware(Metrics.Motion.glyphRotation), value: rotation)
                 .frame(width: Metrics.Chrome.tapTarget,
                        height: Metrics.Chrome.tapTarget)
                 .contentShape(.rect)

@@ -29,8 +29,9 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
 }
 
 enum CaptureConstants {
-    static let exposureBias: Float = -0.3
+    static let exposureBias: Float = -0.7
     static let colorSpace: AVCaptureColorSpace = .sRGB
+    static let exposureConvergenceTimeout: Duration = .seconds(1)
 }
 
 final class CaptureSessionBox: @unchecked Sendable {
@@ -88,6 +89,54 @@ actor CaptureEngine {
 
     func select(lens: Lens) async throws {
         try await runExclusively { [self] in try configure(for: lens) }
+    }
+
+    func setExposureBias(_ bias: Float) async throws {
+        try await runExclusively { [self] in
+            guard let device = activeDevice else {
+                throw CaptureError.deviceUnavailable("active")
+            }
+            do {
+                try device.lockForConfiguration()
+            } catch {
+                throw CaptureError.configurationFailed(error.localizedDescription)
+            }
+
+            let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
+
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                device.setExposureTargetBias(clamped) { _ in continuation.resume() }
+            }
+            device.unlockForConfiguration()
+
+            await Self.waitForExposureConvergence(device: device)
+
+            Log.capture.debug(
+                "setExposureBias(\(bias)) → mode: \(device.exposureMode.rawValue), targetBias now: \(device.exposureTargetBias)"
+            )
+        }
+    }
+
+    private static func waitForExposureConvergence(device: AVCaptureDevice) async {
+        guard device.isAdjustingExposure else { return }
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    var observation: NSKeyValueObservation?
+                    observation = device.observe(\.isAdjustingExposure, options: [.new]) { _, change in
+                        guard change.newValue == false else { return }
+                        observation?.invalidate()
+                        continuation.resume()
+                    }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: CaptureConstants.exposureConvergenceTimeout)
+            }
+            await group.next()
+            group.cancelAll()
+        }
     }
 
     private func configure(for lens: Lens) throws {
@@ -174,9 +223,13 @@ actor CaptureEngine {
         flashMode: AVCaptureDevice.FlashMode,
         onShutterFire: @escaping @Sendable () -> Void
     ) async throws -> RawCapture {
-        guard activeDevice != nil else {
+        guard let device = activeDevice else {
             throw CaptureError.deviceUnavailable("active")
         }
+
+        Log.capture.debug(
+            "Capturing — exposureMode: \(device.exposureMode.rawValue), targetBias: \(device.exposureTargetBias), ISO: \(device.iso), duration: \(device.exposureDuration.seconds)s"
+        )
 
         let settings = RawPipeline.makeSettings(
             output: photoOutput, bayerFormat: bayerFormat, flashMode: flashMode

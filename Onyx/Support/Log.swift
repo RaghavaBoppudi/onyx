@@ -16,7 +16,6 @@ struct LogChannel: Sendable {
 }
 
 enum Log {
-    static let session = LogChannel("session")
     static let capture = LogChannel("capture")
     static let lens    = LogChannel("lens")
     static let render  = LogChannel("render")
