@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ViewfinderScreen: View {
     @Environment(\.theme) private var theme
@@ -30,6 +31,7 @@ struct ViewfinderScreen: View {
         GeometryReader { screenProxy in
             let heightToWidth = screenProxy.size.height / max(screenProxy.size.width, 1)
             let isLandscape = screenProxy.size.width > screenProxy.size.height
+            let isPad = UIDevice.current.userInterfaceIdiom == .pad
             let useVerticalControls = heightToWidth < Metrics.Chrome.verticalControlsAspectThreshold
 
             let toggleGrid = {
@@ -67,80 +69,78 @@ struct ViewfinderScreen: View {
                     )
                 }
 
-                if useVerticalControls {
-                    if isLandscape {
+                if isPad || (useVerticalControls && isLandscape) {
+                    HStack(spacing: 0) {
+                        viewfinder(isLandscape: isLandscape)
+                            .padding(.leading, Metrics.Viewfinder.inset)
+                            .padding(.vertical, Metrics.Chrome.railVerticalInset)
+                            .opacity(isBrowsingLooks ? 0 : 1)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        VerticalControlRail(
+                            isGridVisible: settings.isGridVisible,
+                            isSettingsOpen: isAppearancePanelVisible,
+                            flashMode: settings.flashMode,
+                            thumbnail: model.recentPhoto.thumbnail,
+                            thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
+                            isBusy: model.isBusy,
+                            isCaptureRestricted: model.isAwaitingSecondFrame,
+                            isBrowsingLooks: isBrowsingLooks,
+                            looksState: looksState,
+                            glyphRotation: glyphRotation,
+                            onToggleGrid: toggleGrid,
+                            onCycleFlash: cycleFlash,
+                            onOpenSettings: openSettings,
+                            onOpenPhotos: openPhotos,
+                            onCapture: capture,
+                            onLooksAction: handleLooksAction
+                        )
+                        .frame(width: Metrics.Chrome.railWidth)
+                        .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
+                    }
+                    .ignoresSafeArea()
+                } else if useVerticalControls {
+                    VStack(spacing: 0) {
                         HStack(spacing: 0) {
-                            viewfinder(isLandscape: true)
+                            viewfinder(isLandscape: false)
                                 .padding(.leading, Metrics.Viewfinder.inset)
-                                .padding(.vertical, Metrics.Chrome.railVerticalInset)
                                 .opacity(isBrowsingLooks ? 0 : 1)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                            VerticalControlRail(
+                            StatusIconRail(
                                 isGridVisible: settings.isGridVisible,
                                 isSettingsOpen: isAppearancePanelVisible,
                                 flashMode: settings.flashMode,
-                                thumbnail: model.recentPhoto.thumbnail,
-                                thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
-                                isBusy: model.isBusy,
-                                isCaptureRestricted: model.isAwaitingSecondFrame,
                                 isBrowsingLooks: isBrowsingLooks,
-                                looksState: looksState,
+                                isCaptureRestricted: model.isAwaitingSecondFrame,
                                 glyphRotation: glyphRotation,
                                 onToggleGrid: toggleGrid,
                                 onCycleFlash: cycleFlash,
-                                onOpenSettings: openSettings,
-                                onOpenPhotos: openPhotos,
-                                onCapture: capture,
-                                onLooksAction: handleLooksAction
+                                onOpenSettings: openSettings
                             )
-                            .frame(width: Metrics.Chrome.railWidth)
+                            .frame(width: Metrics.Chrome.statusRailWidth)
                             .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
                         }
-                        .ignoresSafeArea()
-                    } else {
-                        VStack(spacing: 0) {
-                            HStack(spacing: 0) {
-                                viewfinder(isLandscape: false)
-                                    .padding(.leading, Metrics.Viewfinder.inset)
-                                    .opacity(isBrowsingLooks ? 0 : 1)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, Metrics.Chrome.railVerticalInset)
+                        .frame(maxHeight: .infinity)
 
-                                StatusIconRail(
-                                    isGridVisible: settings.isGridVisible,
-                                    isSettingsOpen: isAppearancePanelVisible,
-                                    flashMode: settings.flashMode,
-                                    isBrowsingLooks: isBrowsingLooks,
-                                    isCaptureRestricted: model.isAwaitingSecondFrame,
-                                    glyphRotation: glyphRotation,
-                                    onToggleGrid: toggleGrid,
-                                    onCycleFlash: cycleFlash,
-                                    onOpenSettings: openSettings
-                                )
-                                .frame(width: Metrics.Chrome.statusRailWidth)
-                                .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
-                            }
-                            .padding(.top, Metrics.Chrome.railVerticalInset)
-                            .frame(maxHeight: .infinity)
+                        Spacer(minLength: Metrics.Chrome.railVerticalInset)
 
-                            Spacer(minLength: Metrics.Chrome.railVerticalInset)
-
-                            BottomControlBar(
-                                thumbnail: model.recentPhoto.thumbnail,
-                                thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
-                                isBusy: model.isBusy,
-                                isCaptureRestricted: model.isAwaitingSecondFrame,
-                                isBrowsingLooks: isBrowsingLooks,
-                                looksState: looksState,
-                                glyphRotation: glyphRotation,
-                                onOpenPhotos: openPhotos,
-                                onCapture: capture,
-                                onLooksAction: handleLooksAction
-                            )
-                            .padding(.bottom, Metrics.Chrome.railVerticalInset)
-                        }
-                        .ignoresSafeArea()
+                        BottomControlBar(
+                            thumbnail: model.recentPhoto.thumbnail,
+                            thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
+                            isBusy: model.isBusy,
+                            isCaptureRestricted: model.isAwaitingSecondFrame,
+                            isBrowsingLooks: isBrowsingLooks,
+                            looksState: looksState,
+                            glyphRotation: glyphRotation,
+                            onOpenPhotos: openPhotos,
+                            onCapture: capture,
+                            onLooksAction: handleLooksAction
+                        )
+                        .padding(.bottom, Metrics.Chrome.railVerticalInset)
                     }
+                    .ignoresSafeArea()
                 } else {
                     VStack(spacing: 0) {
                         TopControlBar(
