@@ -1,6 +1,6 @@
 import CoreGraphics
 
-enum DualLayoutStyle: Sendable, Equatable {
+nonisolated enum DualLayoutStyle: Sendable, Equatable {
     case pictureInPicture
     case split
 
@@ -9,7 +9,7 @@ enum DualLayoutStyle: Sendable, Equatable {
     }
 }
 
-struct DualLayoutGeometry {
+nonisolated struct DualLayoutGeometry {
     let rear: CGRect
     let front: CGRect
     let frontCornerRadius: CGFloat
@@ -50,7 +50,7 @@ struct DualLayoutGeometry {
     }
 }
 
-extension CGRect {
+nonisolated extension CGRect {
     func flipped(inCanvasHeight canvasHeight: CGFloat) -> CGRect {
         CGRect(x: minX, y: canvasHeight - maxY, width: width, height: height)
     }

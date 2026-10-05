@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-enum ToneCurveSampler {
+nonisolated enum ToneCurveSampler {
 
     static func composedInterleavedRGBData(
         toneCurve: [CGPoint],
@@ -34,7 +34,7 @@ enum ToneCurveSampler {
     }
 }
 
-struct CurveEvaluator {
+nonisolated struct CurveEvaluator {
     private let xs: [Double]
     private let ys: [Double]
     private let tangents: [Double]

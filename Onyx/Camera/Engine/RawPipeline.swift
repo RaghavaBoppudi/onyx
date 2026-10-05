@@ -1,6 +1,8 @@
 import AVFoundation
+import os
+import Synchronization
 
-extension AVCaptureDevice {
+nonisolated extension AVCaptureDevice {
     func withConfigurationLock(_ body: () throws -> Void) throws {
         do {
             try lockForConfiguration()
@@ -12,13 +14,78 @@ extension AVCaptureDevice {
     }
 }
 
-extension AVCaptureDevice.Format {
+nonisolated private final class ResumeOnce: Sendable {
+    private let claimed = Mutex(false)
+
+    func claim() -> Bool {
+        claimed.withLock { isClaimed -> Bool in
+            if isClaimed { return false }
+            isClaimed = true
+            return true
+        }
+    }
+}
+
+nonisolated enum BoundedCompletion {
+    static func run(
+        timeout: Duration,
+        _ start: (@escaping @Sendable () -> Void) -> Void
+    ) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let once = ResumeOnce()
+            start {
+                if once.claim() { continuation.resume(returning: true) }
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                if once.claim() { continuation.resume(returning: false) }
+            }
+        }
+    }
+}
+
+nonisolated private final class ObservationToken: @unchecked Sendable {
+    private let observation: NSKeyValueObservation
+
+    init(_ observation: NSKeyValueObservation) {
+        self.observation = observation
+    }
+
+    func cancel() {
+        observation.invalidate()
+    }
+}
+
+nonisolated extension AVCaptureDevice {
+    func values<Value: Sendable>(of keyPath: KeyPath<AVCaptureDevice, Value>) -> AsyncStream<Value> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let observation = observe(keyPath, options: [.initial, .new]) { _, change in
+                if let value = change.newValue { continuation.yield(value) }
+            }
+            let token = ObservationToken(observation)
+            continuation.onTermination = { _ in token.cancel() }
+        }
+    }
+}
+
+nonisolated extension AsyncStream where Element: Equatable & Sendable {
+    func waitFor(_ target: Element, timeout: Duration) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { for await value in self where value == target { return } }
+            group.addTask { try? await Task.sleep(for: timeout) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+}
+
+nonisolated extension AVCaptureDevice.Format {
     var maxPhotoPixelCount: Int {
         supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
     }
 }
 
-enum RawPipeline {
+nonisolated enum RawPipeline {
 
     static func configure(output: AVCapturePhotoOutput, device: AVCaptureDevice) {
         output.maxPhotoQualityPrioritization = .speed

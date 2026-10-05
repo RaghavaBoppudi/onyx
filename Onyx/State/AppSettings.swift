@@ -1,7 +1,6 @@
 import AVFoundation
 import SwiftUI
 
-@MainActor
 @Observable
 final class AppSettings {
 

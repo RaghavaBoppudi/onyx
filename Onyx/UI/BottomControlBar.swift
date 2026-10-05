@@ -21,6 +21,7 @@ struct BottomControlBar: View {
 struct CaptureThumbnail: View {
     @Environment(\.theme) private var theme
     @Environment(\.glyphRotation) private var rotation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let model: CameraModel
 
@@ -47,17 +48,17 @@ struct CaptureThumbnail: View {
             }
             .scaleEffect(scale)
             .rotationEffect(rotation)
-            .animation(.reduceMotionAware(Metrics.Motion.glyphRotation), value: rotation)
+            .onyxAnimation(Metrics.Motion.glyphRotation, value: rotation)
             .frame(width: Metrics.Chrome.tapTarget, height: Metrics.Chrome.tapTarget)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChromePressStyle())
         .disabled(watcher.thumbnail == nil)
         .restricted(model.isAwaitingSecondFrame)
         .accessibilityLabel("Most recent photo")
         .accessibilityHint("Opens Photos")
         .onChange(of: watcher.assetIdentifier) { _, _ in
-            scale = Metrics.Thumbnail.popScale
-            withAnimation(.reduceMotionAware(Metrics.Motion.thumbnailPop)) { scale = 1 }
+            scale = reduceMotion ? 1 : Metrics.Thumbnail.popScale
+            withAnimation(reduceMotion ? .easeOut(duration: 0.15) : Metrics.Motion.thumbnailPop) { scale = 1 }
         }
     }
 }
@@ -69,7 +70,7 @@ struct ShutterButton: View {
     let model: CameraModel
 
     var body: some View {
-        let isEnabled = !model.isBusy
+        let isEnabled = model.acceptsShutter
 
         ZStack {
             Circle()
@@ -81,7 +82,7 @@ struct ShutterButton: View {
                 .frame(width: Metrics.Shutter.diameter, height: Metrics.Shutter.diameter)
                 .scaleEffect(isPressed ? Metrics.Shutter.pressedScale : 1)
         }
-        .opacity(isEnabled ? 1 : 0.4)
+        .opacity(model.isShutterDimmed ? 0.4 : 1)
         .contentShape(.circle)
         .animation(Metrics.Motion.shutterPress, value: isPressed)
         .onLongPressGesture(minimumDuration: 0, pressing: { pressing in
@@ -93,12 +94,14 @@ struct ShutterButton: View {
         })
         .accessibilityLabel("Shutter")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            guard isEnabled else { return }
+            Task { await model.capture() }
+        }
     }
 }
 
 struct CameraFlipButton: View {
-    @Environment(\.theme) private var theme
-
     let model: CameraModel
 
     var body: some View {
@@ -106,8 +109,8 @@ struct CameraFlipButton: View {
 
         ChromeIcon(
             symbol: Symbols.cameraFlip,
+            role: .action,
             isActive: isFront,
-            tint: isFront ? theme.accent : theme.iconActive,
             action: { Task { await model.flipCamera() } }
         )
         .restricted(!model.canFlipCamera)

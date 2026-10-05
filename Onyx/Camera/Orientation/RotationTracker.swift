@@ -3,7 +3,6 @@ import ImageIO
 import Observation
 import SwiftUI
 
-@MainActor
 @Observable
 final class RotationTracker {
 
@@ -58,7 +57,7 @@ final class RotationTracker {
     }
 }
 
-extension CGImagePropertyOrientation {
+nonisolated extension CGImagePropertyOrientation {
     init(rotationAngle angle: CGFloat) {
         let normalised = Int((angle.truncatingRemainder(dividingBy: 360) + 360)
                                 .truncatingRemainder(dividingBy: 360).rounded())

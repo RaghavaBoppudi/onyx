@@ -1,7 +1,6 @@
 import Photos
 import UIKit
 
-@MainActor
 @Observable
 final class RecentPhotoWatcher: NSObject, PHPhotoLibraryChangeObserver {
 

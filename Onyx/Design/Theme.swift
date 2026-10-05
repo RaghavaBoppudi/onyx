@@ -1,12 +1,13 @@
 import SwiftUI
 
-struct Theme: Sendable {
+nonisolated struct Theme: Sendable {
 
     private static let onyx = Color.hex(0x0A0A0A)
     private static let alabaster = Color.hex(0xE5E4E2)
     private static let blueSlate = Color.hex(0x536878)
+    private static let blueSlateLight = Color.hex(0x6F8798)
 
-    var accent: Color          { Self.blueSlate }
+    var accent: Color          { Self.blueSlateLight }
     var canvas: Color          { Self.onyx }
     var secondary: Color       { Self.alabaster.opacity(0.6) }
     var iconActive: Color      { Self.alabaster }
@@ -17,6 +18,7 @@ struct Theme: Sendable {
     var shutterBlink: Color    { Self.onyx }
     var thumbnailBorder: Color { Self.alabaster.opacity(0.22) }
     var segmentTrack: Color    { Self.alabaster.opacity(0.14) }
+    var pillFill: Color        { Self.onyx.opacity(0.55) }
 
     var shutterGradient: LinearGradient {
         LinearGradient(
@@ -31,7 +33,7 @@ extension EnvironmentValues {
     @Entry var theme: Theme = Theme()
 }
 
-extension Color {
+nonisolated extension Color {
     static func hex(_ value: UInt32) -> Color {
         Color(.sRGB,
               red:   Double((value >> 16) & 0xFF) / 255,

@@ -1,6 +1,7 @@
 import AVFoundation
+import os
 
-struct Lens: Identifiable, Hashable, Sendable {
+nonisolated struct Lens: Identifiable, Hashable, Sendable {
     let id: String
     let deviceType: AVCaptureDevice.DeviceType
     let position: AVCaptureDevice.Position
@@ -22,12 +23,12 @@ struct Lens: Identifiable, Hashable, Sendable {
     }
 }
 
-enum CenterStageProfile {
+nonisolated enum CenterStageProfile {
     static let wideFactor: CGFloat = 0.5
     static let narrowFactor: CGFloat = 1.0
 }
 
-enum LensCatalog {
+nonisolated enum LensCatalog {
 
     static func lenses() -> [Lens] {
         rearLenses() + frontLenses()

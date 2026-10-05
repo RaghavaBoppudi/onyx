@@ -2,7 +2,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import ImageIO
 
-enum DualCompositor {
+nonisolated enum DualCompositor {
 
     static func compose(
         frames: DualFrames,

@@ -22,8 +22,7 @@ struct VerticalControlRail: View {
                 StatusControls(
                     axis: .vertical,
                     settings: settings,
-                    model: model,
-                    onModesAction: onModesAction
+                    model: model
                 )
                 .scaleEffect(scale)
                 .position(x: centerX, y: centerY - (shutterRadius + spacing + topHeight / 2) * scale)
@@ -35,6 +34,7 @@ struct VerticalControlRail: View {
                 VStack(spacing: spacing) {
                     CameraFlipButton(model: model)
                     CaptureThumbnail(model: model)
+                    ModeButton(model: model, action: onModesAction)
                 }
                 .scaleEffect(scale)
                 .position(x: centerX, y: centerY + (shutterRadius + spacing + bottomHeight / 2) * scale)

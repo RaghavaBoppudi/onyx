@@ -1,10 +1,11 @@
-enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
+import AVFoundation
+
+nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
     case standard
     case mono
     case glass
     case doubleExposure
     case doubleExposureMono
-    case dual
 
     var id: String { rawValue }
 
@@ -15,18 +16,26 @@ enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
         case .glass: "Glass"
         case .doubleExposure: "Double"
         case .doubleExposureMono: "Double Mono"
-        case .dual: "Dual"
         }
     }
 
     var summary: String {
         switch self {
-        case .standard: "Our signature zero processed look"
-        case .mono: "Our signature zero processed look\nin black and white"
+        case .standard: "Our signature minimal-process look"
+        case .mono: "Our signature minimal-process look\nin black and white"
         case .glass: "Nothing like shooting through glass panes"
         case .doubleExposure: "Two frames blended\nlike a physical double exposure"
         case .doubleExposureMono: "Double exposure,\nin black and white"
-        case .dual: "Front and rear cameras,\nshot together as one frame"
+        }
+    }
+
+    func summary(for position: AVCaptureDevice.Position) -> String {
+        guard position == .front else { return summary }
+
+        return switch self {
+        case .standard: "The front camera's standard iPhone look"
+        case .mono: "The front camera's standard look\nin black and white"
+        default: summary
         }
     }
 
@@ -37,7 +46,6 @@ enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
         case .glass: "LookPreview.Glass"
         case .doubleExposure: "LookPreview.Double"
         case .doubleExposureMono: "LookPreview.DoubleMono"
-        case .dual: "LookPreview.Dual"
         }
     }
 
@@ -47,9 +55,5 @@ enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
 
     var isMono: Bool {
         self == .mono || self == .doubleExposureMono
-    }
-
-    var isDual: Bool {
-        self == .dual
     }
 }

@@ -1,18 +1,39 @@
 import AVFoundation
+import CoreLocation
 import ImageIO
+import Synchronization
+import os
 
-struct RawCapture: @unchecked Sendable {
+nonisolated struct RawCapture: Sendable {
     let data: Data
     let isRAW: Bool
     let orientation: CGImagePropertyOrientation
 }
 
-final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
+nonisolated struct CaptureRequest: Sendable {
+    let id: UUID
+    let mode: CaptureMode
+    let position: AVCaptureDevice.Position
+    let rotationAngle: CGFloat
+    let isPortrait: Bool
+    let flashMode: AVCaptureDevice.FlashMode
+    let location: CLLocation?
+
+    var orientation: CGImagePropertyOrientation {
+        CGImagePropertyOrientation(rotationAngle: rotationAngle)
+    }
+}
+
+nonisolated final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate, Sendable {
+
+    private nonisolated struct State {
+        var continuation: CheckedContinuation<RawCapture, Error>?
+        var payload: RawCapture?
+    }
 
     private let orientation: CGImagePropertyOrientation
     private let onShutterFire: @Sendable () -> Void
-    private var continuation: CheckedContinuation<RawCapture, Error>?
-    private var payload: RawCapture?
+    private let state = Mutex(State())
 
     init(
         orientation: CGImagePropertyOrientation,
@@ -23,7 +44,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate, @unc
     }
 
     func attach(_ continuation: CheckedContinuation<RawCapture, Error>) {
-        self.continuation = continuation
+        state.withLock { $0.continuation = continuation }
     }
 
     func photoOutput(
@@ -39,14 +60,15 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate, @unc
         error: Error?
     ) {
         if let error {
-            Log.capture.error("didFinishProcessingPhoto: \(error.localizedDescription)")
+            Log.capture.error("didFinishProcessingPhoto: \(error.localizedDescription, privacy: .public)")
             return
         }
         guard let data = photo.fileDataRepresentation() else {
             Log.capture.error("No file data representation")
             return
         }
-        payload = RawCapture(data: data, isRAW: photo.isRawPhoto, orientation: orientation)
+        let capture = RawCapture(data: data, isRAW: photo.isRawPhoto, orientation: orientation)
+        state.withLock { $0.payload = capture }
     }
 
     func photoOutput(
@@ -54,7 +76,13 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate, @unc
         didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings,
         error: Error?
     ) {
-        defer { continuation = nil; payload = nil }
+        let (continuation, payload) = state.withLock {
+            state -> (CheckedContinuation<RawCapture, Error>?, RawCapture?) in
+            let taken = (state.continuation, state.payload)
+            state.continuation = nil
+            state.payload = nil
+            return taken
+        }
 
         if let error {
             continuation?.resume(throwing: CaptureError.captureFailed(error.localizedDescription))

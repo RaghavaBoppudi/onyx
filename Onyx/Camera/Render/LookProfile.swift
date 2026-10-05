@@ -1,6 +1,6 @@
 import CoreGraphics
 
-enum LookProfile {
+nonisolated enum LookProfile {
     static let toneCurve: [CGPoint] = [
         CGPoint(x: 0.00, y: 0.00),
         CGPoint(x: 0.22, y: 0.250),
@@ -41,7 +41,7 @@ enum LookProfile {
     static let encodeQuality: Double = 0.92
 }
 
-enum MonochromeProfile {
+nonisolated enum MonochromeProfile {
     static let contrast: Float = 1.05
     static let identityCurve: [CGPoint] = [
         CGPoint(x: 0, y: 0),
@@ -49,7 +49,7 @@ enum MonochromeProfile {
     ]
 }
 
-enum DoubleExposureProfile {
+nonisolated enum DoubleExposureProfile {
     static let exposureBias: Float = -1.0
     static let ghostOverlayOpacity: Double = 0.35
     static let previewMaxDimension: CGFloat = 640
@@ -65,7 +65,7 @@ enum DoubleExposureProfile {
     ]
 }
 
-enum GlassProfile {
+nonisolated enum GlassProfile {
     static let sectionCount: Float = 25
     static let maxDisplacementFactor: Float = 6.0
     static let frostBlurRadius: Float = 0.5

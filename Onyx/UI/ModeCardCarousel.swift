@@ -1,63 +1,140 @@
+import AVFoundation
 import SwiftUI
 
 struct ModeCardCarousel: View {
     @Environment(\.theme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let modes: [CaptureMode]
+    let position: AVCaptureDevice.Position
     let onConfirm: (CaptureMode) -> Void
+    let onDismiss: () -> Void
 
-    @State private var activeIndex: Int
-    @State private var dragOffset: CGFloat = 0
+    @State private var activeID: String?
+    @State private var dismissOffset: CGFloat = 0
+    @State private var axisLock: Axis?
 
-    init(modes: [CaptureMode], selected: CaptureMode, onConfirm: @escaping (CaptureMode) -> Void) {
+    init(
+        modes: [CaptureMode],
+        selected: CaptureMode,
+        position: AVCaptureDevice.Position,
+        onConfirm: @escaping (CaptureMode) -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
         self.modes = modes
+        self.position = position
         self.onConfirm = onConfirm
-        _activeIndex = State(initialValue: modes.firstIndex(of: selected) ?? 0)
+        self.onDismiss = onDismiss
+        _activeID = State(initialValue: selected.id)
+    }
+
+    private var activeIndex: Int {
+        modes.firstIndex { $0.id == activeID } ?? 0
+    }
+
+    private var dismissProgress: CGFloat {
+        min(max(dismissOffset / Metrics.ModeCarousel.dismissTravel, 0), 1)
+    }
+
+    private var settleAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : Metrics.Motion.modeSettle
     }
 
     var body: some View {
+        carousel
+            .ignoresSafeArea()
+            .simultaneousGesture(dismissGesture)
+            .onChange(of: activeID) { old, new in
+                guard old != nil, new != nil, old != new else { return }
+                Haptics.shared.fire(.selection)
+            }
+    }
+
+    private var carousel: some View {
         GeometryReader { proxy in
             let screen = proxy.size
             let card = cardSize(in: screen)
-            let step = card.width + Metrics.ModeCarousel.cardSpacing
-            let current = modes[activeIndex]
 
-            VStack(spacing: Metrics.ModeCarousel.captionSpacing) {
-                HStack(spacing: Metrics.ModeCarousel.cardSpacing) {
-                    ForEach(modes) { mode in
-                        Image(mode.previewAssetName)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: card.width, height: card.height)
-                            .clipShape(.rect(cornerRadius: Metrics.ModeCarousel.cornerRadius))
-                            .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
-                    }
-                }
-                .offset(x: (screen.width - card.width) / 2 - CGFloat(activeIndex) * step + dragOffset)
-                .frame(width: screen.width, height: card.height, alignment: .leading)
+            ZStack {
+                Color.clear
+                    .contentShape(.rect)
+                    .onTapGesture(perform: onDismiss)
+                    .accessibilityHidden(true)
 
-                VStack(spacing: 4) {
-                    Text(current.displayName)
-                        .font(Typography.lookTitle)
-                        .foregroundStyle(theme.iconActive)
-                    Text(current.summary)
-                        .font(Typography.caption)
-                        .foregroundStyle(theme.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2, reservesSpace: true)
+                VStack(spacing: Metrics.ModeCarousel.captionSpacing) {
+                    cards(card: card, screenWidth: screen.width)
+                    caption(card: card)
                 }
-                .frame(width: card.width)
-                .overlay(alignment: .bottom) {
-                    pageDots
-                        .offset(y: Metrics.ModeCarousel.dotsHeight + Metrics.ModeCarousel.dotsGap)
-                }
-                .allowsHitTesting(false)
+                .frame(width: screen.width, height: screen.height)
+                .offset(y: dismissOffset)
+                .scaleEffect(reduceMotion ? 1 : 1 - dismissProgress * 0.08)
+                .opacity(1 - dismissProgress * 0.6)
             }
             .frame(width: screen.width, height: screen.height)
-            .contentShape(.rect)
-            .gesture(dragGesture(card: card, screenWidth: screen.width))
         }
-        .ignoresSafeArea()
+    }
+
+    private func cards(card: CGSize, screenWidth: CGFloat) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: Metrics.ModeCarousel.cardSpacing) {
+                ForEach(modes) { mode in
+                    Button { tap(mode) } label: { cardImage(mode, size: card) }
+                        .buttonStyle(CardPressStyle())
+                        .id(mode.id)
+                        .scrollTransition(.interactive, axis: .horizontal) { [reduceMotion] content, phase in
+                            content
+                                .scaleEffect(reduceMotion ? 1 : 1 - (1 - Metrics.ModeCarousel.neighborScale) * min(abs(phase.value), 1))
+                                .opacity(1 - (1 - Metrics.ModeCarousel.neighborOpacity) * min(abs(phase.value), 1))
+                        }
+                        .accessibilityLabel(mode.displayName)
+                        .accessibilityHint(mode.summary(for: position).replacingOccurrences(of: "\n", with: " "))
+                        .accessibilityAddTraits(mode.id == activeID ? .isSelected : [])
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
+        .scrollPosition(id: $activeID, anchor: .center)
+        .contentMargins(.horizontal, (screenWidth - card.width) / 2, for: .scrollContent)
+        .scrollIndicators(.hidden)
+        .frame(height: card.height)
+    }
+
+    private func cardImage(_ mode: CaptureMode, size: CGSize) -> some View {
+        Image(mode.previewAssetName)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size.width, height: size.height)
+            .clipShape(.rect(cornerRadius: Metrics.ModeCarousel.cornerRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: Metrics.ModeCarousel.cornerRadius)
+                    .strokeBorder(theme.thumbnailBorder, lineWidth: Metrics.Thumbnail.borderWidth)
+            }
+    }
+
+    private func caption(card: CGSize) -> some View {
+        let current = modes[activeIndex]
+
+        return VStack(spacing: 4) {
+            Text(current.displayName)
+                .font(Typography.lookTitle)
+                .foregroundStyle(theme.iconActive)
+                .contentTransition(.opacity)
+            Text(current.summary(for: position))
+                .font(Typography.caption)
+                .foregroundStyle(theme.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2, reservesSpace: true)
+                .contentTransition(.opacity)
+        }
+        .frame(width: card.width)
+        .overlay(alignment: .bottom) {
+            pageDots
+                .offset(y: Metrics.ModeCarousel.dotsHeight + Metrics.ModeCarousel.dotsGap)
+        }
+        .onyxAnimation(.smooth(duration: 0.2), value: activeID)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private var pageDots: some View {
@@ -69,7 +146,6 @@ struct ModeCardCarousel: View {
             }
         }
         .frame(height: Metrics.ModeCarousel.dotsHeight)
-        .animation(.reduceMotionAware(Metrics.Motion.lensPill), value: activeIndex)
     }
 
     private func cardSize(in screen: CGSize) -> CGSize {
@@ -81,58 +157,41 @@ struct ModeCardCarousel: View {
         return CGSize(width: width, height: width / aspect)
     }
 
-    private func dragGesture(card: CGSize, screenWidth: CGFloat) -> some Gesture {
-        let step = card.width + Metrics.ModeCarousel.cardSpacing
+    private func tap(_ mode: CaptureMode) {
+        if mode.id == activeID {
+            onConfirm(mode)
+        } else {
+            withAnimation(settleAnimation) { activeID = mode.id }
+        }
+    }
 
-        return DragGesture(minimumDistance: 0)
+    private var dismissGesture: some Gesture {
+        DragGesture(minimumDistance: Metrics.LensSelector.tapMovementThreshold)
             .onChanged { value in
-                let translation = value.translation
-                guard abs(translation.width) > abs(translation.height) else { return }
-                let isAtEdge = (translation.width > 0 && activeIndex == 0)
-                    || (translation.width < 0 && activeIndex == modes.count - 1)
-                dragOffset = isAtEdge ? translation.width * 0.3 : translation.width
+                if axisLock == nil {
+                    axisLock = abs(value.translation.height) > abs(value.translation.width) ? .vertical : .horizontal
+                }
+                guard axisLock == .vertical else { return }
+                dismissOffset = max(value.translation.height, 0)
             }
             .onEnded { value in
-                let translation = value.translation
-                let tapLimit = Metrics.LensSelector.tapMovementThreshold
+                defer { axisLock = nil }
+                guard axisLock == .vertical else { return }
 
-                if abs(translation.width) < tapLimit, abs(translation.height) < tapLimit {
-                    handleTap(at: value.startLocation.x, cardWidth: card.width, screenWidth: screenWidth)
-                    return
+                let threshold = Metrics.ModeCarousel.dismissDistance
+                if value.translation.height > threshold || value.predictedEndTranslation.height > threshold * 2 {
+                    onDismiss()
+                } else {
+                    withAnimation(settleAnimation) { dismissOffset = 0 }
                 }
-
-                var target = activeIndex
-                if abs(translation.width) > abs(translation.height) {
-                    let projected = value.predictedEndTranslation.width
-                    let threshold = step * Metrics.ModeCarousel.swipeThreshold
-                    if projected < -threshold {
-                        target += 1
-                    } else if projected > threshold {
-                        target -= 1
-                    }
-                }
-                settle(on: min(max(target, 0), modes.count - 1))
             }
     }
+}
 
-    private func handleTap(at x: CGFloat, cardWidth: CGFloat, screenWidth: CGFloat) {
-        let cardMinX = (screenWidth - cardWidth) / 2
-
-        if x < cardMinX {
-            settle(on: max(activeIndex - 1, 0))
-        } else if x > cardMinX + cardWidth {
-            settle(on: min(activeIndex + 1, modes.count - 1))
-        } else {
-            dragOffset = 0
-            onConfirm(modes[activeIndex])
-        }
-    }
-
-    private func settle(on index: Int) {
-        if index != activeIndex { Haptics.shared.fire(.selection) }
-        withAnimation(.reduceMotionAware(Metrics.Motion.lensSwitch)) {
-            activeIndex = index
-            dragOffset = 0
-        }
+private struct CardPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.smooth(duration: 0.15), value: configuration.isPressed)
     }
 }

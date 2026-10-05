@@ -1,6 +1,7 @@
 import AVFoundation
+import os
 
-enum CaptureError: LocalizedError, Sendable, Equatable {
+nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
     case cameraAccessDenied
     case photoLibraryAccessDenied
     case noLensesAvailable
@@ -32,7 +33,7 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
     }
 }
 
-enum CaptureConstants {
+nonisolated enum CaptureConstants {
     static let rearExposureBias: Float = -0.7
     static let frontExposureBias: Float = 0
     static let colorSpace: AVCaptureColorSpace = .sRGB
@@ -43,7 +44,7 @@ enum CaptureConstants {
     }
 }
 
-final class CaptureSessionBox: @unchecked Sendable {
+nonisolated final class CaptureSessionBox: @unchecked Sendable {
     let session = AVCaptureSession()
 }
 
@@ -51,6 +52,12 @@ actor CaptureEngine {
 
     nonisolated let box = CaptureSessionBox()
     private var session: AVCaptureSession { box.session }
+
+    private let sessionQueue = DispatchSerialQueue(label: "com.onyx.camera.session", qos: .userInitiated)
+
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        sessionQueue.asUnownedSerialExecutor()
+    }
 
     private let photoOutput = AVCapturePhotoOutput()
     private var deviceInput: AVCaptureDeviceInput?
@@ -104,42 +111,21 @@ actor CaptureEngine {
             guard let device = activeDevice else {
                 throw CaptureError.deviceUnavailable("active")
             }
+            let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
+
             do {
                 try device.lockForConfiguration()
             } catch {
                 throw CaptureError.configurationFailed(error.localizedDescription)
             }
-
-            let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
-
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                device.setExposureTargetBias(clamped) { _ in continuation.resume() }
+            let applied = await BoundedCompletion.run(timeout: .seconds(1)) { finish in
+                device.setExposureTargetBias(clamped) { _ in finish() }
             }
             device.unlockForConfiguration()
+            if !applied { Log.capture.warning("Exposure bias update timed out") }
 
-            await Self.waitForExposureConvergence(device: device)
-        }
-    }
-
-    private static func waitForExposureConvergence(device: AVCaptureDevice) async {
-        guard device.isAdjustingExposure else { return }
-
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await withCheckedContinuation { continuation in
-                    var observation: NSKeyValueObservation?
-                    observation = device.observe(\.isAdjustingExposure, options: [.new]) { _, change in
-                        guard change.newValue == false else { return }
-                        observation?.invalidate()
-                        continuation.resume()
-                    }
-                }
-            }
-            group.addTask {
-                try? await Task.sleep(for: CaptureConstants.exposureConvergenceTimeout)
-            }
-            await group.next()
-            group.cancelAll()
+            let updates = device.values(of: \.isAdjustingExposure)
+            await updates.waitFor(false, timeout: CaptureConstants.exposureConvergenceTimeout)
         }
     }
 
@@ -241,20 +227,16 @@ actor CaptureEngine {
     }
 
     func capturePhoto(
-        rotationAngle: CGFloat,
-        flashMode: AVCaptureDevice.FlashMode,
+        request: CaptureRequest,
         onShutterFire: @escaping @Sendable () -> Void
     ) async throws -> RawCapture {
         try await runExclusively { [self] in
-            try await performCapture(
-                rotationAngle: rotationAngle, flashMode: flashMode, onShutterFire: onShutterFire
-            )
+            try await performCapture(request: request, onShutterFire: onShutterFire)
         }
     }
 
     private func performCapture(
-        rotationAngle: CGFloat,
-        flashMode: AVCaptureDevice.FlashMode,
+        request: CaptureRequest,
         onShutterFire: @escaping @Sendable () -> Void
     ) async throws -> RawCapture {
         guard activeDevice != nil else {
@@ -262,12 +244,12 @@ actor CaptureEngine {
         }
 
         let settings = RawPipeline.makeSettings(
-            output: photoOutput, bayerFormat: bayerFormat, flashMode: flashMode
+            output: photoOutput, bayerFormat: bayerFormat, flashMode: request.flashMode
         )
 
         if let connection = photoOutput.connection(with: .video) {
-            if connection.isVideoRotationAngleSupported(rotationAngle) {
-                connection.videoRotationAngle = rotationAngle
+            if connection.isVideoRotationAngleSupported(request.rotationAngle) {
+                connection.videoRotationAngle = request.rotationAngle
             }
             if connection.isVideoMirroringSupported {
                 connection.automaticallyAdjustsVideoMirroring = false
@@ -275,9 +257,8 @@ actor CaptureEngine {
             }
         }
 
-        let orientation = CGImagePropertyOrientation(rotationAngle: rotationAngle)
         let processor = PhotoCaptureProcessor(
-            orientation: orientation, onShutterFire: onShutterFire
+            orientation: request.orientation, onShutterFire: onShutterFire
         )
 
         let id = settings.uniqueID

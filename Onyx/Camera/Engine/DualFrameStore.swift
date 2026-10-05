@@ -1,17 +1,17 @@
 import AVFoundation
 import os
 
-struct DualFrames: @unchecked Sendable {
+nonisolated struct DualFrames: @unchecked Sendable {
     let rear: CVPixelBuffer
     let front: CVPixelBuffer
 }
 
-final class DualFrameStore: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+nonisolated final class DualFrameStore: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
 
     let rearOutput = AVCaptureVideoDataOutput()
     let frontOutput = AVCaptureVideoDataOutput()
 
-    private struct Latest: @unchecked Sendable {
+    private nonisolated struct Latest: @unchecked Sendable {
         var rear: CVPixelBuffer?
         var front: CVPixelBuffer?
     }

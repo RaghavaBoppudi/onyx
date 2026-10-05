@@ -1,7 +1,7 @@
 import CoreGraphics
 import SwiftUI
 
-enum Metrics {
+nonisolated enum Metrics {
 
     enum Viewfinder {
         static let cornerRadius: CGFloat = 22
@@ -26,7 +26,10 @@ enum Metrics {
         static let statusRailWidth: CGFloat = tapTarget + edgeInset * 2
         static let railWidth: CGFloat = Shutter.outerDiameter + edgeInset * 2
         static let statusGroupHeight: CGFloat = tapTarget * 3 + railItemSpacing * 2
-        static let captureGroupHeight: CGFloat = tapTarget * 2 + railItemSpacing
+        static let modePillWidth: CGFloat = 104
+        static let modePillHeight: CGFloat = 36
+        static let modeButtonHeight: CGFloat = 44
+        static let captureGroupHeight: CGFloat = tapTarget * 2 + modeButtonHeight + railItemSpacing * 2
     }
 
     enum Shutter {
@@ -54,7 +57,10 @@ enum Metrics {
         static let captionSpacing: CGFloat = 16
         static let dotsHeight: CGFloat = 7
         static let dotsGap: CGFloat = 10
-        static let swipeThreshold: CGFloat = 0.3
+        static let neighborScale: CGFloat = 0.88
+        static let neighborOpacity: CGFloat = 0.5
+        static let dismissDistance: CGFloat = 110
+        static let dismissTravel: CGFloat = 280
     }
 
     enum Dual {
@@ -83,13 +89,15 @@ enum Metrics {
 
     enum Motion {
         static let lensSwitch    = Animation.snappy(duration: 0.26, extraBounce: 0.06)
-        static let lensPill      = Animation.easeInOut(duration: 0.25)
-        static let panelReveal   = Animation.easeInOut(duration: 0.16)
+        static let lensPill      = Animation.smooth(duration: 0.28)
+        static let panelReveal   = Animation.smooth(duration: 0.34)
+        static let modeSettle    = Animation.smooth(duration: 0.35)
+        static let previewDim    = Animation.smooth(duration: 0.2)
         static let gridFade      = Animation.easeInOut(duration: 0.18)
         static let blinkIn       = Animation.easeOut(duration: Blink.inDuration)
         static let blinkOut      = Animation.easeIn(duration: Blink.outDuration)
-        static let shutterPress  = Animation.spring(response: 0.18, dampingFraction: 0.62)
-        static let thumbnailPop  = Animation.spring(response: 0.34, dampingFraction: 0.62)
+        static let shutterPress  = Animation.smooth(duration: 0.14)
+        static let thumbnailPop  = Animation.spring(response: 0.34, dampingFraction: 0.75)
         static let glyphRotation = Animation.snappy(duration: 0.30, extraBounce: 0.08)
     }
 }

@@ -1,6 +1,7 @@
 import AVFoundation
+import os
 
-final class DualSessionBox: @unchecked Sendable {
+nonisolated final class DualSessionBox: @unchecked Sendable {
     let session: AVCaptureMultiCamSession
     let rearPreviewLayer: AVCaptureVideoPreviewLayer
     let frontPreviewLayer: AVCaptureVideoPreviewLayer
@@ -24,7 +25,7 @@ actor DualCaptureEngine {
     nonisolated let box = DualSessionBox()
     nonisolated let frames = DualFrameStore()
 
-    private struct Source {
+    private nonisolated struct Source {
         let device: AVCaptureDevice
         let format: AVCaptureDevice.Format
         let zoomFactor: CGFloat
@@ -75,7 +76,7 @@ actor DualCaptureEngine {
 
             if isWithinBudget {
                 session.startRunning()
-                Log.capture.info("Dual session running, hardware cost \(session.hardwareCost)")
+                Log.capture.info("Dual session running, hardware cost \(self.session.hardwareCost)")
                 return
             }
 
@@ -188,12 +189,12 @@ actor DualCaptureEngine {
 }
 
 private extension AVCaptureDevice.Format {
-    var videoPixelCount: Int {
+    nonisolated var videoPixelCount: Int {
         let dimensions = formatDescription.dimensions
         return Int(dimensions.width) * Int(dimensions.height)
     }
 
-    var isSquareOrFourByThree: Bool {
+    nonisolated var isSquareOrFourByThree: Bool {
         let dimensions = formatDescription.dimensions
         guard dimensions.height > 0 else { return false }
         let ratio = Double(dimensions.width) / Double(dimensions.height)

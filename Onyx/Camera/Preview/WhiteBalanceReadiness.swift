@@ -1,29 +1,28 @@
 import AVFoundation
 import Observation
 
-@MainActor
 @Observable
 final class WhiteBalanceReadiness {
 
     private(set) var hasConverged = false
 
-    @ObservationIgnored private var observation: NSKeyValueObservation?
+    @ObservationIgnored private var task: Task<Void, Never>?
 
     func bind(to lens: Lens) {
-        observation = nil
+        task?.cancel()
         hasConverged = false
 
-        guard let device = lens.resolveDevice(), device.isAdjustingWhiteBalance else {
+        guard let device = lens.resolveDevice() else {
             hasConverged = true
             return
         }
 
-        observation = device.observe(\.isAdjustingWhiteBalance, options: [.new]) { [weak self] _, change in
-            guard change.newValue == false else { return }
-            Task { @MainActor [weak self] in
-                self?.hasConverged = true
-                self?.observation = nil
-            }
+        let updates = device.values(of: \.isAdjustingWhiteBalance)
+        task = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            await updates.waitFor(false, timeout: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.hasConverged = true
         }
     }
 }

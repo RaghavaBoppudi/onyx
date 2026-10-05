@@ -1,6 +1,7 @@
 import AVFoundation
+import os
 
-enum FrontCameraPipeline {
+nonisolated enum FrontCameraPipeline {
 
     static let mirrorsSavedImage = false
 
@@ -68,8 +69,20 @@ enum FrontCameraPipeline {
         }
         defer { device.unlockForConfiguration() }
 
-        _ = try await device.setDynamicAspectRatio(.ratio3x4)
-        Log.capture.info("Front camera dynamic aspect ratio set to 3:4")
+        let completed = await BoundedCompletion.run(timeout: .seconds(2)) { finish in
+            device.setDynamicAspectRatio(.ratio3x4) { _, error in
+                if let error {
+                    Log.capture.warning("Front camera: dynamic aspect ratio failed: \(error.localizedDescription, privacy: .public)")
+                }
+                finish()
+            }
+        }
+
+        if completed {
+            Log.capture.info("Front camera dynamic aspect ratio set to 3:4")
+        } else {
+            Log.capture.warning("Front camera: dynamic aspect ratio change timed out")
+        }
     }
 
     private static func normalized(_ angle: CGFloat) -> CGFloat {

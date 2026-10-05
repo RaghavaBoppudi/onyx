@@ -1,63 +1,62 @@
 import CoreLocation
 import Observation
+import os
 
-@MainActor
 @Observable
-final class LocationProvider: NSObject, CLLocationManagerDelegate {
+final class LocationProvider {
 
-    private(set) var latestLocation: CLLocation?
+    private static let maximumAge: TimeInterval = 60
 
-    private let manager = CLLocationManager()
-    private var isStarted = false
-
-    override init() {
-        super.init()
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        manager.distanceFilter = 25
-    }
-
-    func start() {
-        guard !isStarted else { return }
-        isStarted = true
-
-        switch manager.authorizationStatus {
-        case .notDetermined:
-            manager.requestWhenInUseAuthorization()
-        case .authorizedWhenInUse, .authorizedAlways:
-            manager.startUpdatingLocation()
-        default:
-            break
+    static var isAuthorized: Bool {
+        switch CLLocationManager().authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways: true
+        default: false
         }
     }
 
-    func stop() {
-        isStarted = false
-        manager.stopUpdatingLocation()
+    private(set) var latestLocation: CLLocation?
+
+    @ObservationIgnored private var updatesTask: Task<Void, Never>?
+    @ObservationIgnored private var serviceSession: CLServiceSession?
+
+    var freshLocation: CLLocation? {
+        guard let location = latestLocation,
+              location.horizontalAccuracy >= 0,
+              -location.timestamp.timeIntervalSinceNow <= Self.maximumAge
+        else { return nil }
+        return location
     }
 
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        Task { @MainActor in
-            guard isStarted else { return }
-            switch manager.authorizationStatus {
-            case .authorizedWhenInUse, .authorizedAlways:
-                manager.startUpdatingLocation()
-            case .denied, .restricted:
-                latestLocation = nil
-            default:
-                break
+    func start() {
+        guard updatesTask == nil else { return }
+
+        serviceSession = CLServiceSession(authorization: .whenInUse)
+        updatesTask = Task { [weak self] in
+            do {
+                for try await update in CLLocationUpdate.liveUpdates() {
+                    guard let self else { return }
+                    apply(update)
+                }
+            } catch {
+                Log.capture.warning("Location updates ended: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
 
-    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let newest = locations.last else { return }
-        Task { @MainActor in
-            latestLocation = newest
-        }
+    func stop() {
+        updatesTask?.cancel()
+        updatesTask = nil
+        serviceSession?.invalidate()
+        serviceSession = nil
     }
 
-    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        Log.capture.warning("Location update failed: \(error.localizedDescription)")
+    private func apply(_ update: CLLocationUpdate) {
+        if update.authorizationDenied || update.authorizationRestricted {
+            latestLocation = nil
+            return
+        }
+        if let location = update.location {
+            latestLocation = location
+        }
     }
 }

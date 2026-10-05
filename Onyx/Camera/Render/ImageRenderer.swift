@@ -2,8 +2,9 @@ import AVFoundation
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import ImageIO
+import os
 
-extension CIImage {
+nonisolated extension CIImage {
     func horizontallyMirrored() -> CIImage {
         let flipped = transformed(by: CGAffineTransform(scaleX: -1, y: 1))
         return flipped.transformed(
@@ -14,14 +15,9 @@ extension CIImage {
 
 actor ImageRenderer {
 
-    struct Output: @unchecked Sendable {
+    nonisolated struct Output: Sendable {
         let heic: Data
         let usedRAWPath: Bool
-    }
-
-    struct Context: Sendable {
-        let source: AVCaptureDevice.Position
-        let isPortrait: Bool
     }
 
     private let context = CIContext(options: [.cacheIntermediates: false])
@@ -75,16 +71,16 @@ actor ImageRenderer {
     func warmUp() {
         let synthetic = CIImage(color: CIColor(red: 0.4, green: 0.4, blue: 0.4))
             .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
-        for mode in CaptureMode.allCases where !mode.isDual {
+        for mode in CaptureMode.allCases {
             _ = try? encode(grade(synthetic, for: mode), usedRAWPath: false)
         }
     }
 
-    func render(_ shot: RawCapture, mode: CaptureMode, context: Context) throws -> Output {
-        let decoded = try decode(shot, context: context)
-        let graded = context.source == .front && !shot.isRAW
-            ? gradeProcessed(decoded, for: mode)
-            : grade(decoded, for: mode)
+    func render(_ shot: RawCapture, request: CaptureRequest) throws -> Output {
+        let decoded = try decode(shot, request: request)
+        let graded = request.position == .front && !shot.isRAW
+            ? gradeProcessed(decoded, for: request.mode)
+            : grade(decoded, for: request.mode)
         return try encode(graded, usedRAWPath: shot.isRAW)
     }
 
@@ -104,10 +100,10 @@ actor ImageRenderer {
         return try encode(composite, usedRAWPath: false)
     }
 
-    func beginDoubleExposure(_ shot: RawCapture, mode: CaptureMode, context: Context) throws -> Data {
-        let decoded = try decode(shot, context: context)
+    func beginDoubleExposure(_ shot: RawCapture, request: CaptureRequest) throws -> Data {
+        let decoded = try decode(shot, request: request)
         heldExposure = decoded
-        return try previewJPEG(mode.isMono ? desaturated(decoded) : decoded)
+        return try previewJPEG(request.mode.isMono ? desaturated(decoded) : decoded)
     }
 
     func cancelDoubleExposure() {
@@ -116,8 +112,7 @@ actor ImageRenderer {
 
     func finishDoubleExposure(
         _ second: RawCapture,
-        mode: CaptureMode,
-        context: Context
+        request: CaptureRequest
     ) throws -> Output {
         guard let first = heldExposure else {
             throw CaptureError.renderFailed("No held exposure for double exposure")
@@ -125,11 +120,11 @@ actor ImageRenderer {
         heldExposure = nil
 
         let blend = CIFilter.screenBlendMode()
-        blend.inputImage = try decode(second, context: context)
+        blend.inputImage = try decode(second, request: request)
         blend.backgroundImage = first
         let combined = (blend.outputImage ?? first).cropped(to: first.extent)
 
-        return try encode(grade(combined, for: mode), usedRAWPath: second.isRAW)
+        return try encode(grade(combined, for: request.mode), usedRAWPath: second.isRAW)
     }
 
     private static func curves(tone: [CGPoint], mono: Bool) -> Data {
@@ -142,14 +137,14 @@ actor ImageRenderer {
         )
     }
 
-    private func decode(_ shot: RawCapture, context: Context) throws -> CIImage {
+    private func decode(_ shot: RawCapture, request: CaptureRequest) throws -> CIImage {
         guard shot.isRAW else {
             guard let source = CIImage(data: shot.data, options: [.applyOrientationProperty: true]) else {
                 throw CaptureError.renderFailed("Could not open processed image data")
             }
-            guard context.source == .front else { return source }
+            guard request.position == .front else { return source }
 
-            let framed = cropped(source, toAspect: context.isPortrait ? 3.0 / 4.0 : 4.0 / 3.0)
+            let framed = cropped(source, toAspect: request.isPortrait ? 3.0 / 4.0 : 4.0 / 3.0)
             return FrontCameraPipeline.mirrorsSavedImage ? framed.horizontallyMirrored() : framed
         }
 
@@ -200,7 +195,7 @@ actor ImageRenderer {
 
     private func gradeProcessed(_ image: CIImage, for mode: CaptureMode) -> CIImage {
         switch mode {
-        case .standard, .dual:
+        case .standard:
             return image
         case .mono:
             return luma(image.applyingFilter("CILinearToSRGBToneCurve"))
@@ -240,8 +235,6 @@ actor ImageRenderer {
                 contrast: MonochromeProfile.contrast,
                 brightness: DoubleExposureProfile.brightness
             )
-        case .dual:
-            return image
         }
     }
 
