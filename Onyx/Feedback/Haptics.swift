@@ -1,3 +1,4 @@
+import SwiftUI
 import UIKit
 
 @MainActor
@@ -25,27 +26,38 @@ final class Haptics {
 
     func fire(_ event: Event) {
         switch event {
-        case .shutterArm:
-            soft.impactOccurred(intensity: 0.55)
-            soft.prepare()
-        case .shutterFire:
-            rigid.impactOccurred(intensity: 1.0)
-            rigid.prepare()
-        case .lensSwitch:
-            light.impactOccurred(intensity: 0.7)
-            light.prepare()
+        case .shutterArm:  impact(soft, intensity: 0.55)
+        case .shutterFire: impact(rigid, intensity: 1.0)
+        case .lensSwitch:  impact(light, intensity: 0.7)
+        case .toggle:      impact(light, intensity: 0.5)
         case .selection:
             selectionGenerator.selectionChanged()
             selectionGenerator.prepare()
-        case .toggle:
-            light.impactOccurred(intensity: 0.5)
-            light.prepare()
-        case .success:
-            notification.notificationOccurred(.success)
-            notification.prepare()
-        case .failure:
-            notification.notificationOccurred(.error)
-            notification.prepare()
+        case .success: notify(.success)
+        case .failure: notify(.error)
         }
+    }
+
+    private func impact(_ generator: UIImpactFeedbackGenerator, intensity: CGFloat) {
+        generator.impactOccurred(intensity: intensity)
+        generator.prepare()
+    }
+
+    private func notify(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        notification.notificationOccurred(type)
+        notification.prepare()
+    }
+}
+
+extension Binding where Value: Equatable {
+    func hapticFeedback(_ event: Haptics.Event) -> Binding<Value> {
+        Binding(
+            get: { wrappedValue },
+            set: { newValue in
+                guard newValue != wrappedValue else { return }
+                Haptics.shared.fire(event)
+                wrappedValue = newValue
+            }
+        )
     }
 }

@@ -1,198 +1,138 @@
 import SwiftUI
-import UIKit
 
 struct LookCardCarousel: View {
     @Environment(\.theme) private var theme
 
     let looks: [LookKind]
-    let onPreview: (LookKind) -> Void
     let onConfirm: (LookKind) -> Void
 
     @State private var activeIndex: Int
-    @State private var dragTranslation: CGFloat = 0
-    @State private var isTransitioning = false
+    @State private var dragOffset: CGFloat = 0
 
-    init(
-        looks: [LookKind],
-        selectedID: LookKind.ID,
-        onPreview: @escaping (LookKind) -> Void,
-        onConfirm: @escaping (LookKind) -> Void
-    ) {
+    init(looks: [LookKind], selected: LookKind, onConfirm: @escaping (LookKind) -> Void) {
         self.looks = looks
-        self.onPreview = onPreview
         self.onConfirm = onConfirm
-        _activeIndex = State(initialValue: looks.firstIndex(where: { $0.id == selectedID }) ?? 0)
-    }
-
-    private var currentLook: LookKind {
-        looks.indices.contains(activeIndex) ? looks[activeIndex] : (looks.first ?? .standard)
-    }
-
-    private var fadeColor: Color {
-        theme.scheme == .dark ? Palette.onyx : Palette.alabaster
+        _activeIndex = State(initialValue: looks.firstIndex(of: selected) ?? 0)
     }
 
     var body: some View {
         GeometryReader { proxy in
-            let width = max(proxy.size.width, 1)
-            let height = max(proxy.size.height, 1)
-            let progress = min(max(dragTranslation / width, -1), 1)
+            let screen = proxy.size
+            let card = cardSize(in: screen)
+            let step = card.width + Metrics.LookCarousel.cardSpacing
+            let current = looks[activeIndex]
 
-            ZStack {
-                LookPreviewCard(look: looks[activeIndex])
-                    .opacity(1 - abs(progress))
-
-                if progress < 0, looks.indices.contains(activeIndex + 1) {
-                    LookPreviewCard(look: looks[activeIndex + 1])
-                        .opacity(-progress)
+            VStack(spacing: Metrics.LookCarousel.captionSpacing) {
+                HStack(spacing: Metrics.LookCarousel.cardSpacing) {
+                    ForEach(looks) { look in
+                        Image(look.previewAssetName)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: card.width, height: card.height)
+                            .clipShape(.rect(cornerRadius: Metrics.LookCarousel.cornerRadius))
+                            .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+                    }
                 }
-                if progress > 0, looks.indices.contains(activeIndex - 1) {
-                    LookPreviewCard(look: looks[activeIndex - 1])
-                        .opacity(progress)
-                }
+                .offset(x: (screen.width - card.width) / 2 - CGFloat(activeIndex) * step + dragOffset)
+                .frame(width: screen.width, height: card.height, alignment: .leading)
 
-                LinearGradient(
-                    colors: [.clear, fadeColor.opacity(0.55), fadeColor],
-                    startPoint: UnitPoint(x: 0.5, y: 0.35),
-                    endPoint: .bottom
-                )
-                .allowsHitTesting(false)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .clipped()
-            .contentShape(.rect)
-            .gesture(dragGesture(width: width))
-            .overlay(alignment: .bottom) {
-                PageIndicator(count: looks.count, activeIndex: activeIndex, theme: theme)
-                    .padding(.horizontal, Metrics.LookCarousel.horizontalInset)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, height * Metrics.LookCarousel.dotsBottomFraction)
-                    .allowsHitTesting(false)
-            }
-            .overlay(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(currentLook.displayName)
+                VStack(spacing: 4) {
+                    Text(current.displayName)
                         .font(Typography.lookTitle)
                         .foregroundStyle(theme.iconActive)
-                        .lineLimit(1)
-                    Text(currentLook.summary)
+                    Text(current.summary)
                         .font(Typography.caption)
                         .foregroundStyle(theme.secondary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2, reservesSpace: true)
                 }
-                .padding(.horizontal, Metrics.LookCarousel.horizontalInset)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, height * Metrics.LookCarousel.captionBottomFraction)
+                .frame(width: card.width)
+                .overlay(alignment: .bottom) {
+                    pageDots
+                        .offset(y: Metrics.LookCarousel.dotsHeight + Metrics.LookCarousel.dotsGap)
+                }
                 .allowsHitTesting(false)
             }
+            .frame(width: screen.width, height: screen.height)
+            .contentShape(.rect)
+            .gesture(dragGesture(card: card, screenWidth: screen.width))
         }
         .ignoresSafeArea()
     }
 
-    private func dragGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                guard !isTransitioning else { return }
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                guard abs(horizontal) > abs(vertical) else { return }
-                dragTranslation = horizontal
-            }
-            .onEnded { value in
-                guard !isTransitioning else { return }
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-
-                let isTap = abs(horizontal) < Metrics.LensSelector.tapMovementThreshold
-                    && abs(vertical) < Metrics.LensSelector.tapMovementThreshold
-
-                if isTap {
-                    withAnimation(.reduceMotionAware(Metrics.Motion.lensPill)) { dragTranslation = 0 }
-                    onConfirm(currentLook)
-                    return
-                }
-
-                guard abs(horizontal) > abs(vertical) * Metrics.LensSelector.swipeHorizontalDominance else {
-                    withAnimation(.reduceMotionAware(Metrics.Motion.lensPill)) { dragTranslation = 0 }
-                    return
-                }
-
-                let progress = horizontal / width
-                let threshold: CGFloat = 0.25
-
-                if progress <= -threshold, activeIndex < looks.count - 1 {
-                    commit(direction: 1, width: width)
-                } else if progress >= threshold, activeIndex > 0 {
-                    commit(direction: -1, width: width)
-                } else {
-                    withAnimation(.reduceMotionAware(Metrics.Motion.lensPill)) { dragTranslation = 0 }
-                }
-            }
-    }
-
-    private func commit(direction: Int, width: CGFloat) {
-        let nextIndex = activeIndex + direction
-        guard looks.indices.contains(nextIndex) else { return }
-
-        if UIAccessibility.isReduceMotionEnabled {
-            activeIndex = nextIndex
-            dragTranslation = 0
-            onPreview(looks[nextIndex])
-            return
-        }
-
-        isTransitioning = true
-        withAnimation(Metrics.Motion.lensPill) {
-            dragTranslation = CGFloat(-direction) * width
-        }
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(250))
-            activeIndex = nextIndex
-            dragTranslation = 0
-            isTransitioning = false
-            onPreview(looks[nextIndex])
-        }
-    }
-}
-
-private struct PageIndicator: View {
-    let count: Int
-    let activeIndex: Int
-    let theme: Theme
-
-    var body: some View {
+    private var pageDots: some View {
         HStack(spacing: 6) {
-            ForEach(0..<count, id: \.self) { index in
+            ForEach(looks.indices, id: \.self) { index in
                 Circle()
                     .fill(index == activeIndex ? theme.iconActive : theme.iconInactive)
                     .frame(width: index == activeIndex ? 7 : 5, height: index == activeIndex ? 7 : 5)
             }
         }
+        .frame(height: Metrics.LookCarousel.dotsHeight)
         .animation(.reduceMotionAware(Metrics.Motion.lensPill), value: activeIndex)
     }
-}
 
-private struct LookPreviewCard: View {
-    @Environment(\.theme) private var theme
-    let look: LookKind
+    private func cardSize(in screen: CGSize) -> CGSize {
+        let aspect = Metrics.Viewfinder.aspect(isLandscape: screen.width > screen.height)
+        let width = min(
+            screen.width * Metrics.LookCarousel.widthFraction,
+            screen.height * Metrics.LookCarousel.heightFraction * aspect
+        )
+        return CGSize(width: width, height: width / aspect)
+    }
 
-    var body: some View {
-        Group {
-            if let uiImage = LookPreviewImages.image(for: look) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                theme.segmentTrack
-                    .overlay {
-                        Text(look.displayName)
-                            .font(Typography.caption)
-                            .foregroundStyle(theme.secondary)
-                    }
+    private func dragGesture(card: CGSize, screenWidth: CGFloat) -> some Gesture {
+        let step = card.width + Metrics.LookCarousel.cardSpacing
+
+        return DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let translation = value.translation
+                guard abs(translation.width) > abs(translation.height) else { return }
+                let isAtEdge = (translation.width > 0 && activeIndex == 0)
+                    || (translation.width < 0 && activeIndex == looks.count - 1)
+                dragOffset = isAtEdge ? translation.width * 0.3 : translation.width
             }
+            .onEnded { value in
+                let translation = value.translation
+                let tapLimit = Metrics.LensSelector.tapMovementThreshold
+
+                if abs(translation.width) < tapLimit, abs(translation.height) < tapLimit {
+                    handleTap(at: value.startLocation.x, cardWidth: card.width, screenWidth: screenWidth)
+                    return
+                }
+
+                var target = activeIndex
+                if abs(translation.width) > abs(translation.height) {
+                    let projected = value.predictedEndTranslation.width
+                    let threshold = step * Metrics.LookCarousel.swipeThreshold
+                    if projected < -threshold {
+                        target += 1
+                    } else if projected > threshold {
+                        target -= 1
+                    }
+                }
+                settle(on: min(max(target, 0), looks.count - 1))
+            }
+    }
+
+    private func handleTap(at x: CGFloat, cardWidth: CGFloat, screenWidth: CGFloat) {
+        let cardMinX = (screenWidth - cardWidth) / 2
+
+        if x < cardMinX {
+            settle(on: max(activeIndex - 1, 0))
+        } else if x > cardMinX + cardWidth {
+            settle(on: min(activeIndex + 1, looks.count - 1))
+        } else {
+            dragOffset = 0
+            onConfirm(looks[activeIndex])
         }
-        .clipped()
+    }
+
+    private func settle(on index: Int) {
+        if index != activeIndex { Haptics.shared.fire(.selection) }
+        withAnimation(.reduceMotionAware(Metrics.Motion.lensSwitch)) {
+            activeIndex = index
+            dragOffset = 0
+        }
     }
 }

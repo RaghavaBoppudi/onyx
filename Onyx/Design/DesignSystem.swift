@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum Typography {
     static func lens(active: Bool) -> Font {
@@ -11,7 +12,7 @@ enum Typography {
     static let lookTitle   = Font.title2.weight(.semibold)
 }
 
-enum AppearanceMode: String, CaseIterable, Identifiable, Sendable, Codable {
+enum AppearanceMode: String, CaseIterable, Identifiable {
     case system, light, dark
 
     var id: String { rawValue }
@@ -37,17 +38,6 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Sendable, Codable {
     }
 }
 
-extension View {
-    @ViewBuilder
-    func onyxGlass(in shape: some Shape, interactive: Bool = false) -> some View {
-        if interactive {
-            self.glassEffect(.regular.interactive(), in: shape)
-        } else {
-            self.glassEffect(.regular, in: shape)
-        }
-    }
-}
-
 struct SymbolPair {
     let outline: String
     let filled: String
@@ -64,4 +54,29 @@ enum Symbols {
     static let cancel = SymbolPair(outline: "xmark.circle", filled: "xmark.circle.fill")
 
     static let noPermission = "camera.metering.unknown"
+}
+
+extension EnvironmentValues {
+    @Entry var glyphRotation: Angle = .zero
+}
+
+extension Animation {
+    static func reduceMotionAware(_ animation: Animation) -> Animation? {
+        UIAccessibility.isReduceMotionEnabled ? nil : animation
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func onyxGlass(in shape: some Shape, interactive: Bool = false) -> some View {
+        if interactive {
+            self.glassEffect(.regular.interactive(), in: shape)
+        } else {
+            self.glassEffect(.regular, in: shape)
+        }
+    }
+
+    func restricted(_ isRestricted: Bool) -> some View {
+        disabled(isRestricted).opacity(isRestricted ? 0.35 : 1)
+    }
 }

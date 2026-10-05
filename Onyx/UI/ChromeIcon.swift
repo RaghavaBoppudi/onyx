@@ -2,11 +2,11 @@ import SwiftUI
 
 struct ChromeIcon: View {
     @Environment(\.theme) private var theme
+    @Environment(\.glyphRotation) private var rotation
 
     let symbol: SymbolPair
     var isActive: Bool = false
     var tint: Color? = nil
-    let rotation: Angle
     let action: () -> Void
 
     var body: some View {

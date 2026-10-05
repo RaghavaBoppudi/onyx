@@ -1,27 +1,13 @@
 import CoreGraphics
 
 enum LookProfile {
-
-    enum Decode {
-        static let boostAmount: Float = 0
-        static let boostShadowAmount: Float = 0
-        static let localToneMapAmount: Float = 0
-        static let extendedDynamicRangeAmount: Float = 0
-        static let baselineExposure: Float = 0
-        static let luminanceNoiseReduction: Float = 0
-        static let colorNoiseReduction: Float = 0
-        static let sharpness: Float = 0
-        static let detail: Float = 0
-        static let contrast: Float = 0
-    }
-
-    enum Curve {
-        static let p0 = CGPoint(x: 0.00, y: 0.00)
-        static let p1 = CGPoint(x: 0.22, y: 0.250)
-        static let p2 = CGPoint(x: 0.50, y: 0.500)
-        static let p3 = CGPoint(x: 0.80, y: 0.925)
-        static let p4 = CGPoint(x: 1.00, y: 1.000)
-    }
+    static let toneCurve: [CGPoint] = [
+        CGPoint(x: 0.00, y: 0.00),
+        CGPoint(x: 0.22, y: 0.250),
+        CGPoint(x: 0.50, y: 0.500),
+        CGPoint(x: 0.80, y: 0.925),
+        CGPoint(x: 1.00, y: 1.000)
+    ]
 
     enum ChannelResponse {
         static let red: [CGPoint] = [
@@ -51,13 +37,38 @@ enum LookProfile {
         static let sampleCount = 64
     }
 
-    enum Color {
-        static let saturation: Float = 1.02
-        static let contrast: Float = 1.0
-        static let brightness: Float = 0.0
-    }
+    static let saturation: Float = 1.02
+    static let encodeQuality: Double = 0.92
+}
 
-    enum Encode {
-        static let quality: Double = 0.92
-    }
+enum MonochromeProfile {
+    static let contrast: Float = 1.05
+    static let identityCurve: [CGPoint] = [
+        CGPoint(x: 0, y: 0),
+        CGPoint(x: 1, y: 1)
+    ]
+}
+
+enum DoubleExposureProfile {
+    static let exposureBias: Float = -1.0
+    static let ghostOverlayOpacity: Double = 0.35
+    static let previewMaxDimension: CGFloat = 640
+    static let brightness: Float = -0.05
+    static let blueFilterStrength: Float = 0.35
+
+    static let toneCurve: [CGPoint] = [
+        CGPoint(x: 0.00, y: 0.00),
+        CGPoint(x: 0.25, y: 0.12),
+        CGPoint(x: 0.50, y: 0.46),
+        CGPoint(x: 0.80, y: 0.82),
+        CGPoint(x: 1.00, y: 0.94)
+    ]
+}
+
+enum GlassProfile {
+    static let sectionCount: Float = 25
+    static let maxDisplacementFactor: Float = 6.0
+    static let frostBlurRadius: Float = 0.5
+    static let shadingStrength: Float = 0.4
+    static let shadingSharpness: Float = 6.0
 }

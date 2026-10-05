@@ -13,12 +13,7 @@ final class WhiteBalanceReadiness {
         observation = nil
         hasConverged = false
 
-        guard let device = lens.resolveDevice() else {
-            hasConverged = true
-            return
-        }
-
-        if !device.isAdjustingWhiteBalance {
+        guard let device = lens.resolveDevice(), device.isAdjustingWhiteBalance else {
             hasConverged = true
             return
         }

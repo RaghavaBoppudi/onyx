@@ -9,31 +9,21 @@ final class CameraModel {
         case idle, requestingAccess, denied, running, failed(String)
     }
 
-    enum ExposureStage {
-        case idle
-        case awaitingSecondFrame(ghostOverlay: UIImage)
-    }
-
     private(set) var phase: Phase = .idle
     private(set) var lenses: [Lens] = []
     private(set) var selectedLens: Lens?
-    private(set) var isCapturing = false
-    private(set) var isDeveloping = false
+    private(set) var isBusy = false
     private(set) var isSwitching = false
     private(set) var selectedLook: LookKind = .standard
-    private(set) var exposureStage: ExposureStage = .idle
-    var blinkOpacity: Double = 0
-
-    var isBusy: Bool { isCapturing || isDeveloping }
-
-    var isAwaitingSecondFrame: Bool {
-        if case .awaitingSecondFrame = exposureStage { true } else { false }
-    }
+    private(set) var ghostOverlay: UIImage?
+    private(set) var blinkOpacity: Double = 0
 
     let rotation = RotationTracker()
     let whiteBalance = WhiteBalanceReadiness()
     let recentPhoto = RecentPhotoWatcher()
     let location = LocationProvider()
+
+    var isAwaitingSecondFrame: Bool { ghostOverlay != nil }
 
     var isOnDimmerLens: Bool {
         guard let lens = selectedLens else { return false }
@@ -70,13 +60,13 @@ final class CameraModel {
         }
         #endif
 
-        guard let initial = closestToWide(in: lenses) else {
+        guard let initial = lenses.min(by: { abs($0.factor - 1.0) < abs($1.factor - 1.0) }) else {
             phase = .failed(CaptureError.noLensesAvailable.localizedDescription)
             return
         }
 
         do {
-            try await engine.start(with: initial)
+            try await engine.select(lens: initial)
             apply(initial)
             whiteBalance.bind(to: initial)
             phase = .running
@@ -122,37 +112,33 @@ final class CameraModel {
             cancelDoubleExposureSequence()
         }
 
-        if look.isDoubleExposure, !selectedLook.isDoubleExposure {
-            Task { try? await engine.setExposureBias(DoubleExposureProfile.exposureBias) }
-        } else if !look.isDoubleExposure, selectedLook.isDoubleExposure {
-            Task { try? await engine.setExposureBias(CaptureConstants.exposureBias) }
+        if look.isDoubleExposure != selectedLook.isDoubleExposure {
+            let bias = look.isDoubleExposure ? DoubleExposureProfile.exposureBias : CaptureConstants.exposureBias
+            Task { try? await engine.setExposureBias(bias) }
         }
 
-        Haptics.shared.fire(.selection)
         selectedLook = look
     }
 
     func cancelDoubleExposureSequence() {
         guard isAwaitingSecondFrame else { return }
+        ghostOverlay = nil
         Task {
             await renderer.cancelDoubleExposure()
             try? await engine.setExposureBias(CaptureConstants.exposureBias)
         }
-        exposureStage = .idle
         Haptics.shared.fire(.failure)
-    }
-
-    private func closestToWide(in lenses: [Lens]) -> Lens? {
-        lenses.min { abs($0.factor - 1.0) < abs($1.factor - 1.0) }
     }
 
     func capture() async {
         guard phase == .running, !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
 
         if selectedLook.isDoubleExposure, !isAwaitingSecondFrame {
             await captureFirstExposure()
-        } else {
-            await captureAndDevelop()
+        } else if let shot = await takePhoto(errorContext: "Capture") {
+            await develop(shot)
         }
     }
 
@@ -169,7 +155,7 @@ final class CameraModel {
             guard let preview = UIImage(data: previewData) else {
                 throw CaptureError.renderFailed("Could not build ghost overlay preview")
             }
-            exposureStage = .awaitingSecondFrame(ghostOverlay: preview)
+            ghostOverlay = preview
             Haptics.shared.fire(.selection)
         } catch {
             Log.render.error("Double exposure hold failed: \(error.localizedDescription)")
@@ -178,15 +164,7 @@ final class CameraModel {
         }
     }
 
-    private func captureAndDevelop() async {
-        guard let shot = await takePhoto(errorContext: "Capture") else { return }
-        await develop(shot)
-    }
-
     private func takePhoto(errorContext: String) async -> RawCapture? {
-        isCapturing = true
-        defer { isCapturing = false }
-
         do {
             return try await engine.capturePhoto(
                 rotationAngle: rotation.captureAngle,
@@ -203,21 +181,13 @@ final class CameraModel {
     }
 
     private func develop(_ shot: RawCapture) async {
-        isDeveloping = true
-        defer { isDeveloping = false }
-
         let wasFinishingDoubleExposure = isAwaitingSecondFrame
 
         do {
-            let output: ImageRenderer.Output
-            if wasFinishingDoubleExposure {
-                output = try await renderer.finishDoubleExposure(shot, look: selectedLook)
-                exposureStage = .idle
-            } else {
-                output = shot.isRAW
-                    ? try await renderer.renderRAW(dngData: shot.data, orientation: shot.orientation, look: selectedLook)
-                    : try await renderer.renderProcessed(imageData: shot.data, orientation: shot.orientation, look: selectedLook)
-            }
+            let output = wasFinishingDoubleExposure
+                ? try await renderer.finishDoubleExposure(shot, look: selectedLook)
+                : try await renderer.render(shot, look: selectedLook)
+            ghostOverlay = nil
 
             try await library.save(heic: output.heic, location: location.latestLocation)
             Haptics.shared.fire(.success)
@@ -226,7 +196,7 @@ final class CameraModel {
         } catch {
             Log.render.error("Develop failed: \(error.localizedDescription)")
             Haptics.shared.fire(.failure)
-            exposureStage = .idle
+            ghostOverlay = nil
         }
 
         if wasFinishingDoubleExposure {

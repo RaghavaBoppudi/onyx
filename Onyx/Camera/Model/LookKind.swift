@@ -20,14 +20,28 @@ enum LookKind: String, CaseIterable, Identifiable, Sendable {
     var summary: String {
         switch self {
         case .standard: "Our signature zero processed look"
-        case .mono: "Our signature zero processed look \nin black and white"
+        case .mono: "Our signature zero processed look\nin black and white"
         case .glass: "Nothing like shooting through glass panes"
-        case .doubleExposure: "Two frames blended \nlike a physical double exposure"
-        case .doubleExposureMono: "Double exposure, \nin black and white"
+        case .doubleExposure: "Two frames blended\nlike a physical double exposure"
+        case .doubleExposureMono: "Double exposure,\nin black and white"
+        }
+    }
+
+    var previewAssetName: String {
+        switch self {
+        case .standard: "LookPreview.Default"
+        case .mono: "LookPreview.Mono"
+        case .glass: "LookPreview.Glass"
+        case .doubleExposure: "LookPreview.Double"
+        case .doubleExposureMono: "LookPreview.DoubleMono"
         }
     }
 
     var isDoubleExposure: Bool {
         self == .doubleExposure || self == .doubleExposureMono
+    }
+
+    var isMono: Bool {
+        self == .mono || self == .doubleExposureMono
     }
 }

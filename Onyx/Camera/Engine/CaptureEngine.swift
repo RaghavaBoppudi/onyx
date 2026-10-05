@@ -51,8 +51,6 @@ actor CaptureEngine {
     private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
     private var bayerFormatCache: [String: OSType?] = [:]
 
-    var deliversRAW: Bool { bayerFormat != nil }
-
     nonisolated func requestCameraAccess() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized: true
@@ -75,10 +73,6 @@ actor CaptureEngine {
         }
         lastOperation = Task { _ = await task.value }
         return try await task.value.get()
-    }
-
-    func start(with lens: Lens) async throws {
-        try await runExclusively { [self] in try configure(for: lens) }
     }
 
     func stop() async {
@@ -110,10 +104,6 @@ actor CaptureEngine {
             device.unlockForConfiguration()
 
             await Self.waitForExposureConvergence(device: device)
-
-            Log.capture.debug(
-                "setExposureBias(\(bias)) → mode: \(device.exposureMode.rawValue), targetBias now: \(device.exposureTargetBias)"
-            )
         }
     }
 
@@ -223,13 +213,9 @@ actor CaptureEngine {
         flashMode: AVCaptureDevice.FlashMode,
         onShutterFire: @escaping @Sendable () -> Void
     ) async throws -> RawCapture {
-        guard let device = activeDevice else {
+        guard activeDevice != nil else {
             throw CaptureError.deviceUnavailable("active")
         }
-
-        Log.capture.debug(
-            "Capturing — exposureMode: \(device.exposureMode.rawValue), targetBias: \(device.exposureTargetBias), ISO: \(device.iso), duration: \(device.exposureDuration.seconds)s"
-        )
 
         let settings = RawPipeline.makeSettings(
             output: photoOutput, bayerFormat: bayerFormat, flashMode: flashMode
@@ -240,7 +226,7 @@ actor CaptureEngine {
             connection.videoRotationAngle = rotationAngle
         }
 
-        let orientation = OrientationResolver.exifOrientation(forRotationAngle: rotationAngle)
+        let orientation = CGImagePropertyOrientation(rotationAngle: rotationAngle)
         let processor = PhotoCaptureProcessor(
             orientation: orientation, onShutterFire: onShutterFire
         )

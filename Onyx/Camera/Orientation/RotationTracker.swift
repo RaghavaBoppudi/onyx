@@ -1,6 +1,7 @@
 import AVFoundation
+import ImageIO
 import Observation
-import QuartzCore
+import SwiftUI
 
 @MainActor
 @Observable
@@ -13,6 +14,10 @@ final class RotationTracker {
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
     @ObservationIgnored private var boundLens: Lens?
+
+    var glyphRotation: Angle {
+        .degrees(Double(previewAngle) - 90)
+    }
 
     func register(previewLayer: AVCaptureVideoPreviewLayer) {
         guard self.previewLayer !== previewLayer else { return }
@@ -51,8 +56,17 @@ final class RotationTracker {
             }
         ]
     }
+}
 
-    var glyphRotationDegrees: Double {
-        OrientationResolver.glyphRotationDegrees(forRotationAngle: previewAngle)
+extension CGImagePropertyOrientation {
+    init(rotationAngle angle: CGFloat) {
+        let normalised = Int((angle.truncatingRemainder(dividingBy: 360) + 360)
+                                .truncatingRemainder(dividingBy: 360).rounded())
+        self = switch normalised {
+        case 0: .up
+        case 90: .right
+        case 180: .down
+        default: .left
+        }
     }
 }

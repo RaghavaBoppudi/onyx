@@ -9,178 +9,28 @@ struct ViewfinderScreen: View {
     let model: CameraModel
 
     @State private var isAppearancePanelVisible = false
-    @State private var lifecycleTask: Task<Void, Never>?
     @State private var isBrowsingLooks = false
-    @State private var pendingLook: LookKind = .standard
-
-    private var glyphRotation: Angle {
-        .degrees(model.rotation.glyphRotationDegrees)
-    }
-
-    private var isNonDefaultLookActive: Bool {
-        model.selectedLook != .standard
-    }
-
-    private var looksState: LooksControlState {
-        if isBrowsingLooks { return .browsing }
-        if model.isAwaitingSecondFrame { return .awaitingSecondFrame }
-        return .closed(isNonDefaultActive: isNonDefaultLookActive)
-    }
+    @State private var lifecycleTask: Task<Void, Never>?
 
     var body: some View {
-        GeometryReader { screenProxy in
-            let heightToWidth = screenProxy.size.height / max(screenProxy.size.width, 1)
-            let isLandscape = screenProxy.size.width > screenProxy.size.height
-            let isPad = UIDevice.current.userInterfaceIdiom == .pad
-            let useVerticalControls = heightToWidth < Metrics.Chrome.verticalControlsAspectThreshold
-
-            let toggleGrid = {
-                Haptics.shared.fire(.toggle)
-                withAnimation(.reduceMotionAware(Metrics.Motion.gridFade)) { settings.isGridVisible.toggle() }
-            }
-            let cycleFlash = {
-                Haptics.shared.fire(.toggle)
-                settings.cycleFlash()
-            }
-            let openSettings = {
-                Haptics.shared.fire(.toggle)
-                withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) {
-                    isAppearancePanelVisible.toggle()
-                }
-            }
-            let openPhotos = { model.openPhotosApp() }
-            let capture: () -> Void = { Task { await model.capture() } }
-
+        GeometryReader { proxy in
             ZStack {
+                layout(in: proxy.size)
+                    .opacity(isBrowsingLooks ? 0 : 1)
+                    .allowsHitTesting(!isBrowsingLooks)
+
                 if isBrowsingLooks {
                     LookCardCarousel(
                         looks: LookKind.allCases,
-                        selectedID: pendingLook.id,
-                        onPreview: { look in
-                            Haptics.shared.fire(.selection)
-                            pendingLook = look
-                        },
-                        onConfirm: { look in
-                            Haptics.shared.fire(.selection)
-                            model.setLook(look)
-                            pendingLook = look
-                            isBrowsingLooks = false
-                        }
+                        selected: model.selectedLook,
+                        onConfirm: { look in confirmLook(look) }
                     )
-                }
-
-                if isPad || (useVerticalControls && isLandscape) {
-                    HStack(spacing: 0) {
-                        viewfinder(isLandscape: isLandscape)
-                            .padding(.leading, Metrics.Viewfinder.inset)
-                            .padding(.vertical, Metrics.Chrome.railVerticalInset)
-                            .opacity(isBrowsingLooks ? 0 : 1)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                        VerticalControlRail(
-                            isGridVisible: settings.isGridVisible,
-                            isSettingsOpen: isAppearancePanelVisible,
-                            flashMode: settings.flashMode,
-                            thumbnail: model.recentPhoto.thumbnail,
-                            thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
-                            isBusy: model.isBusy,
-                            isCaptureRestricted: model.isAwaitingSecondFrame,
-                            isBrowsingLooks: isBrowsingLooks,
-                            looksState: looksState,
-                            glyphRotation: glyphRotation,
-                            onToggleGrid: toggleGrid,
-                            onCycleFlash: cycleFlash,
-                            onOpenSettings: openSettings,
-                            onOpenPhotos: openPhotos,
-                            onCapture: capture,
-                            onLooksAction: handleLooksAction
-                        )
-                        .frame(width: Metrics.Chrome.railWidth)
-                        .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
-                    }
-                    .ignoresSafeArea()
-                } else if useVerticalControls {
-                    VStack(spacing: 0) {
-                        HStack(spacing: 0) {
-                            viewfinder(isLandscape: false)
-                                .padding(.leading, Metrics.Viewfinder.inset)
-                                .opacity(isBrowsingLooks ? 0 : 1)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                            StatusIconRail(
-                                isGridVisible: settings.isGridVisible,
-                                isSettingsOpen: isAppearancePanelVisible,
-                                flashMode: settings.flashMode,
-                                isBrowsingLooks: isBrowsingLooks,
-                                isCaptureRestricted: model.isAwaitingSecondFrame,
-                                glyphRotation: glyphRotation,
-                                onToggleGrid: toggleGrid,
-                                onCycleFlash: cycleFlash,
-                                onOpenSettings: openSettings
-                            )
-                            .frame(width: Metrics.Chrome.statusRailWidth)
-                            .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
-                        }
-                        .padding(.top, Metrics.Chrome.railVerticalInset)
-                        .frame(maxHeight: .infinity)
-
-                        Spacer(minLength: Metrics.Chrome.railVerticalInset)
-
-                        BottomControlBar(
-                            thumbnail: model.recentPhoto.thumbnail,
-                            thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
-                            isBusy: model.isBusy,
-                            isCaptureRestricted: model.isAwaitingSecondFrame,
-                            isBrowsingLooks: isBrowsingLooks,
-                            looksState: looksState,
-                            glyphRotation: glyphRotation,
-                            onOpenPhotos: openPhotos,
-                            onCapture: capture,
-                            onLooksAction: handleLooksAction
-                        )
-                        .padding(.bottom, Metrics.Chrome.railVerticalInset)
-                    }
-                    .ignoresSafeArea()
-                } else {
-                    VStack(spacing: 0) {
-                        TopControlBar(
-                            isGridVisible: settings.isGridVisible,
-                            isSettingsOpen: isAppearancePanelVisible,
-                            flashMode: settings.flashMode,
-                            glyphRotation: glyphRotation,
-                            onToggleGrid: toggleGrid,
-                            onCycleFlash: cycleFlash,
-                            onOpenSettings: openSettings
-                        )
-                        .opacity(isBrowsingLooks ? 0 : 1)
-                        .disabled(isBrowsingLooks || model.isAwaitingSecondFrame)
-                        .opacity(model.isAwaitingSecondFrame ? 0.35 : 1)
-
-                        viewfinder(isLandscape: isLandscape)
-                            .padding(.horizontal, Metrics.Viewfinder.inset)
-                            .opacity(isBrowsingLooks ? 0 : 1)
-
-                        Spacer()
-
-                        BottomControlBar(
-                            thumbnail: model.recentPhoto.thumbnail,
-                            thumbnailAssetIdentifier: model.recentPhoto.assetIdentifier,
-                            isBusy: model.isBusy,
-                            isCaptureRestricted: model.isAwaitingSecondFrame,
-                            isBrowsingLooks: isBrowsingLooks,
-                            looksState: looksState,
-                            glyphRotation: glyphRotation,
-                            onOpenPhotos: openPhotos,
-                            onCapture: capture,
-                            onLooksAction: handleLooksAction
-                        )
-
-                        Spacer()
-                    }
+                    .transition(.opacity)
                 }
             }
             .background(theme.canvas.ignoresSafeArea())
         }
+        .environment(\.glyphRotation, model.rotation.glyphRotation)
         .task { await model.start() }
         .onChange(of: scenePhase) { _, phase in
             let previous = lifecycleTask
@@ -195,18 +45,107 @@ struct ViewfinderScreen: View {
         }
     }
 
+    @ViewBuilder
+    private func layout(in size: CGSize) -> some View {
+        let isLandscape = size.width > size.height
+        let prefersRail = size.height / max(size.width, 1) < Metrics.Chrome.verticalControlsAspectThreshold
+
+        if UIDevice.current.userInterfaceIdiom == .pad || (prefersRail && isLandscape) {
+            railLayout(isLandscape: isLandscape)
+        } else if prefersRail {
+            statusRailLayout
+        } else {
+            standardLayout
+        }
+    }
+
+    private func railLayout(isLandscape: Bool) -> some View {
+        HStack(spacing: 0) {
+            viewfinder(isLandscape: isLandscape)
+                .padding(.leading, Metrics.Viewfinder.inset)
+                .padding(.vertical, Metrics.Chrome.railVerticalInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            VerticalControlRail(
+                model: model,
+                settings: settings,
+                isSettingsOpen: isAppearancePanelVisible,
+                onOpenSettings: { toggleAppearancePanel() },
+                onLooksAction: { handleLooksAction() }
+            )
+            .frame(width: Metrics.Chrome.railWidth)
+            .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var statusRailLayout: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                viewfinder(isLandscape: false)
+                    .padding(.leading, Metrics.Viewfinder.inset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                statusControls(axis: .vertical)
+                    .frame(width: Metrics.Chrome.statusRailWidth)
+                    .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
+            }
+            .padding(.top, Metrics.Chrome.railVerticalInset)
+            .frame(maxHeight: .infinity)
+
+            Spacer(minLength: Metrics.Chrome.railVerticalInset)
+
+            BottomControlBar(model: model, onLooksAction: { handleLooksAction() })
+                .padding(.bottom, Metrics.Chrome.railVerticalInset)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var standardLayout: some View {
+        VStack(spacing: 0) {
+            statusControls(axis: .horizontal)
+
+            viewfinder(isLandscape: false)
+                .padding(.horizontal, Metrics.Viewfinder.inset)
+
+            Spacer()
+
+            BottomControlBar(model: model, onLooksAction: { handleLooksAction() })
+
+            Spacer()
+        }
+    }
+
+    private func statusControls(axis: Axis) -> some View {
+        StatusControls(
+            axis: axis,
+            settings: settings,
+            isSettingsOpen: isAppearancePanelVisible,
+            isRestricted: model.isAwaitingSecondFrame,
+            onOpenSettings: { toggleAppearancePanel() }
+        )
+    }
+
+    private func toggleAppearancePanel() {
+        Haptics.shared.fire(.toggle)
+        withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) {
+            isAppearancePanelVisible.toggle()
+        }
+    }
+
     private func handleLooksAction() {
-        if isBrowsingLooks {
-            model.setLook(pendingLook)
-            withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = false }
-        } else if model.isAwaitingSecondFrame {
+        if model.isAwaitingSecondFrame {
             model.cancelDoubleExposureSequence()
         } else {
             Haptics.shared.fire(.toggle)
-            pendingLook = model.selectedLook
             withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = true }
-            Haptics.shared.prepare()
         }
+    }
+
+    private func confirmLook(_ look: LookKind) {
+        Haptics.shared.fire(.selection)
+        model.setLook(look)
+        withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = false }
     }
 
     private func viewfinder(isLandscape: Bool) -> some View {
@@ -217,7 +156,7 @@ struct ViewfinderScreen: View {
                     rotation: model.rotation
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
-                .saturation(model.selectedLook == .mono || model.selectedLook == .doubleExposureMono ? 0 : 1)
+                .saturation(model.selectedLook.isMono ? 0 : 1)
                 .background(theme.viewfinderVoid)
                 .overlay {
                     if !model.whiteBalance.hasConverged {
@@ -233,7 +172,7 @@ struct ViewfinderScreen: View {
                         .allowsHitTesting(false)
                 }
                 .overlay {
-                    if case .awaitingSecondFrame(let ghost) = model.exposureStage {
+                    if let ghost = model.ghostOverlay {
                         Image(uiImage: ghost)
                             .resizable()
                             .scaledToFill()
