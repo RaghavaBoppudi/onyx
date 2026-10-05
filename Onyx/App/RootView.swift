@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct RootView: View {
-    @Environment(\.colorScheme) private var systemScheme
-
     @State private var settings = AppSettings()
     @State private var model: CameraModel?
 
@@ -24,8 +22,7 @@ struct RootView: View {
                 Color.clear
             }
         }
-        .themed(settings.appearance.resolved(against: systemScheme))
-        .preferredColorScheme(settings.appearance.preferredColorScheme)
+        .preferredColorScheme(.dark)
         .persistentSystemOverlays(.hidden)
         .statusBar(hidden: true)
         .onAppear {

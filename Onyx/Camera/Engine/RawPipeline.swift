@@ -1,5 +1,23 @@
 import AVFoundation
 
+extension AVCaptureDevice {
+    func withConfigurationLock(_ body: () throws -> Void) throws {
+        do {
+            try lockForConfiguration()
+        } catch {
+            throw CaptureError.configurationFailed(error.localizedDescription)
+        }
+        defer { unlockForConfiguration() }
+        try body()
+    }
+}
+
+extension AVCaptureDevice.Format {
+    var maxPhotoPixelCount: Int {
+        supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
+    }
+}
+
 enum RawPipeline {
 
     static func configure(output: AVCapturePhotoOutput, device: AVCaptureDevice) {
@@ -28,7 +46,7 @@ enum RawPipeline {
         }
     }
 
-    static func configure(device: AVCaptureDevice) {
+    static func configure(device: AVCaptureDevice, zoomFactor: CGFloat, exposureBias: Float) {
         if device.activeFormat.isVideoHDRSupported {
             device.automaticallyAdjustsVideoHDREnabled = false
             device.isVideoHDREnabled = false
@@ -40,14 +58,18 @@ enum RawPipeline {
             device.activeColorSpace = CaptureConstants.colorSpace
         }
 
-        applyMetering(to: device)
+        applyMetering(to: device, exposureBias: exposureBias)
 
-        device.videoZoomFactor = max(1.0, device.minAvailableVideoZoomFactor)
+        device.videoZoomFactor = clampedZoom(zoomFactor, for: device)
+    }
+
+    static func clampedZoom(_ factor: CGFloat, for device: AVCaptureDevice) -> CGFloat {
+        min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
     }
 
     private static let meteringPoint = CGPoint(x: 0.5, y: 0.5)
 
-    private static func applyMetering(to device: AVCaptureDevice) {
+    private static func applyMetering(to device: AVCaptureDevice, exposureBias: Float) {
         if device.isFocusPointOfInterestSupported {
             device.focusPointOfInterest = meteringPoint
         }
@@ -62,7 +84,7 @@ enum RawPipeline {
             device.exposureMode = .continuousAutoExposure
         }
 
-        let bias = min(max(CaptureConstants.exposureBias, device.minExposureTargetBias),
+        let bias = min(max(exposureBias, device.minExposureTargetBias),
                        device.maxExposureTargetBias)
         device.setExposureTargetBias(bias, completionHandler: nil)
 
@@ -83,8 +105,8 @@ enum RawPipeline {
         let candidates = device.formats
             .filter { !$0.supportedMaxPhotoDimensions.isEmpty }
             .sorted { lhs, rhs in
-                let l = lhs.supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
-                let r = rhs.supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
+                let l = lhs.maxPhotoPixelCount
+                let r = rhs.maxPhotoPixelCount
                 if l != r { return l > r }
                 return lhs.maxISO > rhs.maxISO
             }

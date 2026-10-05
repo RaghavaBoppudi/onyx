@@ -11,6 +11,8 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
     case captureFailed(String)
     case renderFailed(String)
     case noImageData
+    case multiCamUnsupported
+    case multiCamBudgetExceeded
 
     var errorDescription: String? {
         switch self {
@@ -24,14 +26,21 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
         case .captureFailed(let m):       "Capture failed: \(m)"
         case .renderFailed(let m):        "Could not develop the photo: \(m)"
         case .noImageData:                "The capture returned no image data."
+        case .multiCamUnsupported:        "This device cannot run both cameras at once."
+        case .multiCamBudgetExceeded:     "Both cameras cannot run together right now."
         }
     }
 }
 
 enum CaptureConstants {
-    static let exposureBias: Float = -0.7
+    static let rearExposureBias: Float = -0.7
+    static let frontExposureBias: Float = 0
     static let colorSpace: AVCaptureColorSpace = .sRGB
     static let exposureConvergenceTimeout: Duration = .seconds(1)
+
+    static func exposureBias(for position: AVCaptureDevice.Position) -> Float {
+        position == .front ? frontExposureBias : rearExposureBias
+    }
 }
 
 final class CaptureSessionBox: @unchecked Sendable {
@@ -46,6 +55,7 @@ actor CaptureEngine {
     private let photoOutput = AVCapturePhotoOutput()
     private var deviceInput: AVCaptureDeviceInput?
     private var activeDevice: AVCaptureDevice?
+    private var activePosition: AVCaptureDevice.Position = .back
     private var bayerFormat: OSType?
     private var isOutputAttached = false
     private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
@@ -82,7 +92,11 @@ actor CaptureEngine {
     }
 
     func select(lens: Lens) async throws {
-        try await runExclusively { [self] in try configure(for: lens) }
+        try await runExclusively { [self] in try await activate(lens) }
+    }
+
+    func restoreExposureBias() async throws {
+        try await setExposureBias(CaptureConstants.exposureBias(for: activePosition))
     }
 
     func setExposureBias(_ bias: Float) async throws {
@@ -129,9 +143,24 @@ actor CaptureEngine {
         }
     }
 
+    private func activate(_ lens: Lens) async throws {
+        try configure(for: lens)
+
+        guard lens.position == .front, let device = activeDevice else { return }
+        try await FrontCameraPipeline.applyPortraitAspectRatio(to: device)
+    }
+
     private func configure(for lens: Lens) throws {
         guard let device = lens.resolveDevice() else {
             throw CaptureError.deviceUnavailable(lens.label)
+        }
+
+        if session.isRunning, activeDevice?.uniqueID == device.uniqueID {
+            let zoom = FrontCameraPipeline.zoomFactor(for: lens, on: device)
+            try device.withConfigurationLock {
+                device.videoZoomFactor = RawPipeline.clampedZoom(zoom, for: device)
+            }
+            return
         }
 
         session.beginConfiguration()
@@ -157,6 +186,7 @@ actor CaptureEngine {
         session.addInput(input)
         deviceInput = input
         activeDevice = device
+        activePosition = lens.position
 
         if !isOutputAttached {
             guard session.canAddOutput(photoOutput) else {
@@ -167,33 +197,47 @@ actor CaptureEngine {
             isOutputAttached = true
         }
 
-        RawPipeline.configure(output: photoOutput, device: device)
-
-        if let cached = bayerFormatCache[lens.id] {
-            bayerFormat = cached
-        } else {
-            let resolved = RawPipeline.resolveBayerFormat(output: photoOutput, device: device)
-            bayerFormatCache[lens.id] = resolved
-            bayerFormat = resolved
-        }
-
         do {
-            try device.lockForConfiguration()
-            RawPipeline.configure(device: device)
-            device.unlockForConfiguration()
+            try prepare(device, for: lens)
         } catch {
             session.commitConfiguration()
-            throw CaptureError.configurationFailed(error.localizedDescription)
+            throw error
         }
 
         session.commitConfiguration()
 
         if !session.isRunning { session.startRunning() }
 
-        if bayerFormat == nil {
+        if lens.position == .back, bayerFormat == nil {
             Log.capture.warning("\(lens.label): no Bayer RAW — look will sit on top of ISP output")
         }
-        Log.lens.info("Configured \(lens.label), RAW: \(self.bayerFormat != nil)")
+        let side = lens.position == .front ? "front" : "rear"
+        Log.lens.info("Configured \(lens.label) \(side), RAW: \(self.bayerFormat != nil)")
+    }
+
+    private func prepare(_ device: AVCaptureDevice, for lens: Lens) throws {
+        if lens.position == .front {
+            try FrontCameraPipeline.selectFormat(on: device)
+        }
+
+        RawPipeline.configure(output: photoOutput, device: device)
+        bayerFormat = resolvedBayerFormat(for: lens, device: device)
+
+        let zoom = FrontCameraPipeline.zoomFactor(for: lens, on: device)
+        let bias = CaptureConstants.exposureBias(for: lens.position)
+        try device.withConfigurationLock {
+            RawPipeline.configure(device: device, zoomFactor: zoom, exposureBias: bias)
+        }
+    }
+
+    private func resolvedBayerFormat(for lens: Lens, device: AVCaptureDevice) -> OSType? {
+        guard lens.position == .back else { return nil }
+
+        if let cached = bayerFormatCache[lens.id] { return cached }
+
+        let resolved = RawPipeline.resolveBayerFormat(output: photoOutput, device: device)
+        bayerFormatCache[lens.id] = resolved
+        return resolved
     }
 
     func capturePhoto(
@@ -221,9 +265,14 @@ actor CaptureEngine {
             output: photoOutput, bayerFormat: bayerFormat, flashMode: flashMode
         )
 
-        if let connection = photoOutput.connection(with: .video),
-           connection.isVideoRotationAngleSupported(rotationAngle) {
-            connection.videoRotationAngle = rotationAngle
+        if let connection = photoOutput.connection(with: .video) {
+            if connection.isVideoRotationAngleSupported(rotationAngle) {
+                connection.videoRotationAngle = rotationAngle
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = false
+            }
         }
 
         let orientation = CGImagePropertyOrientation(rotationAngle: rotationAngle)

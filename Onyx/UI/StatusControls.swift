@@ -4,39 +4,25 @@ import AVFoundation
 struct StatusControls: View {
     let axis: Axis
     let settings: AppSettings
-    let isSettingsOpen: Bool
-    let isRestricted: Bool
-    let onOpenSettings: () -> Void
+    let model: CameraModel
+    let onModesAction: () -> Void
 
     var body: some View {
-        Group {
-            if axis == .horizontal {
-                HStack(spacing: 0) {
-                    flashIcon.frame(maxWidth: .infinity)
-                    gridIcon.frame(maxWidth: .infinity)
-                    appearanceIcon.frame(maxWidth: .infinity)
-                }
-                .padding(.horizontal, Metrics.Chrome.edgeInset)
-                .frame(height: Metrics.Chrome.barHeight)
-            } else {
-                VStack(spacing: Metrics.Chrome.railItemSpacing) {
-                    appearanceIcon
-                    gridIcon
-                    flashIcon
-                }
+        if axis == .horizontal {
+            HStack(spacing: 0) {
+                flashIcon.frame(maxWidth: .infinity)
+                gridIcon.frame(maxWidth: .infinity)
+                ModeButton(model: model, action: onModesAction).frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, Metrics.Chrome.edgeInset)
+            .frame(height: Metrics.Chrome.barHeight)
+        } else {
+            VStack(spacing: Metrics.Chrome.railItemSpacing) {
+                ModeButton(model: model, action: onModesAction)
+                gridIcon
+                flashIcon
             }
         }
-        .restricted(isRestricted)
-    }
-
-    private var appearanceIcon: some View {
-        ChromeIcon(
-            symbol: Symbols.appearance,
-            isActive: isSettingsOpen,
-            action: { onOpenSettings() }
-        )
-        .accessibilityLabel("Appearance")
-        .accessibilityValue(isSettingsOpen ? "Open" : "Closed")
     }
 
     private var gridIcon: some View {
@@ -45,6 +31,7 @@ struct StatusControls: View {
             isActive: settings.isGridVisible,
             action: { toggleGrid() }
         )
+        .restricted(model.isAwaitingSecondFrame)
         .accessibilityLabel("Rule of thirds grid")
         .accessibilityValue(settings.isGridVisible ? "On" : "Off")
     }
@@ -55,6 +42,7 @@ struct StatusControls: View {
             isActive: settings.flashMode != .off,
             action: { cycleFlash() }
         )
+        .restricted(model.isAwaitingSecondFrame || model.selectedMode.isDual)
         .accessibilityLabel("Flash")
         .accessibilityValue(settings.flashMode == .off ? "Off" : "On")
     }
@@ -67,5 +55,26 @@ struct StatusControls: View {
     private func cycleFlash() {
         Haptics.shared.fire(.toggle)
         settings.cycleFlash()
+    }
+}
+
+struct ModeButton: View {
+    @Environment(\.theme) private var theme
+
+    let model: CameraModel
+    let action: () -> Void
+
+    var body: some View {
+        let isCancel = model.isAwaitingSecondFrame
+        let isActive = isCancel || model.selectedMode != .standard
+
+        ChromeIcon(
+            symbol: isCancel ? Symbols.cancel : Symbols.modes,
+            isActive: isActive,
+            tint: isActive ? theme.accent : theme.iconActive,
+            action: action
+        )
+        .accessibilityLabel(isCancel ? "Cancel double exposure" : "Modes")
+        .accessibilityValue(isActive && !isCancel ? "Active" : "")
     }
 }

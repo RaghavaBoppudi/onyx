@@ -3,9 +3,7 @@ import SwiftUI
 struct VerticalControlRail: View {
     let model: CameraModel
     let settings: AppSettings
-    let isSettingsOpen: Bool
-    let onOpenSettings: () -> Void
-    let onLooksAction: () -> Void
+    let onModesAction: () -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -24,9 +22,8 @@ struct VerticalControlRail: View {
                 StatusControls(
                     axis: .vertical,
                     settings: settings,
-                    isSettingsOpen: isSettingsOpen,
-                    isRestricted: model.isAwaitingSecondFrame,
-                    onOpenSettings: onOpenSettings
+                    model: model,
+                    onModesAction: onModesAction
                 )
                 .scaleEffect(scale)
                 .position(x: centerX, y: centerY - (shutterRadius + spacing + topHeight / 2) * scale)
@@ -36,7 +33,7 @@ struct VerticalControlRail: View {
                     .position(x: centerX, y: centerY)
 
                 VStack(spacing: spacing) {
-                    LooksButton(model: model, action: onLooksAction)
+                    CameraFlipButton(model: model)
                     CaptureThumbnail(model: model)
                 }
                 .scaleEffect(scale)

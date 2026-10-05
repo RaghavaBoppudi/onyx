@@ -46,7 +46,7 @@ enum Metrics {
         static let bottomInset: CGFloat = 16
     }
 
-    enum LookCarousel {
+    enum ModeCarousel {
         static let widthFraction: CGFloat = 0.74
         static let heightFraction: CGFloat = 0.63
         static let cardSpacing: CGFloat = 12
@@ -55,6 +55,13 @@ enum Metrics {
         static let dotsHeight: CGFloat = 7
         static let dotsGap: CGFloat = 10
         static let swipeThreshold: CGFloat = 0.3
+    }
+
+    enum Dual {
+        static let insetScale: CGFloat = 0.30
+        static let insetMarginFraction: CGFloat = 0.04
+        static let insetCornerFraction: CGFloat = 0.14
+        static let splitMinimumShortSide: CGFloat = 560
     }
 
     enum Panel {

@@ -1,9 +1,10 @@
-enum LookKind: String, CaseIterable, Identifiable, Sendable {
+enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
     case standard
     case mono
     case glass
     case doubleExposure
     case doubleExposureMono
+    case dual
 
     var id: String { rawValue }
 
@@ -14,6 +15,7 @@ enum LookKind: String, CaseIterable, Identifiable, Sendable {
         case .glass: "Glass"
         case .doubleExposure: "Double"
         case .doubleExposureMono: "Double Mono"
+        case .dual: "Dual"
         }
     }
 
@@ -24,6 +26,7 @@ enum LookKind: String, CaseIterable, Identifiable, Sendable {
         case .glass: "Nothing like shooting through glass panes"
         case .doubleExposure: "Two frames blended\nlike a physical double exposure"
         case .doubleExposureMono: "Double exposure,\nin black and white"
+        case .dual: "Front and rear cameras,\nshot together as one frame"
         }
     }
 
@@ -34,6 +37,7 @@ enum LookKind: String, CaseIterable, Identifiable, Sendable {
         case .glass: "LookPreview.Glass"
         case .doubleExposure: "LookPreview.Double"
         case .doubleExposureMono: "LookPreview.DoubleMono"
+        case .dual: "LookPreview.Dual"
         }
     }
 
@@ -43,5 +47,9 @@ enum LookKind: String, CaseIterable, Identifiable, Sendable {
 
     var isMono: Bool {
         self == .mono || self == .doubleExposureMono
+    }
+
+    var isDual: Bool {
+        self == .dual
     }
 }

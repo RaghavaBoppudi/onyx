@@ -1,26 +1,22 @@
 import SwiftUI
 
 struct Theme: Sendable {
-    let scheme: ColorScheme
 
     private static let onyx = Color.hex(0x0A0A0A)
     private static let alabaster = Color.hex(0xE5E4E2)
     private static let blueSlate = Color.hex(0x536878)
 
-    private var isDark: Bool { scheme == .dark }
-    private var ink: Color { isDark ? Self.alabaster : Self.onyx }
-
     var accent: Color          { Self.blueSlate }
-    var canvas: Color          { isDark ? Self.onyx : Self.alabaster }
-    var secondary: Color       { ink.opacity(0.6) }
-    var iconActive: Color      { ink }
-    var iconInactive: Color    { ink.opacity(0.4) }
+    var canvas: Color          { Self.onyx }
+    var secondary: Color       { Self.alabaster.opacity(0.6) }
+    var iconActive: Color      { Self.alabaster }
+    var iconInactive: Color    { Self.alabaster.opacity(0.4) }
     var viewfinderVoid: Color  { Self.onyx }
-    var gridLine: Color        { Self.alabaster.opacity(isDark ? 0.34 : 0.42) }
-    var shutterRing: Color     { ink }
+    var gridLine: Color        { Self.alabaster.opacity(0.34) }
+    var shutterRing: Color     { Self.alabaster }
     var shutterBlink: Color    { Self.onyx }
-    var thumbnailBorder: Color { ink.opacity(isDark ? 0.22 : 0.18) }
-    var segmentTrack: Color    { ink.opacity(isDark ? 0.14 : 0.10) }
+    var thumbnailBorder: Color { Self.alabaster.opacity(0.22) }
+    var segmentTrack: Color    { Self.alabaster.opacity(0.14) }
 
     var shutterGradient: LinearGradient {
         LinearGradient(
@@ -32,13 +28,7 @@ struct Theme: Sendable {
 }
 
 extension EnvironmentValues {
-    @Entry var theme: Theme = Theme(scheme: .dark)
-}
-
-extension View {
-    func themed(_ scheme: ColorScheme) -> some View {
-        environment(\.theme, Theme(scheme: scheme))
-    }
+    @Entry var theme: Theme = Theme()
 }
 
 extension Color {

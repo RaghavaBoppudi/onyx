@@ -1,8 +1,8 @@
 import SwiftUI
+import AVFoundation
 
 struct BottomControlBar: View {
     let model: CameraModel
-    let onLooksAction: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -11,7 +11,7 @@ struct BottomControlBar: View {
             Spacer()
             ShutterButton(model: model)
             Spacer()
-            LooksButton(model: model, action: onLooksAction)
+            CameraFlipButton(model: model)
             Spacer()
         }
         .padding(.horizontal, Metrics.Chrome.edgeInset)
@@ -96,23 +96,22 @@ struct ShutterButton: View {
     }
 }
 
-struct LooksButton: View {
+struct CameraFlipButton: View {
     @Environment(\.theme) private var theme
 
     let model: CameraModel
-    let action: () -> Void
 
     var body: some View {
-        let isCancel = model.isAwaitingSecondFrame
-        let isActive = isCancel || model.selectedLook != .standard
+        let isFront = model.cameraPosition == .front
 
         ChromeIcon(
-            symbol: isCancel ? Symbols.cancel : Symbols.looks,
-            isActive: isActive,
-            tint: isActive ? theme.accent : theme.iconActive,
-            action: action
+            symbol: Symbols.cameraFlip,
+            isActive: isFront,
+            tint: isFront ? theme.accent : theme.iconActive,
+            action: { Task { await model.flipCamera() } }
         )
-        .accessibilityLabel(isCancel ? "Cancel double exposure" : "Looks")
-        .accessibilityValue(isActive && !isCancel ? "Active" : "")
+        .restricted(!model.canFlipCamera)
+        .accessibilityLabel("Switch camera")
+        .accessibilityValue(isFront ? "Front" : "Rear")
     }
 }

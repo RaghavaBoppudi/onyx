@@ -5,32 +5,34 @@ struct ViewfinderScreen: View {
     @Environment(\.theme) private var theme
     @Environment(\.scenePhase) private var scenePhase
 
-    @Bindable var settings: AppSettings
+    let settings: AppSettings
     let model: CameraModel
 
-    @State private var isAppearancePanelVisible = false
-    @State private var isBrowsingLooks = false
+    @State private var isBrowsingModes = false
     @State private var lifecycleTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 layout(in: proxy.size)
-                    .opacity(isBrowsingLooks ? 0 : 1)
-                    .allowsHitTesting(!isBrowsingLooks)
+                    .opacity(isBrowsingModes ? 0 : 1)
+                    .allowsHitTesting(!isBrowsingModes)
 
-                if isBrowsingLooks {
-                    LookCardCarousel(
-                        looks: LookKind.allCases,
-                        selected: model.selectedLook,
-                        onConfirm: { look in confirmLook(look) }
+                if isBrowsingModes {
+                    ModeCardCarousel(
+                        modes: model.availableModes,
+                        selected: model.selectedMode,
+                        onConfirm: { mode in confirmMode(mode) }
                     )
                     .transition(.opacity)
                 }
             }
             .background(theme.canvas.ignoresSafeArea())
+            .onChange(of: DualLayoutStyle.resolve(for: proxy.size), initial: true) { _, style in
+                model.updateDualLayout(style)
+            }
         }
-        .environment(\.glyphRotation, model.rotation.glyphRotation)
+        .environment(\.glyphRotation, model.reference.glyphRotation)
         .task { await model.start() }
         .onChange(of: scenePhase) { _, phase in
             let previous = lifecycleTask
@@ -69,9 +71,7 @@ struct ViewfinderScreen: View {
             VerticalControlRail(
                 model: model,
                 settings: settings,
-                isSettingsOpen: isAppearancePanelVisible,
-                onOpenSettings: { toggleAppearancePanel() },
-                onLooksAction: { handleLooksAction() }
+                onModesAction: { handleModesAction() }
             )
             .frame(width: Metrics.Chrome.railWidth)
             .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
@@ -95,7 +95,7 @@ struct ViewfinderScreen: View {
 
             Spacer(minLength: Metrics.Chrome.railVerticalInset)
 
-            BottomControlBar(model: model, onLooksAction: { handleLooksAction() })
+            BottomControlBar(model: model)
                 .padding(.bottom, Metrics.Chrome.railVerticalInset)
         }
         .ignoresSafeArea()
@@ -110,7 +110,7 @@ struct ViewfinderScreen: View {
 
             Spacer()
 
-            BottomControlBar(model: model, onLooksAction: { handleLooksAction() })
+            BottomControlBar(model: model)
 
             Spacer()
         }
@@ -120,86 +120,90 @@ struct ViewfinderScreen: View {
         StatusControls(
             axis: axis,
             settings: settings,
-            isSettingsOpen: isAppearancePanelVisible,
-            isRestricted: model.isAwaitingSecondFrame,
-            onOpenSettings: { toggleAppearancePanel() }
+            model: model,
+            onModesAction: { handleModesAction() }
         )
     }
 
-    private func toggleAppearancePanel() {
-        Haptics.shared.fire(.toggle)
-        withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) {
-            isAppearancePanelVisible.toggle()
-        }
-    }
-
-    private func handleLooksAction() {
+    private func handleModesAction() {
         if model.isAwaitingSecondFrame {
             model.cancelDoubleExposureSequence()
         } else {
             Haptics.shared.fire(.toggle)
-            withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = true }
+            withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingModes = true }
         }
     }
 
-    private func confirmLook(_ look: LookKind) {
+    private func confirmMode(_ mode: CaptureMode) {
         Haptics.shared.fire(.selection)
-        model.setLook(look)
-        withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingLooks = false }
+        Task { await model.setMode(mode) }
+        withAnimation(.reduceMotionAware(Metrics.Motion.panelReveal)) { isBrowsingModes = false }
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        switch model.pipeline {
+        case .single:
+            CameraPreviewView(
+                sessionBox: model.sessionBox,
+                rotation: model.rotation
+            )
+        case .dual:
+            DualPreviewView(
+                box: model.dualBox,
+                rotation: model.rotation,
+                secondaryRotation: model.secondaryRotation,
+                style: model.dualLayout
+            )
+        }
     }
 
     private func viewfinder(isLandscape: Bool) -> some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
-                CameraPreviewView(
-                    sessionBox: model.sessionBox,
-                    rotation: model.rotation
-                )
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .saturation(model.selectedLook.isMono ? 0 : 1)
-                .background(theme.viewfinderVoid)
-                .overlay {
-                    if !model.whiteBalance.hasConverged {
-                        theme.viewfinderVoid
-                            .transition(.opacity)
+                preview
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .saturation(model.selectedMode.isMono ? 0 : 1)
+                    .background(theme.viewfinderVoid)
+                    .overlay {
+                        if !model.whiteBalance.hasConverged {
+                            theme.viewfinderVoid
+                                .transition(.opacity)
+                        }
                     }
-                }
-                .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.whiteBalance.hasConverged)
-                .overlay { if settings.isGridVisible { RuleOfThirdsGrid() } }
-                .overlay {
-                    theme.shutterBlink
-                        .opacity(model.blinkOpacity)
-                        .allowsHitTesting(false)
-                }
-                .overlay {
-                    if let ghost = model.ghostOverlay {
-                        Image(uiImage: ghost)
-                            .resizable()
-                            .scaledToFill()
-                            .opacity(DoubleExposureProfile.ghostOverlayOpacity)
+                    .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.whiteBalance.hasConverged)
+                    .overlay { if settings.isGridVisible { RuleOfThirdsGrid() } }
+                    .overlay {
+                        theme.shutterBlink
+                            .opacity(model.blinkOpacity)
                             .allowsHitTesting(false)
-                            .transition(.opacity)
                     }
-                }
-                .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.isAwaitingSecondFrame)
-                .overlay(alignment: .bottom) {
-                    LensSelector(
-                        lenses: model.lenses,
-                        selectedID: model.selectedLens?.id,
-                        onSelect: { lens in Task { await model.select(lens) } }
-                    )
-                    .padding(.bottom, Metrics.LensSelector.bottomInset)
-                }
-                .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
-                .opacity(model.isSwitching ? 0.55 : 1)
-                .animation(.reduceMotionAware(Metrics.Motion.lensSwitch), value: model.isSwitching)
+                    .overlay {
+                        if let ghost = model.ghostOverlay {
+                            Image(uiImage: ghost)
+                                .resizable()
+                                .scaledToFill()
+                                .opacity(DoubleExposureProfile.ghostOverlayOpacity)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.isAwaitingSecondFrame)
+                    .overlay(alignment: .bottom) {
+                        if model.pipeline == .single {
+                            LensSelector(
+                                lenses: model.visibleLenses,
+                                selectedID: model.selectedLens?.id,
+                                onSelect: { lens in Task { await model.select(lens) } }
+                            )
+                            .padding(.bottom, Metrics.LensSelector.bottomInset)
+                        }
+                    }
+                    .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
+                    .opacity(model.isSwitching ? 0.55 : 1)
+                    .animation(.reduceMotionAware(Metrics.Motion.lensSwitch), value: model.isSwitching)
 
-                if isAppearancePanelVisible {
-                    AppearancePanel(selection: $settings.appearance)
-                        .padding(8)
-                }
-
-                if model.isOnDimmerLens, !isAppearancePanelVisible {
+                if model.isOnDimmerLens, model.pipeline == .single {
                     LowLightBanner()
                         .padding(.top, 14)
                 }

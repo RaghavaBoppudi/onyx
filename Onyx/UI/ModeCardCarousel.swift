@@ -1,35 +1,35 @@
 import SwiftUI
 
-struct LookCardCarousel: View {
+struct ModeCardCarousel: View {
     @Environment(\.theme) private var theme
 
-    let looks: [LookKind]
-    let onConfirm: (LookKind) -> Void
+    let modes: [CaptureMode]
+    let onConfirm: (CaptureMode) -> Void
 
     @State private var activeIndex: Int
     @State private var dragOffset: CGFloat = 0
 
-    init(looks: [LookKind], selected: LookKind, onConfirm: @escaping (LookKind) -> Void) {
-        self.looks = looks
+    init(modes: [CaptureMode], selected: CaptureMode, onConfirm: @escaping (CaptureMode) -> Void) {
+        self.modes = modes
         self.onConfirm = onConfirm
-        _activeIndex = State(initialValue: looks.firstIndex(of: selected) ?? 0)
+        _activeIndex = State(initialValue: modes.firstIndex(of: selected) ?? 0)
     }
 
     var body: some View {
         GeometryReader { proxy in
             let screen = proxy.size
             let card = cardSize(in: screen)
-            let step = card.width + Metrics.LookCarousel.cardSpacing
-            let current = looks[activeIndex]
+            let step = card.width + Metrics.ModeCarousel.cardSpacing
+            let current = modes[activeIndex]
 
-            VStack(spacing: Metrics.LookCarousel.captionSpacing) {
-                HStack(spacing: Metrics.LookCarousel.cardSpacing) {
-                    ForEach(looks) { look in
-                        Image(look.previewAssetName)
+            VStack(spacing: Metrics.ModeCarousel.captionSpacing) {
+                HStack(spacing: Metrics.ModeCarousel.cardSpacing) {
+                    ForEach(modes) { mode in
+                        Image(mode.previewAssetName)
                             .resizable()
                             .scaledToFill()
                             .frame(width: card.width, height: card.height)
-                            .clipShape(.rect(cornerRadius: Metrics.LookCarousel.cornerRadius))
+                            .clipShape(.rect(cornerRadius: Metrics.ModeCarousel.cornerRadius))
                             .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
                     }
                 }
@@ -49,7 +49,7 @@ struct LookCardCarousel: View {
                 .frame(width: card.width)
                 .overlay(alignment: .bottom) {
                     pageDots
-                        .offset(y: Metrics.LookCarousel.dotsHeight + Metrics.LookCarousel.dotsGap)
+                        .offset(y: Metrics.ModeCarousel.dotsHeight + Metrics.ModeCarousel.dotsGap)
                 }
                 .allowsHitTesting(false)
             }
@@ -62,34 +62,34 @@ struct LookCardCarousel: View {
 
     private var pageDots: some View {
         HStack(spacing: 6) {
-            ForEach(looks.indices, id: \.self) { index in
+            ForEach(modes.indices, id: \.self) { index in
                 Circle()
                     .fill(index == activeIndex ? theme.iconActive : theme.iconInactive)
                     .frame(width: index == activeIndex ? 7 : 5, height: index == activeIndex ? 7 : 5)
             }
         }
-        .frame(height: Metrics.LookCarousel.dotsHeight)
+        .frame(height: Metrics.ModeCarousel.dotsHeight)
         .animation(.reduceMotionAware(Metrics.Motion.lensPill), value: activeIndex)
     }
 
     private func cardSize(in screen: CGSize) -> CGSize {
         let aspect = Metrics.Viewfinder.aspect(isLandscape: screen.width > screen.height)
         let width = min(
-            screen.width * Metrics.LookCarousel.widthFraction,
-            screen.height * Metrics.LookCarousel.heightFraction * aspect
+            screen.width * Metrics.ModeCarousel.widthFraction,
+            screen.height * Metrics.ModeCarousel.heightFraction * aspect
         )
         return CGSize(width: width, height: width / aspect)
     }
 
     private func dragGesture(card: CGSize, screenWidth: CGFloat) -> some Gesture {
-        let step = card.width + Metrics.LookCarousel.cardSpacing
+        let step = card.width + Metrics.ModeCarousel.cardSpacing
 
         return DragGesture(minimumDistance: 0)
             .onChanged { value in
                 let translation = value.translation
                 guard abs(translation.width) > abs(translation.height) else { return }
                 let isAtEdge = (translation.width > 0 && activeIndex == 0)
-                    || (translation.width < 0 && activeIndex == looks.count - 1)
+                    || (translation.width < 0 && activeIndex == modes.count - 1)
                 dragOffset = isAtEdge ? translation.width * 0.3 : translation.width
             }
             .onEnded { value in
@@ -104,14 +104,14 @@ struct LookCardCarousel: View {
                 var target = activeIndex
                 if abs(translation.width) > abs(translation.height) {
                     let projected = value.predictedEndTranslation.width
-                    let threshold = step * Metrics.LookCarousel.swipeThreshold
+                    let threshold = step * Metrics.ModeCarousel.swipeThreshold
                     if projected < -threshold {
                         target += 1
                     } else if projected > threshold {
                         target -= 1
                     }
                 }
-                settle(on: min(max(target, 0), looks.count - 1))
+                settle(on: min(max(target, 0), modes.count - 1))
             }
     }
 
@@ -121,10 +121,10 @@ struct LookCardCarousel: View {
         if x < cardMinX {
             settle(on: max(activeIndex - 1, 0))
         } else if x > cardMinX + cardWidth {
-            settle(on: min(activeIndex + 1, looks.count - 1))
+            settle(on: min(activeIndex + 1, modes.count - 1))
         } else {
             dragOffset = 0
-            onConfirm(looks[activeIndex])
+            onConfirm(modes[activeIndex])
         }
     }
 
