@@ -41,4 +41,23 @@ nonisolated struct PhotoLibraryWriter: Sendable {
 
         Log.library.info("Saved HEIC, \(heic.count / 1024) KB, location: \(location != nil)")
     }
+
+    func saveDNG(_ dng: Data, fileName: String, location: CLLocation?) async throws {
+        guard await PhotosAuthorization.requestReadWrite() else {
+            throw CaptureError.photoLibraryAccessDenied
+        }
+
+        let identifier = (UTType("com.adobe.raw-image") ?? .rawImage).identifier
+
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            let options = PHAssetResourceCreationOptions()
+            options.uniformTypeIdentifier = identifier
+            options.originalFilename = fileName
+            request.addResource(with: .photo, data: dng, options: options)
+            request.location = location
+        }
+
+        Log.library.info("Saved DNG \(fileName, privacy: .public), \(dng.count / 1024) KB, location: \(location != nil)")
+    }
 }

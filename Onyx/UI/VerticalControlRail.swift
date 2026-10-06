@@ -1,43 +1,44 @@
 import SwiftUI
 
 struct VerticalControlRail: View {
+    @Bindable var settings: AppSettings
     let model: CameraModel
-    let settings: AppSettings
-    let onModesAction: () -> Void
+    let onShowModes: () -> Void
+
+    private let contentHeight: CGFloat = 600
 
     var body: some View {
         GeometryReader { proxy in
-            let centerX = proxy.size.width / 2
-            let centerY = proxy.size.height / 2
-            let shutterRadius = Metrics.Shutter.outerDiameter / 2
-            let spacing = Metrics.Chrome.railItemSpacing
-            let topHeight = Metrics.Chrome.statusGroupHeight
-            let bottomHeight = Metrics.Chrome.captureGroupHeight
+            let scale = min(1, max(proxy.size.height - 80, 1) / contentHeight)
 
-            let halfSpan = shutterRadius + spacing + max(topHeight, bottomHeight)
-            let available = max(centerY - Metrics.Chrome.railVerticalInset, 1)
-            let scale = halfSpan > available ? available / halfSpan : 1
-
-            ZStack {
-                StatusControls(
-                    axis: .vertical,
-                    settings: settings,
-                    model: model
-                )
+            content
+                .frame(width: proxy.size.width, height: contentHeight)
                 .scaleEffect(scale)
-                .position(x: centerX, y: centerY - (shutterRadius + spacing + topHeight / 2) * scale)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+    }
 
-                ShutterButton(model: model)
-                    .scaleEffect(scale)
-                    .position(x: centerX, y: centerY)
+    private var content: some View {
+        VStack(spacing: 22) {
+            StatusControls(
+                settings: settings,
+                axis: .vertical,
+                model: model,
+                onShowModes: onShowModes
+            )
 
-                VStack(spacing: spacing) {
+            Spacer(minLength: 0)
+
+            ShutterButton(model: model)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 22) {
+                if !model.isJournalist {
                     CameraFlipButton(model: model)
-                    CaptureThumbnail(model: model)
-                    ModeButton(model: model, action: onModesAction)
                 }
-                .scaleEffect(scale)
-                .position(x: centerX, y: centerY + (shutterRadius + spacing + bottomHeight / 2) * scale)
+                CaptureThumbnail(model: model)
+                ProfilePicker(model: model, compact: true)
             }
         }
     }

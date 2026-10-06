@@ -16,7 +16,7 @@ final class RotationTracker {
     @ObservationIgnored private var boundLens: Lens?
 
     var glyphRotation: Angle {
-        .degrees(Double(captureAngle) - 90)
+        .degrees(90 - Double(captureAngle))
     }
 
     func register(previewLayer: AVCaptureVideoPreviewLayer) {

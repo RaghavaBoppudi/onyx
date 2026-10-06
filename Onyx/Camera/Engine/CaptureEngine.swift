@@ -38,6 +38,7 @@ nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
 nonisolated enum CaptureConstants {
     static let rearExposureBias: Float = -0.7
     static let frontExposureBias: Float = 0
+    static let journalistExposureBias: Float = 0
     static let colorSpace: AVCaptureColorSpace = .sRGB
     static let exposureConvergenceTimeout: Duration = .seconds(1)
     static let captureTimeout: Duration = .seconds(10)

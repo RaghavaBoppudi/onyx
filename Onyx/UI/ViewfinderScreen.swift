@@ -2,56 +2,55 @@ import SwiftUI
 import UIKit
 
 struct ViewfinderScreen: View {
-    @Environment(\.theme) private var theme
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openURL) private var openURL
 
     let settings: AppSettings
     let model: CameraModel
 
-    @State private var isBrowsingModes = false
+    @State private var showsModes = false
     @State private var showsLowLight = false
-    @State private var modesFrame: CGRect?
-    @State private var browsedModeID: String?
+
+    private enum Layout {
+        static let verticalControlsAspectThreshold: CGFloat = 1.8
+        static let railVerticalInset: CGFloat = 40
+        static let railHorizontalGap: CGFloat = 16
+        static let railWidth: CGFloat = 104
+        static let statusRailWidth: CGFloat = 64
+    }
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
-                layout(in: proxy.size, insets: proxy.safeAreaInsets)
-                    .environment(\.isBrowsingModes, isBrowsingModes)
-                    .scaleEffect(isBrowsingModes && !reduceMotion ? 0.94 : 1)
-                    .opacity(isBrowsingModes ? 0 : 1)
-                    .allowsHitTesting(!isBrowsingModes)
-                    .accessibilityHidden(isBrowsingModes)
-
-                if isBrowsingModes {
-                    ModeCardCarousel(
-                        modes: model.availableModes,
-                        activeID: $browsedModeID,
-                        position: model.cameraPosition,
-                        topInset: proxy.safeAreaInsets.top,
-                        avoiding: modesFrame,
-                        onConfirm: { mode in confirmMode(mode) },
-                        onDismiss: { closeModes() }
-                    )
-                    .transition(reduceMotion ? .opacity : .scale(scale: 1.05).combined(with: .opacity))
+            layout(in: proxy.size, insets: proxy.safeAreaInsets)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.background)
+                .ignoresSafeArea()
+                .overlay(alignment: .bottom) { modeDrawer }
+                .animation(.smooth(duration: 0.35), value: showsModes)
+                .onChange(of: DualLayoutStyle.resolve(for: proxy.size), initial: true) { _, style in
+                    model.updateDualLayout(style)
                 }
-
-            }
-            .coordinateSpace(.named(ViewfinderSpace.name))
-            .onPreferenceChange(ModesIconFrameKey.self) { frame in
-                if let frame { modesFrame = frame }
-            }
-            .overlay {
-                modesBackButton(modesFrame)
-            }
-            .background(theme.canvas)
-            .ignoresSafeArea()
-            .onChange(of: DualLayoutStyle.resolve(for: proxy.size), initial: true) { _, style in
-                model.updateDualLayout(style)
-            }
         }
         .environment(\.glyphRotation, model.reference.glyphRotation)
+        .background {
+            HardwareShutter {
+                if model.acceptsShutter { Task { await model.capture() } }
+            }
+            .allowsHitTesting(false)
+        }
+        .sensoryFeedback(trigger: model.feedback) { _, event in
+            event.serial == 0 ? nil : event.kind.sensoryFeedback
+        }
+        .alert(
+            "Permission Needed",
+            isPresented: settingsAlertBinding,
+            presenting: model.notice
+        ) { _ in
+            Button("Open Settings") { openSettings() }
+            Button("Not Now", role: .cancel) {}
+        } message: { notice in
+            Text(notice.message)
+        }
         .onChange(of: model.location.isAccessDenied) { _, isDenied in
             if isDenied { model.geotagAccessDenied() }
         }
@@ -65,9 +64,32 @@ struct ViewfinderScreen: View {
     }
 
     @ViewBuilder
+    private var modeDrawer: some View {
+        if showsModes {
+            ModeDrawer(model: model) { showsModes = false }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private var settingsAlertBinding: Binding<Bool> {
+        Binding(
+            get: { model.notice?.showsSettings == true },
+            set: { if !$0 { model.dismissNotice() } }
+        )
+    }
+
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            openURL(url)
+        }
+    }
+
+    @ViewBuilder
     private func layout(in size: CGSize, insets: EdgeInsets) -> some View {
         let isLandscape = size.width > size.height
-        let prefersRail = size.height / max(size.width, 1) < Metrics.Chrome.verticalControlsAspectThreshold
+        let prefersRail = size.height / max(size.width, 1) < Layout.verticalControlsAspectThreshold
 
         if UIDevice.current.userInterfaceIdiom == .pad || (prefersRail && isLandscape) {
             railLayout(isLandscape: isLandscape)
@@ -80,127 +102,68 @@ struct ViewfinderScreen: View {
 
     private func railLayout(isLandscape: Bool) -> some View {
         HStack(spacing: 0) {
-            viewfinder(isLandscape: isLandscape)
+            viewfinder(isLandscape: isLandscape, cornerRadius: Metrics.Viewfinder.cornerRadius)
                 .padding(.leading, Metrics.Viewfinder.inset)
-                .padding(.vertical, Metrics.Chrome.railVerticalInset)
+                .padding(.vertical, Layout.railVerticalInset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             VerticalControlRail(
-                model: model,
                 settings: settings,
-                onModesAction: { handleModesAction() }
+                model: model,
+                onShowModes: { showsModes = true }
             )
-            .frame(width: Metrics.Chrome.railWidth)
-            .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
+            .frame(width: Layout.railWidth)
+            .padding(.horizontal, Layout.railHorizontalGap)
+            .hiddenWhileBrowsing(showsModes)
         }
     }
 
     private var statusRailLayout: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                viewfinder(isLandscape: false)
+                viewfinder(isLandscape: false, cornerRadius: Metrics.Viewfinder.cornerRadius)
                     .padding(.leading, Metrics.Viewfinder.inset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                statusControls(axis: .vertical)
-                    .frame(width: Metrics.Chrome.statusRailWidth)
-                    .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
+                StatusControls(
+                    settings: settings,
+                    axis: .vertical,
+                    model: model,
+                    onShowModes: { showsModes = true }
+                )
+                .frame(width: Layout.statusRailWidth)
+                .padding(.horizontal, Layout.railHorizontalGap)
             }
-            .padding(.top, Metrics.Chrome.railVerticalInset)
+            .padding(.top, Layout.railVerticalInset)
             .frame(maxHeight: .infinity)
 
-            Spacer(minLength: Metrics.Chrome.railVerticalInset)
+            Spacer(minLength: Layout.railVerticalInset)
 
             BottomControlBar(model: model)
-
-            modeButton
-                .padding(.top, 8)
-                .padding(.bottom, Metrics.Chrome.railVerticalInset)
+                .padding(.bottom, Layout.railVerticalInset)
+                .hiddenWhileBrowsing(showsModes)
         }
     }
 
     private func standardLayout(insets: EdgeInsets) -> some View {
         VStack(spacing: 0) {
-            statusControls(axis: .horizontal)
+            StatusControls(
+                settings: settings,
+                axis: .horizontal,
+                model: model,
+                onShowModes: { showsModes = true }
+            )
 
-            viewfinder(isLandscape: false)
-                .padding(.horizontal, Metrics.Viewfinder.inset)
+            viewfinder(isLandscape: false, cornerRadius: 0)
 
-            Spacer()
+            Spacer(minLength: 12)
 
             BottomControlBar(model: model)
+                .hiddenWhileBrowsing(showsModes)
 
-            modeButton
-                .padding(.top, 16)
-
-            Spacer()
+            Spacer(minLength: 8)
         }
         .padding(insets)
-    }
-
-    private func statusControls(axis: Axis) -> some View {
-        StatusControls(
-            axis: axis,
-            settings: settings,
-            model: model
-        )
-    }
-
-    private var modeButton: some View {
-        ModeButton(model: model, action: { handleModesAction() })
-    }
-
-    private func handleModesAction() {
-        if model.isAwaitingSecondFrame {
-            model.cancelDoubleExposureSequence()
-        } else {
-            Haptics.shared.fire(.toggle)
-            browsedModeID = model.selectedMode.id
-            setBrowsing(true)
-        }
-    }
-
-    private func closeModes() {
-        let browsed = model.availableModes.first { $0.id == browsedModeID }
-        if let browsed, browsed != model.selectedMode {
-            confirmMode(browsed)
-        } else {
-            setBrowsing(false)
-        }
-    }
-
-    @ViewBuilder
-    private func modesBackButton(_ frame: CGRect?) -> some View {
-        if isBrowsingModes {
-            let button = PillButton(title: "Back", systemImage: Symbols.back.outline) {
-                Haptics.shared.fire(.toggle)
-                closeModes()
-            }
-            .accessibilityLabel("Back to camera")
-            .transition(.opacity)
-
-            if let frame {
-                button.position(x: frame.midX, y: frame.midY)
-            } else {
-                button
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.leading, Metrics.Chrome.edgeInset)
-            }
-        }
-    }
-
-    private var revealAnimation: Animation {
-        reduceMotion ? .easeInOut(duration: 0.2) : Metrics.Motion.panelReveal
-    }
-
-    private func setBrowsing(_ isBrowsing: Bool) {
-        withAnimation(revealAnimation) { isBrowsingModes = isBrowsing }
-    }
-
-    private func confirmMode(_ mode: CaptureMode) {
-        Haptics.shared.fire(.selection)
-        Task { await model.setMode(mode) }
-        setBrowsing(false)
     }
 
     @ViewBuilder
@@ -221,25 +184,31 @@ struct ViewfinderScreen: View {
         }
     }
 
-    private func viewfinder(isLandscape: Bool) -> some View {
+    private var previewIsMono: Bool {
+        model.selectedMode.isMono && !model.isDualActive && !model.isJournalist
+    }
+
+    private func viewfinder(isLandscape: Bool, cornerRadius: CGFloat) -> some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
                 preview
                     .frame(width: proxy.size.width, height: proxy.size.height)
-                    .saturation(model.selectedMode.isMono && !model.isDualActive ? 0 : 1)
+                    .saturation(previewIsMono ? 0 : 1)
                     .opacity(model.isSwitching ? 0.55 : 1)
-                    .onyxAnimation(Metrics.Motion.previewDim, value: model.isSwitching)
-                    .background(theme.viewfinderVoid)
+                    .animation(.smooth(duration: 0.2), value: model.isSwitching)
+                    .background(Color.black)
                     .overlay {
                         if !model.whiteBalance.hasConverged {
-                            theme.viewfinderVoid
-                                .transition(.opacity)
+                            Color.black.transition(.opacity)
                         }
                     }
-                    .onyxAnimation(Metrics.Motion.gridFade, value: model.whiteBalance.hasConverged)
-                    .overlay { if settings.isGridVisible { RuleOfThirdsGrid() } }
+                    .animation(.easeInOut(duration: 0.18), value: model.whiteBalance.hasConverged)
                     .overlay {
-                        theme.shutterBlink
+                        if settings.isGridVisible && !model.isJournalist { RuleOfThirdsGrid() }
+                    }
+                    .animation(.easeInOut(duration: 0.18), value: settings.isGridVisible)
+                    .overlay {
+                        Color.black
                             .opacity(model.blinkOpacity)
                             .allowsHitTesting(false)
                     }
@@ -253,31 +222,27 @@ struct ViewfinderScreen: View {
                                 .transition(.opacity)
                         }
                     }
-                    .onyxAnimation(Metrics.Motion.gridFade, value: model.isAwaitingSecondFrame)
+                    .animation(.easeInOut(duration: 0.18), value: model.isAwaitingSecondFrame)
                     .overlay(alignment: .bottom) {
-                        if model.pipeline == .single {
-                            LensSelector(
-                                lenses: model.visibleLenses,
-                                selectedID: model.selectedLens?.id,
-                                pendingID: model.pendingLensID,
-                                onSelect: { lens in model.requestLens(lens) }
-                            )
-                            .padding(.bottom, Metrics.LensSelector.bottomInset)
+                        if model.pipeline == .single, model.visibleLenses.count > 1 {
+                            LensPicker(model: model)
+                                .padding(.bottom, 12)
                         }
                     }
-                    .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
+                    .clipShape(.rect(cornerRadius: cornerRadius))
 
                 VStack(spacing: 8) {
                     if showsLowLight, model.pipeline == .single {
-                        LowLightBanner()
+                        GlassBanner(message: "This lens gathers less light", onTap: nil)
                     }
-                    if let notice = model.notice {
-                        NoticeBanner(notice: notice, onDismiss: { model.dismissNotice() })
+                    if let notice = model.notice, !notice.showsSettings {
+                        GlassBanner(message: notice.message, onTap: { model.dismissNotice() })
                     }
                 }
                 .padding(.top, 14)
             }
-            .onyxAnimation(Metrics.Motion.gridFade, value: showsLowLight)
+            .animation(.easeInOut(duration: 0.18), value: showsLowLight)
+            .animation(.easeInOut(duration: 0.18), value: model.notice)
             .task(id: model.selectedLens?.id) {
                 guard model.isOnDimmerLens else {
                     showsLowLight = false
@@ -288,66 +253,47 @@ struct ViewfinderScreen: View {
                 guard !Task.isCancelled else { return }
                 showsLowLight = false
             }
-            .onyxAnimation(Metrics.Motion.gridFade, value: model.notice)
             .onChange(of: model.notice) { _, notice in
                 if let notice { AccessibilityNotification.Announcement(notice.message).post() }
             }
         }
         .aspectRatio(Metrics.Viewfinder.aspect(isLandscape: isLandscape), contentMode: .fit)
-        .onyxAnimation(Metrics.Motion.lensSwitch, value: isLandscape)
+        .animation(.snappy(duration: 0.26), value: isLandscape)
     }
 }
 
-private struct NoticeBanner: View {
-    @Environment(\.theme) private var theme
+private extension View {
+    func hiddenWhileBrowsing(_ isBrowsing: Bool) -> some View {
+        opacity(isBrowsing ? 0 : 1)
+            .allowsHitTesting(!isBrowsing)
+            .animation(.smooth(duration: 0.2), value: isBrowsing)
+    }
+}
 
-    let notice: Notice
-    let onDismiss: () -> Void
+private struct GlassBanner: View {
+    let message: String
+    let onTap: (() -> Void)?
 
     var body: some View {
-        VStack(spacing: 6) {
-            Text(notice.message)
-                .font(Typography.caption)
-                .foregroundStyle(theme.iconActive)
+        Button {
+            onTap?()
+        } label: {
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
-
-            if notice.showsSettings, let url = URL(string: UIApplication.openSettingsURLString) {
-                Link("Open Settings", destination: url)
-                    .font(Typography.caption.weight(.semibold))
-                    .foregroundStyle(theme.iconActive)
-            }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(theme.canvas.opacity(0.92), in: .rect(cornerRadius: Metrics.Panel.cornerRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: Metrics.Panel.cornerRadius)
-                .strokeBorder(theme.thumbnailBorder, lineWidth: Metrics.Thumbnail.borderWidth)
-        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
         .padding(.horizontal, 24)
-        .onTapGesture(perform: onDismiss)
         .transition(.opacity)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct LowLightBanner: View {
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        Text("This lens gathers less light")
-            .font(Typography.caption)
-            .foregroundStyle(theme.iconActive)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .onyxPill()
-            .transition(.opacity)
+        .disabled(onTap == nil)
     }
 }
 
 private struct RuleOfThirdsGrid: View {
-    @Environment(\.theme) private var theme
-
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
@@ -364,7 +310,7 @@ private struct RuleOfThirdsGrid: View {
                     path.addLine(to: CGPoint(x: width, y: y))
                 }
             }
-            .stroke(theme.gridLine, lineWidth: 0.5)
+            .stroke(.white.opacity(0.34), lineWidth: 0.5)
         }
         .allowsHitTesting(false)
         .transition(.opacity)

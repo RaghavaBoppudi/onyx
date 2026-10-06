@@ -2,124 +2,111 @@ import SwiftUI
 import AVFoundation
 
 struct StatusControls: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+    @Bindable var settings: AppSettings
     let axis: Axis
-    let settings: AppSettings
     let model: CameraModel
+    let onShowModes: () -> Void
+
+    private enum Item: Hashable {
+        case flash, grid, modes, dual, location
+    }
+
+    private var items: [Item] {
+        let ordered: [Item] = model.isJournalist ? [.flash, .location] : [.flash, .grid, .modes, .dual]
+        return axis == .horizontal ? ordered : ordered.reversed()
+    }
 
     var body: some View {
-        if axis == .horizontal {
-            HStack(spacing: 0) {
-                flashIcon.frame(maxWidth: .infinity)
-                gridIcon.frame(maxWidth: .infinity)
-                geotagIcon.frame(maxWidth: .infinity)
-                dualIcon.frame(maxWidth: .infinity)
+        let layout = axis == .horizontal
+            ? AnyLayout(HStackLayout(spacing: 28))
+            : AnyLayout(VStackLayout(spacing: 12))
+
+        layout {
+            ForEach(items, id: \.self) { item in
+                control(for: item)
             }
-            .padding(.horizontal, Metrics.Chrome.edgeInset)
-            .frame(height: Metrics.Chrome.barHeight)
-        } else {
-            VStack(spacing: Metrics.Chrome.railItemSpacing) {
-                dualIcon
-                geotagIcon
-                gridIcon
-                flashIcon
-            }
+        }
+        .frame(maxWidth: axis == .horizontal ? .infinity : nil)
+        .frame(height: axis == .horizontal ? 64 : nil)
+        .animation(.smooth, value: model.isJournalist)
+    }
+
+    @ViewBuilder
+    private func control(for item: Item) -> some View {
+        switch item {
+        case .flash:
+            StatusIconToggle(
+                title: "Flash",
+                symbol: "bolt.slash",
+                activeSymbol: "bolt.fill",
+                isOn: flashBinding
+            )
+            .disabled(model.isAwaitingSecondFrame || model.isDualActive)
+        case .grid:
+            StatusIconToggle(
+                title: "Grid",
+                symbol: "square.grid.3x3",
+                activeSymbol: "square.grid.3x3.fill",
+                isOn: $settings.isGridVisible
+            )
+            .disabled(model.isAwaitingSecondFrame)
+        case .modes:
+            modesButton
+        case .dual:
+            StatusIconToggle(
+                title: "Dual capture",
+                symbol: "pip",
+                activeSymbol: "pip.fill",
+                isOn: dualBinding
+            )
+            .disabled(!model.isDualAvailable || model.isAwaitingSecondFrame)
+        case .location:
+            StatusIconToggle(
+                title: "Location",
+                symbol: "location",
+                activeSymbol: "location.fill",
+                isOn: locationBinding
+            )
         }
     }
 
-    private var dualIcon: some View {
-        ChromeIcon(
-            symbol: Symbols.dual,
-            isActive: model.isDualActive,
-            action: { toggleDual() }
-        )
-        .restricted(!model.isDualAvailable || model.isAwaitingSecondFrame)
-        .accessibilityLabel("Dual capture")
-        .accessibilityValue(model.isDualActive ? "On" : "Off")
-    }
-
-    private var geotagIcon: some View {
-        ChromeIcon(
-            symbol: Symbols.geotag,
-            isActive: settings.geotagsPhotos,
-            action: { toggleGeotag() }
-        )
-        .restricted(model.isAwaitingSecondFrame)
-        .accessibilityLabel("Geotag photos")
-        .accessibilityValue(settings.geotagsPhotos ? "On" : "Off")
-    }
-
-    private var gridIcon: some View {
-        ChromeIcon(
-            symbol: Symbols.grid,
-            isActive: settings.isGridVisible,
-            action: { toggleGrid() }
-        )
-        .restricted(model.isAwaitingSecondFrame)
-        .accessibilityLabel("Rule of thirds grid")
-        .accessibilityValue(settings.isGridVisible ? "On" : "Off")
-    }
-
-    private var flashIcon: some View {
-        ChromeIcon(
-            symbol: settings.flashMode == .on ? Symbols.flashOn : Symbols.flashOff,
-            isActive: settings.flashMode != .off,
-            action: { cycleFlash() }
-        )
-        .restricted(model.isAwaitingSecondFrame || model.isDualActive)
-        .accessibilityLabel("Flash")
-        .accessibilityValue(settings.flashMode == .off ? "Off" : "On")
-    }
-
-    private func toggleGrid() {
-        Haptics.shared.fire(.toggle)
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Metrics.Motion.gridFade) {
-            settings.isGridVisible.toggle()
-        }
-    }
-
-    private func toggleGeotag() {
-        Haptics.shared.fire(.toggle)
-        model.setGeotagging(!settings.geotagsPhotos)
-    }
-
-    private func toggleDual() {
-        Haptics.shared.fire(.toggle)
-        Task { await model.toggleDual() }
-    }
-
-    private func cycleFlash() {
-        Haptics.shared.fire(.toggle)
-        settings.cycleFlash()
-    }
-}
-
-struct ModeButton: View {
-    @Environment(\.isBrowsingModes) private var isBrowsingModes
-
-    let model: CameraModel
-    let action: () -> Void
-
-    var body: some View {
+    private var modesButton: some View {
         let isCancel = model.isAwaitingSecondFrame
         let isModified = model.selectedMode != .standard && !isCancel
 
-        PillButton(
-            title: isCancel ? "Cancel" : "Mode",
-            badge: isModified,
-            action: action
-        )
-        .restricted(model.isDualActive)
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: ModesIconFrameKey.self,
-                    value: isBrowsingModes ? nil : proxy.frame(in: .named(ViewfinderSpace.name))
-                )
+        return StatusIconButton(
+            title: isCancel ? "Cancel double exposure" : "Mode",
+            symbol: isCancel ? "xmark" : "camera.filters",
+            isActive: isModified
+        ) {
+            if isCancel {
+                model.cancelDoubleExposureSequence()
+            } else {
+                onShowModes()
             }
         }
-        .accessibilityLabel(isCancel ? "Cancel double exposure" : "Mode")
+        .disabled(model.isDualActive)
         .accessibilityValue(isModified ? model.selectedMode.displayName : "")
+    }
+
+    private var flashBinding: Binding<Bool> {
+        Binding(
+            get: { settings.flashMode != .off },
+            set: { settings.flashMode = $0 ? .on : .off }
+        )
+    }
+
+    private var dualBinding: Binding<Bool> {
+        Binding(
+            get: { model.isDualActive },
+            set: { _ in Task { await model.toggleDual() } }
+        )
+    }
+
+    private var locationBinding: Binding<Bool> {
+        Binding(
+            get: { settings.geotagsPhotos },
+            set: { model.setGeotagging($0) }
+        )
     }
 }
