@@ -1,8 +1,16 @@
 import Photos
 import UniformTypeIdentifiers
 import CoreLocation
+import os
 
-enum PhotosAuthorization {
+nonisolated enum PhotosAuthorization {
+    static var hasReadWriteAccess: Bool {
+        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
+        case .authorized, .limited: true
+        default: false
+        }
+    }
+
     static func requestReadWrite() async -> Bool {
         switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
         case .authorized, .limited:
@@ -16,7 +24,7 @@ enum PhotosAuthorization {
     }
 }
 
-actor PhotoLibraryWriter {
+nonisolated struct PhotoLibraryWriter: Sendable {
 
     func save(heic: Data, location: CLLocation?) async throws {
         guard await PhotosAuthorization.requestReadWrite() else {
@@ -32,5 +40,24 @@ actor PhotoLibraryWriter {
         }
 
         Log.library.info("Saved HEIC, \(heic.count / 1024) KB, location: \(location != nil)")
+    }
+
+    func saveDNG(_ dng: Data, fileName: String, location: CLLocation?) async throws {
+        guard await PhotosAuthorization.requestReadWrite() else {
+            throw CaptureError.photoLibraryAccessDenied
+        }
+
+        let identifier = (UTType("com.adobe.raw-image") ?? .rawImage).identifier
+
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            let options = PHAssetResourceCreationOptions()
+            options.uniformTypeIdentifier = identifier
+            options.originalFilename = fileName
+            request.addResource(with: .photo, data: dng, options: options)
+            request.location = location
+        }
+
+        Log.library.info("Saved DNG \(fileName, privacy: .public), \(dng.count / 1024) KB, location: \(location != nil)")
     }
 }

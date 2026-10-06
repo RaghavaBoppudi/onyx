@@ -1,63 +1,89 @@
 import CoreLocation
 import Observation
+import os
 
 @MainActor
 @Observable
-final class LocationProvider: NSObject, CLLocationManagerDelegate {
+final class LocationProvider {
+
+    private static let maximumAge: TimeInterval = 60
+
+    static var isAuthorized: Bool {
+        switch CLLocationManager().authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways: true
+        default: false
+        }
+    }
+
+    static var isDenied: Bool {
+        switch CLLocationManager().authorizationStatus {
+        case .denied, .restricted: true
+        default: false
+        }
+    }
 
     private(set) var latestLocation: CLLocation?
+    private(set) var isAccessDenied = false
 
-    private let manager = CLLocationManager()
-    private var isStarted = false
+    @ObservationIgnored private var updatesTask: Task<Void, Never>?
+    @ObservationIgnored private var serviceSession: CLServiceSession?
+    @ObservationIgnored private var generation = 0
 
-    override init() {
-        super.init()
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        manager.distanceFilter = 25
+    var isRunning: Bool { updatesTask != nil }
+
+    var freshLocation: CLLocation? {
+        guard let location = latestLocation,
+              location.horizontalAccuracy >= 0,
+              -location.timestamp.timeIntervalSinceNow <= Self.maximumAge
+        else { return nil }
+        return location
     }
 
     func start() {
-        guard !isStarted else { return }
-        isStarted = true
+        guard updatesTask == nil else { return }
 
-        switch manager.authorizationStatus {
-        case .notDetermined:
-            manager.requestWhenInUseAuthorization()
-        case .authorizedWhenInUse, .authorizedAlways:
-            manager.startUpdatingLocation()
-        default:
-            break
+        generation += 1
+        let current = generation
+
+        serviceSession = CLServiceSession(authorization: .whenInUse)
+        updatesTask = Task { [weak self] in
+            do {
+                for try await update in CLLocationUpdate.liveUpdates() {
+                    guard let self else { return }
+                    apply(update)
+                }
+            } catch {
+                Log.capture.warning("Location updates ended: \(error.localizedDescription, privacy: .public)")
+            }
+            self?.finish(generation: current)
         }
     }
 
     func stop() {
-        isStarted = false
-        manager.stopUpdatingLocation()
+        updatesTask?.cancel()
+        updatesTask = nil
+        serviceSession?.invalidate()
+        serviceSession = nil
+        latestLocation = nil
+        isAccessDenied = false
     }
 
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        Task { @MainActor in
-            guard isStarted else { return }
-            switch manager.authorizationStatus {
-            case .authorizedWhenInUse, .authorizedAlways:
-                manager.startUpdatingLocation()
-            case .denied, .restricted:
-                latestLocation = nil
-            default:
-                break
-            }
+    private func finish(generation finished: Int) {
+        guard generation == finished else { return }
+        updatesTask = nil
+        serviceSession?.invalidate()
+        serviceSession = nil
+    }
+
+    private func apply(_ update: CLLocationUpdate) {
+        if update.authorizationDenied || update.authorizationRestricted {
+            latestLocation = nil
+            isAccessDenied = true
+            return
         }
-    }
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let newest = locations.last else { return }
-        Task { @MainActor in
-            latestLocation = newest
+        isAccessDenied = false
+        if let location = update.location {
+            latestLocation = location
         }
-    }
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        Log.capture.warning("Location update failed: \(error.localizedDescription)")
     }
 }

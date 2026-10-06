@@ -1,6 +1,91 @@
 import AVFoundation
+import os
+import Synchronization
 
-enum RawPipeline {
+nonisolated extension AVCaptureDevice {
+    func withConfigurationLock(_ body: () throws -> Void) throws {
+        do {
+            try lockForConfiguration()
+        } catch {
+            throw CaptureError.configurationFailed(error.localizedDescription)
+        }
+        defer { unlockForConfiguration() }
+        try body()
+    }
+}
+
+nonisolated private final class ResumeOnce: Sendable {
+    private let claimed = Mutex(false)
+
+    func claim() -> Bool {
+        claimed.withLock { isClaimed -> Bool in
+            if isClaimed { return false }
+            isClaimed = true
+            return true
+        }
+    }
+}
+
+nonisolated enum BoundedCompletion {
+    static func run(
+        timeout: Duration,
+        _ start: (@escaping @Sendable () -> Void) -> Void
+    ) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let once = ResumeOnce()
+            start {
+                if once.claim() { continuation.resume(returning: true) }
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                if once.claim() { continuation.resume(returning: false) }
+            }
+        }
+    }
+}
+
+nonisolated private final class ObservationToken: @unchecked Sendable {
+    private let observation: NSKeyValueObservation
+
+    init(_ observation: NSKeyValueObservation) {
+        self.observation = observation
+    }
+
+    func cancel() {
+        observation.invalidate()
+    }
+}
+
+nonisolated extension NSObjectProtocol where Self: NSObject {
+    func values<Value: Sendable>(of keyPath: KeyPath<Self, Value>) -> AsyncStream<Value> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let observation = observe(keyPath, options: [.initial, .new]) { _, change in
+                if let value = change.newValue { continuation.yield(value) }
+            }
+            let token = ObservationToken(observation)
+            continuation.onTermination = { _ in token.cancel() }
+        }
+    }
+}
+
+nonisolated extension AsyncStream where Element: Equatable & Sendable {
+    func waitFor(_ target: Element, timeout: Duration) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { for await value in self where value == target { return } }
+            group.addTask { try? await Task.sleep(for: timeout) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+}
+
+nonisolated extension AVCaptureDevice.Format {
+    var maxPhotoPixelCount: Int {
+        supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
+    }
+}
+
+nonisolated enum RawPipeline {
 
     static func configure(output: AVCapturePhotoOutput, device: AVCaptureDevice) {
         output.maxPhotoQualityPrioritization = .speed
@@ -28,7 +113,7 @@ enum RawPipeline {
         }
     }
 
-    static func configure(device: AVCaptureDevice) {
+    static func configure(device: AVCaptureDevice, zoomFactor: CGFloat, exposureBias: Float) {
         if device.activeFormat.isVideoHDRSupported {
             device.automaticallyAdjustsVideoHDREnabled = false
             device.isVideoHDREnabled = false
@@ -40,14 +125,18 @@ enum RawPipeline {
             device.activeColorSpace = CaptureConstants.colorSpace
         }
 
-        applyMetering(to: device)
+        applyMetering(to: device, exposureBias: exposureBias)
 
-        device.videoZoomFactor = max(1.0, device.minAvailableVideoZoomFactor)
+        device.videoZoomFactor = clampedZoom(zoomFactor, for: device)
+    }
+
+    static func clampedZoom(_ factor: CGFloat, for device: AVCaptureDevice) -> CGFloat {
+        min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
     }
 
     private static let meteringPoint = CGPoint(x: 0.5, y: 0.5)
 
-    private static func applyMetering(to device: AVCaptureDevice) {
+    private static func applyMetering(to device: AVCaptureDevice, exposureBias: Float) {
         if device.isFocusPointOfInterestSupported {
             device.focusPointOfInterest = meteringPoint
         }
@@ -62,7 +151,7 @@ enum RawPipeline {
             device.exposureMode = .continuousAutoExposure
         }
 
-        let bias = min(max(CaptureConstants.exposureBias, device.minExposureTargetBias),
+        let bias = min(max(exposureBias, device.minExposureTargetBias),
                        device.maxExposureTargetBias)
         device.setExposureTargetBias(bias, completionHandler: nil)
 
@@ -83,8 +172,8 @@ enum RawPipeline {
         let candidates = device.formats
             .filter { !$0.supportedMaxPhotoDimensions.isEmpty }
             .sorted { lhs, rhs in
-                let l = lhs.supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
-                let r = rhs.supportedMaxPhotoDimensions.map { Int($0.width) * Int($0.height) }.max() ?? 0
+                let l = lhs.maxPhotoPixelCount
+                let r = rhs.maxPhotoPixelCount
                 if l != r { return l > r }
                 return lhs.maxISO > rhs.maxISO
             }

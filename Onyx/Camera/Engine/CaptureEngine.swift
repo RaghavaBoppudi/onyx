@@ -1,6 +1,7 @@
 import AVFoundation
+import os
 
-enum CaptureError: LocalizedError, Sendable, Equatable {
+nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
     case cameraAccessDenied
     case photoLibraryAccessDenied
     case noLensesAvailable
@@ -11,6 +12,9 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
     case captureFailed(String)
     case renderFailed(String)
     case noImageData
+    case multiCamUnsupported
+    case multiCamBudgetExceeded
+    case captureTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -24,17 +28,27 @@ enum CaptureError: LocalizedError, Sendable, Equatable {
         case .captureFailed(let m):       "Capture failed: \(m)"
         case .renderFailed(let m):        "Could not develop the photo: \(m)"
         case .noImageData:                "The capture returned no image data."
+        case .multiCamUnsupported:        "This device cannot run both cameras at once."
+        case .multiCamBudgetExceeded:     "Both cameras cannot run together right now."
+        case .captureTimedOut:            "The camera took too long to respond."
         }
     }
 }
 
-enum CaptureConstants {
-    static let exposureBias: Float = -0.7
+nonisolated enum CaptureConstants {
+    static let rearExposureBias: Float = -0.7
+    static let frontExposureBias: Float = 0
+    static let journalistExposureBias: Float = 0
     static let colorSpace: AVCaptureColorSpace = .sRGB
     static let exposureConvergenceTimeout: Duration = .seconds(1)
+    static let captureTimeout: Duration = .seconds(10)
+
+    static func exposureBias(for position: AVCaptureDevice.Position) -> Float {
+        position == .front ? frontExposureBias : rearExposureBias
+    }
 }
 
-final class CaptureSessionBox: @unchecked Sendable {
+nonisolated final class CaptureSessionBox: @unchecked Sendable {
     let session = AVCaptureSession()
 }
 
@@ -43,15 +57,30 @@ actor CaptureEngine {
     nonisolated let box = CaptureSessionBox()
     private var session: AVCaptureSession { box.session }
 
+    private let sessionQueue = DispatchSerialQueue(label: "com.onyx.camera.session", qos: .userInitiated)
+
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        sessionQueue.asUnownedSerialExecutor()
+    }
+
     private let photoOutput = AVCapturePhotoOutput()
     private var deviceInput: AVCaptureDeviceInput?
     private var activeDevice: AVCaptureDevice?
+    private var activePosition: AVCaptureDevice.Position = .back
     private var bayerFormat: OSType?
+    private var exposureBiasOverride: Float?
     private var isOutputAttached = false
     private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
-    private var bayerFormatCache: [String: OSType?] = [:]
+    private var rawSupportCache: [String: RawSupport] = [:]
 
-    var deliversRAW: Bool { bayerFormat != nil }
+    private nonisolated enum RawSupport {
+        case bayer(OSType)
+        case unavailable
+
+        var format: OSType? {
+            if case .bayer(let format) = self { format } else { nil }
+        }
+    }
 
     nonisolated func requestCameraAccess() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -61,24 +90,32 @@ actor CaptureEngine {
         }
     }
 
-    private var lastOperation: Task<Void, Never>?
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    @discardableResult
-    private func runExclusively<T: Sendable>(
-        _ operation: @escaping () async throws -> T
-    ) async throws -> T {
-        let previous = lastOperation
-        let task = Task<Result<T, Error>, Never> {
-            _ = await previous?.value
-            do { return .success(try await operation()) }
-            catch { return .failure(error) }
+    private func acquire() async {
+        if !isLocked {
+            isLocked = true
+            return
         }
-        lastOperation = Task { _ = await task.value }
-        return try await task.value.get()
+        await withCheckedContinuation { waiters.append($0) }
     }
 
-    func start(with lens: Lens) async throws {
-        try await runExclusively { [self] in try configure(for: lens) }
+    private func release() {
+        if waiters.isEmpty {
+            isLocked = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+
+    @discardableResult
+    private func runExclusively<T>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        await acquire()
+        defer { release() }
+        return try await operation()
     }
 
     func stop() async {
@@ -88,60 +125,60 @@ actor CaptureEngine {
     }
 
     func select(lens: Lens) async throws {
-        try await runExclusively { [self] in try configure(for: lens) }
+        try await runExclusively { [self] in try await activate(lens) }
+    }
+
+    func restoreExposureBias() async throws {
+        exposureBiasOverride = nil
+        try await applyExposureBias(CaptureConstants.exposureBias(for: activePosition))
     }
 
     func setExposureBias(_ bias: Float) async throws {
+        exposureBiasOverride = bias
+        try await applyExposureBias(bias)
+    }
+
+    private func applyExposureBias(_ bias: Float) async throws {
         try await runExclusively { [self] in
             guard let device = activeDevice else {
                 throw CaptureError.deviceUnavailable("active")
             }
+            let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
+
             do {
                 try device.lockForConfiguration()
             } catch {
                 throw CaptureError.configurationFailed(error.localizedDescription)
             }
-
-            let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
-
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                device.setExposureTargetBias(clamped) { _ in continuation.resume() }
+            let applied = await BoundedCompletion.run(timeout: .seconds(1)) { finish in
+                device.setExposureTargetBias(clamped) { _ in finish() }
             }
             device.unlockForConfiguration()
+            if !applied { Log.capture.warning("Exposure bias update timed out") }
 
-            await Self.waitForExposureConvergence(device: device)
-
-            Log.capture.debug(
-                "setExposureBias(\(bias)) → mode: \(device.exposureMode.rawValue), targetBias now: \(device.exposureTargetBias)"
-            )
+            let updates = device.values(of: \.isAdjustingExposure)
+            await updates.waitFor(false, timeout: CaptureConstants.exposureConvergenceTimeout)
         }
     }
 
-    private static func waitForExposureConvergence(device: AVCaptureDevice) async {
-        guard device.isAdjustingExposure else { return }
+    private func activate(_ lens: Lens) async throws {
+        try configure(for: lens)
 
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await withCheckedContinuation { continuation in
-                    var observation: NSKeyValueObservation?
-                    observation = device.observe(\.isAdjustingExposure, options: [.new]) { _, change in
-                        guard change.newValue == false else { return }
-                        observation?.invalidate()
-                        continuation.resume()
-                    }
-                }
-            }
-            group.addTask {
-                try? await Task.sleep(for: CaptureConstants.exposureConvergenceTimeout)
-            }
-            await group.next()
-            group.cancelAll()
-        }
+        guard lens.position == .front, let device = activeDevice else { return }
+        try await FrontCameraPipeline.applyPortraitAspectRatio(to: device)
     }
 
     private func configure(for lens: Lens) throws {
         guard let device = lens.resolveDevice() else {
             throw CaptureError.deviceUnavailable(lens.label)
+        }
+
+        if session.isRunning, activeDevice?.uniqueID == device.uniqueID {
+            let zoom = FrontCameraPipeline.zoomFactor(for: lens, on: device)
+            try device.withConfigurationLock {
+                device.videoZoomFactor = RawPipeline.clampedZoom(zoom, for: device)
+            }
+            return
         }
 
         session.beginConfiguration()
@@ -167,6 +204,7 @@ actor CaptureEngine {
         session.addInput(input)
         deviceInput = input
         activeDevice = device
+        activePosition = lens.position
 
         if !isOutputAttached {
             guard session.canAddOutput(photoOutput) else {
@@ -177,77 +215,97 @@ actor CaptureEngine {
             isOutputAttached = true
         }
 
-        RawPipeline.configure(output: photoOutput, device: device)
-
-        if let cached = bayerFormatCache[lens.id] {
-            bayerFormat = cached
-        } else {
-            let resolved = RawPipeline.resolveBayerFormat(output: photoOutput, device: device)
-            bayerFormatCache[lens.id] = resolved
-            bayerFormat = resolved
-        }
-
         do {
-            try device.lockForConfiguration()
-            RawPipeline.configure(device: device)
-            device.unlockForConfiguration()
+            try prepare(device, for: lens)
         } catch {
             session.commitConfiguration()
-            throw CaptureError.configurationFailed(error.localizedDescription)
+            throw error
         }
 
         session.commitConfiguration()
 
         if !session.isRunning { session.startRunning() }
 
-        if bayerFormat == nil {
+        if lens.position == .back, bayerFormat == nil {
             Log.capture.warning("\(lens.label): no Bayer RAW — look will sit on top of ISP output")
         }
-        Log.lens.info("Configured \(lens.label), RAW: \(self.bayerFormat != nil)")
+        let side = lens.position == .front ? "front" : "rear"
+        Log.lens.info("Configured \(lens.label) \(side), RAW: \(self.bayerFormat != nil)")
+    }
+
+    private func prepare(_ device: AVCaptureDevice, for lens: Lens) throws {
+        if lens.position == .front {
+            try FrontCameraPipeline.selectFormat(on: device)
+        }
+
+        RawPipeline.configure(output: photoOutput, device: device)
+        bayerFormat = resolvedBayerFormat(for: lens, device: device)
+
+        let zoom = FrontCameraPipeline.zoomFactor(for: lens, on: device)
+        let bias = exposureBiasOverride ?? CaptureConstants.exposureBias(for: lens.position)
+        try device.withConfigurationLock {
+            RawPipeline.configure(device: device, zoomFactor: zoom, exposureBias: bias)
+        }
+    }
+
+    private func resolvedBayerFormat(for lens: Lens, device: AVCaptureDevice) -> OSType? {
+        guard lens.position == .back else { return nil }
+
+        if let cached = rawSupportCache[lens.id] { return cached.format }
+
+        let resolved = RawPipeline.resolveBayerFormat(output: photoOutput, device: device)
+        rawSupportCache[lens.id] = resolved.map(RawSupport.bayer) ?? .unavailable
+        return resolved
     }
 
     func capturePhoto(
-        rotationAngle: CGFloat,
-        flashMode: AVCaptureDevice.FlashMode,
+        request: CaptureRequest,
         onShutterFire: @escaping @Sendable () -> Void
     ) async throws -> RawCapture {
         try await runExclusively { [self] in
-            try await performCapture(
-                rotationAngle: rotationAngle, flashMode: flashMode, onShutterFire: onShutterFire
-            )
+            try await performCapture(request: request, onShutterFire: onShutterFire)
         }
     }
 
     private func performCapture(
-        rotationAngle: CGFloat,
-        flashMode: AVCaptureDevice.FlashMode,
+        request: CaptureRequest,
         onShutterFire: @escaping @Sendable () -> Void
     ) async throws -> RawCapture {
-        guard let device = activeDevice else {
+        guard activeDevice != nil else {
             throw CaptureError.deviceUnavailable("active")
         }
 
-        Log.capture.debug(
-            "Capturing — exposureMode: \(device.exposureMode.rawValue), targetBias: \(device.exposureTargetBias), ISO: \(device.iso), duration: \(device.exposureDuration.seconds)s"
-        )
-
         let settings = RawPipeline.makeSettings(
-            output: photoOutput, bayerFormat: bayerFormat, flashMode: flashMode
+            output: photoOutput, bayerFormat: bayerFormat, flashMode: request.flashMode
         )
 
-        if let connection = photoOutput.connection(with: .video),
-           connection.isVideoRotationAngleSupported(rotationAngle) {
-            connection.videoRotationAngle = rotationAngle
+        if let connection = photoOutput.connection(with: .video) {
+            if connection.isVideoRotationAngleSupported(request.rotationAngle) {
+                connection.videoRotationAngle = request.rotationAngle
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = false
+            }
         }
 
-        let orientation = OrientationResolver.exifOrientation(forRotationAngle: rotationAngle)
         let processor = PhotoCaptureProcessor(
-            orientation: orientation, onShutterFire: onShutterFire
+            orientation: request.orientation,
+            exposureBias: activeDevice?.exposureTargetBias,
+            onShutterFire: onShutterFire
         )
 
         let id = settings.uniqueID
         inFlight[id] = processor
         defer { inFlight[id] = nil }
+
+        let watchdog = Task {
+            try? await Task.sleep(for: CaptureConstants.captureTimeout)
+            guard !Task.isCancelled else { return }
+            Log.capture.error("Capture timed out after \(CaptureConstants.captureTimeout.components.seconds)s")
+            processor.abort(with: .captureTimedOut)
+        }
+        defer { watchdog.cancel() }
 
         return try await withCheckedThrowingContinuation { continuation in
             processor.attach(continuation)

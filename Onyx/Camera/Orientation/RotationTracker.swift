@@ -1,6 +1,7 @@
 import AVFoundation
+import ImageIO
 import Observation
-import QuartzCore
+import SwiftUI
 
 @MainActor
 @Observable
@@ -10,9 +11,13 @@ final class RotationTracker {
     private(set) var previewAngle: CGFloat = 90
 
     @ObservationIgnored private var coordinator: AVCaptureDevice.RotationCoordinator?
-    @ObservationIgnored private var observations: [NSKeyValueObservation] = []
+    @ObservationIgnored private var observationTasks: [Task<Void, Never>] = []
     @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
     @ObservationIgnored private var boundLens: Lens?
+
+    var glyphRotation: Angle {
+        .degrees(90 - Double(captureAngle))
+    }
 
     func register(previewLayer: AVCaptureVideoPreviewLayer) {
         guard self.previewLayer !== previewLayer else { return }
@@ -22,7 +27,8 @@ final class RotationTracker {
 
     func bind(to lens: Lens) {
         boundLens = lens
-        observations.removeAll()
+        observationTasks.forEach { $0.cancel() }
+        observationTasks.removeAll()
 
         guard let device = lens.resolveDevice() else {
             coordinator = nil
@@ -38,21 +44,29 @@ final class RotationTracker {
         captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
         previewAngle = coordinator.videoRotationAngleForHorizonLevelPreview
 
-        observations = [
-            coordinator.observe(\.videoRotationAngleForHorizonLevelCapture, options: [.new]) {
-                _, change in
-                guard let angle = change.newValue else { return }
-                Task { @MainActor [weak self] in self?.captureAngle = angle }
+        let captureAngles = coordinator.values(of: \.videoRotationAngleForHorizonLevelCapture)
+        let previewAngles = coordinator.values(of: \.videoRotationAngleForHorizonLevelPreview)
+
+        observationTasks = [
+            Task { [weak self] in
+                for await angle in captureAngles { self?.captureAngle = angle }
             },
-            coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) {
-                _, change in
-                guard let angle = change.newValue else { return }
-                Task { @MainActor [weak self] in self?.previewAngle = angle }
+            Task { [weak self] in
+                for await angle in previewAngles { self?.previewAngle = angle }
             }
         ]
     }
+}
 
-    var glyphRotationDegrees: Double {
-        OrientationResolver.glyphRotationDegrees(forRotationAngle: previewAngle)
+nonisolated extension CGImagePropertyOrientation {
+    init(rotationAngle angle: CGFloat) {
+        let normalised = Int((angle.truncatingRemainder(dividingBy: 360) + 360)
+                                .truncatingRemainder(dividingBy: 360).rounded())
+        self = switch normalised {
+        case 0: .up
+        case 90: .right
+        case 180: .down
+        default: .left
+        }
     }
 }

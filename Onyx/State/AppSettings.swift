@@ -5,38 +5,41 @@ import SwiftUI
 @Observable
 final class AppSettings {
 
-    var appearance: AppearanceMode {
-        didSet { defaults.set(appearance.rawValue, forKey: Keys.appearance) }
-    }
-
     var isGridVisible: Bool {
         didSet { defaults.set(isGridVisible, forKey: Keys.grid) }
+    }
+
+    var geotagsPhotos: Bool {
+        didSet { defaults.set(geotagsPhotos, forKey: Keys.geotag) }
     }
 
     var flashMode: AVCaptureDevice.FlashMode {
         didSet { defaults.set(flashMode.rawValue, forKey: Keys.flash) }
     }
 
-    func cycleFlash() {
-        flashMode = flashMode == .off ? .on : .off
+    var captureProfile: CaptureProfile {
+        didSet { defaults.set(captureProfile.rawValue, forKey: Keys.profile) }
     }
 
     private enum Keys {
-        static let appearance = "onyx.appearance"
-        static let grid  = "onyx.grid"
+        static let grid = "onyx.grid"
         static let flash = "onyx.flash"
+        static let geotag = "onyx.geotag"
+        static let profile = "onyx.profile"
+        static let legacyAppearance = "onyx.appearance"
     }
 
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.appearance = AppearanceMode(
-            rawValue: defaults.string(forKey: Keys.appearance) ?? ""
-        ) ?? .system
         self.isGridVisible = defaults.bool(forKey: Keys.grid)
+        self.geotagsPhotos = defaults.bool(forKey: Keys.geotag)
         self.flashMode = AVCaptureDevice.FlashMode(
             rawValue: defaults.integer(forKey: Keys.flash)
         ) ?? .off
+        self.captureProfile = defaults.string(forKey: Keys.profile)
+            .flatMap(CaptureProfile.init(rawValue:)) ?? .standard
+        defaults.removeObject(forKey: Keys.legacyAppearance)
     }
 }

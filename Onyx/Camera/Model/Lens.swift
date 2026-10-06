@@ -1,9 +1,12 @@
 import AVFoundation
+import os
 
-struct Lens: Identifiable, Hashable, Sendable {
+nonisolated struct Lens: Identifiable, Hashable, Sendable {
     let id: String
     let deviceType: AVCaptureDevice.DeviceType
+    let position: AVCaptureDevice.Position
     let factor: CGFloat
+    let deviceZoomFactor: CGFloat
 
     var label: String { Lens.format(factor) }
 
@@ -15,21 +18,30 @@ struct Lens: Identifiable, Hashable, Sendable {
 
     func resolveDevice() -> AVCaptureDevice? {
         AVCaptureDevice.DiscoverySession(
-            deviceTypes: [deviceType], mediaType: .video, position: .back
+            deviceTypes: [deviceType], mediaType: .video, position: position
         ).devices.first
     }
 }
 
-enum LensCatalog {
+nonisolated enum CenterStageProfile {
+    static let wideFactor: CGFloat = 0.5
+    static let narrowFactor: CGFloat = 1.0
+}
+
+nonisolated enum LensCatalog {
 
     static func lenses() -> [Lens] {
-        if let derived = fromVirtualDevice(), derived.count > 1 { return derived }
-        return fromDiscovery()
+        rearLenses() + frontLenses()
     }
 
     private static let virtualTypes: [AVCaptureDevice.DeviceType] = [
         .builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera
     ]
+
+    private static func rearLenses() -> [Lens] {
+        if let derived = fromVirtualDevice(), derived.count > 1 { return derived }
+        return fromDiscovery()
+    }
 
     private static func fromVirtualDevice() -> [Lens]? {
         let discovered = AVCaptureDevice.DiscoverySession(
@@ -58,7 +70,13 @@ enum LensCatalog {
 
         return zip(constituents, native)
             .map { device, factor in
-                Lens(id: device.uniqueID, deviceType: device.deviceType, factor: factor / reference)
+                Lens(
+                    id: device.uniqueID,
+                    deviceType: device.deviceType,
+                    position: .back,
+                    factor: factor / reference,
+                    deviceZoomFactor: 1.0
+                )
             }
             .sorted { $0.factor < $1.factor }
     }
@@ -78,8 +96,50 @@ enum LensCatalog {
                 let fov = Double(device.activeFormat.videoFieldOfView)
                 let factor: CGFloat = (fov > 0 && wideFOV > 0)
                     ? CGFloat(tan(wideFOV * .pi / 360) / tan(fov * .pi / 360)) : 1.0
-                return Lens(id: device.uniqueID, deviceType: device.deviceType, factor: factor)
+                return Lens(
+                    id: device.uniqueID,
+                    deviceType: device.deviceType,
+                    position: .back,
+                    factor: factor,
+                    deviceZoomFactor: 1.0
+                )
             }
             .sorted { $0.factor < $1.factor }
+    }
+
+    private static func frontLenses() -> [Lens] {
+        if let centerStage = frontDevice(of: .builtInUltraWideCamera) {
+            return [
+                centerStageLens(for: centerStage, factor: CenterStageProfile.wideFactor),
+                centerStageLens(for: centerStage, factor: CenterStageProfile.narrowFactor)
+            ]
+        }
+
+        guard let wide = frontDevice(of: .builtInWideAngleCamera) else { return [] }
+        return [
+            Lens(
+                id: wide.uniqueID,
+                deviceType: wide.deviceType,
+                position: .front,
+                factor: 1.0,
+                deviceZoomFactor: 1.0
+            )
+        ]
+    }
+
+    private static func frontDevice(of type: AVCaptureDevice.DeviceType) -> AVCaptureDevice? {
+        AVCaptureDevice.DiscoverySession(
+            deviceTypes: [type], mediaType: .video, position: .front
+        ).devices.first
+    }
+
+    private static func centerStageLens(for device: AVCaptureDevice, factor: CGFloat) -> Lens {
+        Lens(
+            id: "\(device.uniqueID)@\(Lens.format(factor))",
+            deviceType: device.deviceType,
+            position: .front,
+            factor: factor,
+            deviceZoomFactor: factor / CenterStageProfile.wideFactor
+        )
     }
 }

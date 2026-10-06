@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct RootView: View {
-    @Environment(\.colorScheme) private var systemScheme
-
     @State private var settings = AppSettings()
     @State private var model: CameraModel?
 
@@ -24,8 +22,7 @@ struct RootView: View {
                 Color.clear
             }
         }
-        .themed(settings.appearance.resolved(against: systemScheme))
-        .preferredColorScheme(settings.appearance.preferredColorScheme)
+        .preferredColorScheme(.dark)
         .persistentSystemOverlays(.hidden)
         .statusBar(hidden: true)
         .onAppear {
@@ -35,30 +32,28 @@ struct RootView: View {
 }
 
 private struct PermissionGateView: View {
-    @Environment(\.theme) private var theme
+    @Environment(\.openURL) private var openURL
 
     let message: String
     let showsSettingsLink: Bool
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: Symbols.noPermission)
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(theme.iconInactive)
-
+        ContentUnavailableView {
+            Label(
+                showsSettingsLink ? "Camera Access Needed" : "Camera Unavailable",
+                systemImage: "camera.metering.unknown"
+            )
+        } description: {
             Text(message)
-                .font(Typography.body)
-                .foregroundStyle(theme.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            if showsSettingsLink, let url = URL(string: UIApplication.openSettingsURLString) {
-                Link("Open Settings", destination: url)
-                    .font(Typography.caption)
-                    .foregroundStyle(theme.accent)
+        } actions: {
+            if showsSettingsLink {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                }
+                .buttonStyle(.glass)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.canvas)
     }
 }
