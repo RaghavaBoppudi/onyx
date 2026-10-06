@@ -47,6 +47,16 @@ nonisolated final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDe
         state.withLock { $0.continuation = continuation }
     }
 
+    func abort(with error: CaptureError) {
+        let continuation = state.withLock { state -> CheckedContinuation<RawCapture, Error>? in
+            let taken = state.continuation
+            state.continuation = nil
+            state.payload = nil
+            return taken
+        }
+        continuation?.resume(throwing: error)
+    }
+
     func photoOutput(
         _ output: AVCapturePhotoOutput,
         willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings

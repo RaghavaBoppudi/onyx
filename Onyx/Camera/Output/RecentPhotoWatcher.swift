@@ -32,28 +32,6 @@ final class RecentPhotoWatcher: NSObject, PHPhotoLibraryChangeObserver {
         load(from: result)
     }
 
-    func fullImage(targetSize: CGSize) async -> UIImage? {
-        guard let identifier = assetIdentifier,
-              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
-        else { return nil }
-
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-        options.resizeMode = .fast
-
-        return await withCheckedContinuation { continuation in
-            imageManager.requestImage(
-                for: asset,
-                targetSize: targetSize,
-                contentMode: .aspectFit,
-                options: options
-            ) { image, _ in
-                continuation.resume(returning: image)
-            }
-        }
-    }
-
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         Task { @MainActor in
             guard let fetchResult,

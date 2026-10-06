@@ -53,7 +53,6 @@ final class CameraModel {
     private(set) var developingCount = 0
     private(set) var notice: Notice?
     private(set) var pendingLensID: String?
-    private(set) var isViewingLatest = false
     private(set) var lenses: [Lens] = []
     private(set) var selectedLens: Lens?
     private(set) var isDualAvailable = false
@@ -186,7 +185,10 @@ final class CameraModel {
     }
 
     func updateDualLayout(_ style: DualLayoutStyle) {
+        let previous = dualLayout
         dualLayout = style
+        guard isDualActive, previous == .pictureInPicture, style == .split else { return }
+        Task { await serialized { await self.refreshDual() } }
     }
 
     func cancelDoubleExposureSequence() {
@@ -222,16 +224,6 @@ final class CameraModel {
         location.stop()
         Haptics.shared.fire(.failure)
         show(.locationDenied)
-    }
-
-    func showLatestPhoto() {
-        guard recentPhoto.assetIdentifier != nil else { return }
-        Haptics.shared.fire(.toggle)
-        isViewingLatest = true
-    }
-
-    func hideLatestPhoto() {
-        isViewingLatest = false
     }
 
     func openPhotosApp() {
@@ -425,6 +417,13 @@ final class CameraModel {
         return true
     }
 
+    private func refreshDual() async {
+        guard isDualActive, activity == .idle else { return }
+        activity = .switching
+        defer { activity = .idle }
+        _ = await enterDual()
+    }
+
     private func exitDual() async {
         await dualEngine.stop()
         pipeline = .single
@@ -451,7 +450,7 @@ final class CameraModel {
         guard await ensureLibraryAccess() else { return }
 
         if isDualActive {
-            captureDual()
+            await captureDual()
             return
         }
 
@@ -499,8 +498,8 @@ final class CameraModel {
         return true
     }
 
-    private func captureDual() {
-        guard pipeline == .dual, let frames = dualEngine.frames.snapshot() else {
+    private func captureDual() async {
+        guard pipeline == .dual, let frames = await dualEngine.captureFrames() else {
             Log.capture.error("Dual capture failed: no frames available")
             Haptics.shared.fire(.failure)
             show(.captureFailed)
@@ -517,14 +516,16 @@ final class CameraModel {
 
         developingCount += 1
         Task {
-            await developDual(
-                frames,
-                id: id,
-                rearOrientation: rearOrientation,
-                frontOrientation: frontOrientation,
-                style: style,
-                geotag: geotag
-            )
+            await BackgroundTime.run("Onyx.developDual") {
+                await developDual(
+                    frames,
+                    id: id,
+                    rearOrientation: rearOrientation,
+                    frontOrientation: frontOrientation,
+                    style: style,
+                    geotag: geotag
+                )
+            }
             developingCount -= 1
         }
     }
@@ -571,7 +572,9 @@ final class CameraModel {
     private func beginDevelop(_ shot: RawCapture, request: CaptureRequest, finishingDoubleExposure: Bool) {
         developingCount += 1
         Task {
-            await develop(shot, request: request, finishingDoubleExposure: finishingDoubleExposure)
+            await BackgroundTime.run("Onyx.develop") {
+                await develop(shot, request: request, finishingDoubleExposure: finishingDoubleExposure)
+            }
             developingCount -= 1
         }
     }

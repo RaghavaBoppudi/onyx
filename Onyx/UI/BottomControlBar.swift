@@ -30,7 +30,7 @@ struct CaptureThumbnail: View {
     var body: some View {
         let watcher = model.recentPhoto
 
-        Button { openLatest() } label: {
+        Button { model.openPhotosApp() } label: {
             ZStack {
                 if let image = watcher.thumbnail {
                     Image(uiImage: image)
@@ -64,22 +64,13 @@ struct CaptureThumbnail: View {
             .frame(width: Metrics.Chrome.tapTarget, height: Metrics.Chrome.tapTarget)
         }
         .buttonStyle(ChromePressStyle())
-        .disabled(watcher.thumbnail == nil)
         .restricted(model.isAwaitingSecondFrame)
         .accessibilityLabel("Most recent photo")
         .accessibilityValue(model.isDeveloping ? "Saving" : "")
-        .accessibilityHint("Opens the latest photo")
+        .accessibilityHint("Opens Photos")
         .onChange(of: watcher.assetIdentifier) { _, _ in
             scale = reduceMotion ? 1 : Metrics.Thumbnail.popScale
             withAnimation(reduceMotion ? .easeOut(duration: 0.15) : Metrics.Motion.thumbnailPop) { scale = 1 }
-        }
-    }
-}
-
-extension CaptureThumbnail {
-    fileprivate func openLatest() {
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Metrics.Motion.panelReveal) {
-            model.showLatestPhoto()
         }
     }
 }

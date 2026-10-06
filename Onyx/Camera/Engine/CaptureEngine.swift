@@ -14,6 +14,7 @@ nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
     case noImageData
     case multiCamUnsupported
     case multiCamBudgetExceeded
+    case captureTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -29,6 +30,7 @@ nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
         case .noImageData:                "The capture returned no image data."
         case .multiCamUnsupported:        "This device cannot run both cameras at once."
         case .multiCamBudgetExceeded:     "Both cameras cannot run together right now."
+        case .captureTimedOut:            "The camera took too long to respond."
         }
     }
 }
@@ -38,6 +40,7 @@ nonisolated enum CaptureConstants {
     static let frontExposureBias: Float = 0
     static let colorSpace: AVCaptureColorSpace = .sRGB
     static let exposureConvergenceTimeout: Duration = .seconds(1)
+    static let captureTimeout: Duration = .seconds(10)
 
     static func exposureBias(for position: AVCaptureDevice.Position) -> Float {
         position == .front ? frontExposureBias : rearExposureBias
@@ -64,6 +67,7 @@ actor CaptureEngine {
     private var activeDevice: AVCaptureDevice?
     private var activePosition: AVCaptureDevice.Position = .back
     private var bayerFormat: OSType?
+    private var exposureBiasOverride: Float?
     private var isOutputAttached = false
     private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
     private var rawSupportCache: [String: RawSupport] = [:]
@@ -124,10 +128,16 @@ actor CaptureEngine {
     }
 
     func restoreExposureBias() async throws {
-        try await setExposureBias(CaptureConstants.exposureBias(for: activePosition))
+        exposureBiasOverride = nil
+        try await applyExposureBias(CaptureConstants.exposureBias(for: activePosition))
     }
 
     func setExposureBias(_ bias: Float) async throws {
+        exposureBiasOverride = bias
+        try await applyExposureBias(bias)
+    }
+
+    private func applyExposureBias(_ bias: Float) async throws {
         try await runExclusively { [self] in
             guard let device = activeDevice else {
                 throw CaptureError.deviceUnavailable("active")
@@ -231,7 +241,7 @@ actor CaptureEngine {
         bayerFormat = resolvedBayerFormat(for: lens, device: device)
 
         let zoom = FrontCameraPipeline.zoomFactor(for: lens, on: device)
-        let bias = CaptureConstants.exposureBias(for: lens.position)
+        let bias = exposureBiasOverride ?? CaptureConstants.exposureBias(for: lens.position)
         try device.withConfigurationLock {
             RawPipeline.configure(device: device, zoomFactor: zoom, exposureBias: bias)
         }
@@ -285,6 +295,14 @@ actor CaptureEngine {
         let id = settings.uniqueID
         inFlight[id] = processor
         defer { inFlight[id] = nil }
+
+        let watchdog = Task {
+            try? await Task.sleep(for: CaptureConstants.captureTimeout)
+            guard !Task.isCancelled else { return }
+            Log.capture.error("Capture timed out after \(CaptureConstants.captureTimeout.components.seconds)s")
+            processor.abort(with: .captureTimedOut)
+        }
+        defer { watchdog.cancel() }
 
         return try await withCheckedThrowingContinuation { continuation in
             processor.attach(continuation)

@@ -18,11 +18,11 @@ struct ViewfinderScreen: View {
         GeometryReader { proxy in
             ZStack {
                 layout(in: proxy.size, insets: proxy.safeAreaInsets)
-                    .environment(\.isBrowsingModes, isOverlayActive)
-                    .scaleEffect(isOverlayActive && !reduceMotion ? 0.94 : 1)
-                    .opacity(isOverlayActive ? 0 : 1)
-                    .allowsHitTesting(!isOverlayActive)
-                    .accessibilityHidden(isOverlayActive)
+                    .environment(\.isBrowsingModes, isBrowsingModes)
+                    .scaleEffect(isBrowsingModes && !reduceMotion ? 0.94 : 1)
+                    .opacity(isBrowsingModes ? 0 : 1)
+                    .allowsHitTesting(!isBrowsingModes)
+                    .accessibilityHidden(isBrowsingModes)
 
                 if isBrowsingModes {
                     ModeCardCarousel(
@@ -37,14 +37,6 @@ struct ViewfinderScreen: View {
                     .transition(reduceMotion ? .opacity : .scale(scale: 1.05).combined(with: .opacity))
                 }
 
-                if model.isViewingLatest {
-                    LatestPhotoViewer(
-                        model: model,
-                        topInset: proxy.safeAreaInsets.top,
-                        avoiding: modesFrame
-                    )
-                    .transition(.opacity)
-                }
             }
             .coordinateSpace(.named(ViewfinderSpace.name))
             .onPreferenceChange(ModesIconFrameKey.self) { frame in
@@ -177,24 +169,12 @@ struct ViewfinderScreen: View {
         }
     }
 
-    private var isOverlayActive: Bool {
-        isBrowsingModes || model.isViewingLatest
-    }
-
-    private func closeLatestPhoto() {
-        withAnimation(revealAnimation) { model.hideLatestPhoto() }
-    }
-
     @ViewBuilder
     private func modesBackButton(_ frame: CGRect?) -> some View {
-        if isOverlayActive {
+        if isBrowsingModes {
             let button = PillButton(title: "Back", systemImage: Symbols.back.outline) {
                 Haptics.shared.fire(.toggle)
-                if model.isViewingLatest {
-                    closeLatestPhoto()
-                } else {
-                    closeModes()
-                }
+                closeModes()
             }
             .accessibilityLabel("Back to camera")
             .transition(.opacity)
@@ -388,83 +368,5 @@ private struct RuleOfThirdsGrid: View {
         }
         .allowsHitTesting(false)
         .transition(.opacity)
-    }
-}
-
-private struct LatestPhotoViewer: View {
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-
-    let model: CameraModel
-    let topInset: CGFloat
-    let avoiding: CGRect?
-
-    @State private var image: UIImage?
-    @State private var didFail = false
-
-    var body: some View {
-        GeometryReader { proxy in
-            let region = imageRegion(in: proxy.size)
-
-            Group {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: Metrics.Viewfinder.cornerRadius)
-                                .strokeBorder(theme.thumbnailBorder, lineWidth: Metrics.Thumbnail.borderWidth)
-                        }
-                        .accessibilityLabel("Most recent photo")
-                } else if didFail {
-                    Text("That photo couldn't be loaded.")
-                        .font(Typography.caption)
-                        .foregroundStyle(theme.secondary)
-                } else {
-                    ProgressView()
-                        .tint(theme.iconActive)
-                }
-            }
-            .frame(width: region.width, height: region.height)
-            .position(x: region.midX, y: region.midY)
-            .overlay(alignment: .topTrailing) {
-                PillButton(title: "Photos", systemImage: "arrow.up.right.square") {
-                    model.openPhotosApp()
-                }
-                .accessibilityLabel("Open in Photos")
-                .padding(.top, topInset + Metrics.Chrome.edgeInset)
-                .padding(.trailing, Metrics.Chrome.edgeInset + 8)
-            }
-            .task {
-                let target = CGSize(
-                    width: region.width * displayScale,
-                    height: region.height * displayScale
-                )
-                image = await model.recentPhoto.fullImage(targetSize: target)
-                didFail = image == nil
-            }
-        }
-    }
-
-    private func imageRegion(in size: CGSize) -> CGRect {
-        let top = max(topInset + 64, size.height * 0.1)
-        var bottom = size.height - Metrics.ModeCarousel.edgeMargin
-
-        if let avoiding {
-            let columnMinX = size.width * 0.25
-            let columnMaxX = size.width * 0.75
-            if avoiding.maxX > columnMinX, avoiding.minX < columnMaxX {
-                bottom = min(bottom, avoiding.minY - Metrics.ModeCarousel.avoidanceGap)
-            }
-        }
-
-        let margin: CGFloat = 16
-        return CGRect(
-            x: margin,
-            y: top,
-            width: size.width - margin * 2,
-            height: max(bottom - top, Metrics.ModeCarousel.minimumCardHeight)
-        )
     }
 }

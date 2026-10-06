@@ -25,6 +25,12 @@ actor DualCaptureEngine {
     nonisolated let box = DualSessionBox()
     nonisolated let frames = DualFrameStore()
 
+    private let sessionQueue = DispatchSerialQueue(label: "com.onyx.camera.dual-session", qos: .userInitiated)
+
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        sessionQueue.asUnownedSerialExecutor()
+    }
+
     private nonisolated struct Source {
         let device: AVCaptureDevice
         let format: AVCaptureDevice.Format
@@ -56,6 +62,7 @@ actor DualCaptureEngine {
         let frontZoom = FrontCameraPipeline.zoomFactor(for: frontLens, on: frontDevice)
 
         let frontShare = style == .split ? 0.5 : 0.12
+        var lastError: any Error = CaptureError.multiCamBudgetExceeded
 
         for rearFormat in rearFormats {
             let required = Int(Double(rearFormat.videoPixelCount) * frontShare)
@@ -67,8 +74,10 @@ actor DualCaptureEngine {
             do {
                 try configure(rear: rear, front: front)
             } catch {
+                Log.capture.warning("Dual candidate rejected: \(error.localizedDescription, privacy: .public)")
                 tearDown()
-                throw error
+                lastError = error
+                continue
             }
 
             Log.capture.info("Dual try: rear \(Self.describe(rearFormat), privacy: .public), front \(Self.describe(frontFormat), privacy: .public), hardware \(self.session.hardwareCost), pressure \(self.session.systemPressureCost)")
@@ -80,13 +89,18 @@ actor DualCaptureEngine {
             }
 
             tearDown()
+            lastError = CaptureError.multiCamBudgetExceeded
         }
 
-        throw CaptureError.multiCamBudgetExceeded
+        throw lastError
     }
 
     func stop() {
         shutDown()
+    }
+
+    func captureFrames() -> DualFrames? {
+        frames.copySnapshot()
     }
 
     private var isWithinBudget: Bool {

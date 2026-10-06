@@ -27,11 +27,18 @@ nonisolated final class DualFrameStore: NSObject, AVCaptureVideoDataOutputSample
         }
     }
 
-    func snapshot() -> DualFrames? {
-        latest.withLockUnchecked { state in
+    func copySnapshot() -> DualFrames? {
+        let held = latest.withLockUnchecked { state -> DualFrames? in
             guard let rear = state.rear, let front = state.front else { return nil }
             return DualFrames(rear: rear, front: front)
         }
+
+        guard let held,
+              let rear = held.rear.deepCopy(),
+              let front = held.front.deepCopy()
+        else { return nil }
+
+        return DualFrames(rear: rear, front: front)
     }
 
     func reset() {
@@ -54,5 +61,65 @@ nonisolated final class DualFrameStore: NSObject, AVCaptureVideoDataOutputSample
                 state.front = buffer
             }
         }
+    }
+}
+
+nonisolated extension CVPixelBuffer {
+
+    func deepCopy() -> CVPixelBuffer? {
+        var created: CVPixelBuffer?
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()] as CFDictionary
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            CVPixelBufferGetWidth(self),
+            CVPixelBufferGetHeight(self),
+            CVPixelBufferGetPixelFormatType(self),
+            attributes,
+            &created
+        )
+        guard status == kCVReturnSuccess, let copy = created else { return nil }
+
+        CVBufferPropagateAttachments(self, copy)
+
+        guard CVPixelBufferLockBaseAddress(self, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(self, .readOnly) }
+        guard CVPixelBufferLockBaseAddress(copy, []) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(copy, []) }
+
+        let planeCount = CVPixelBufferGetPlaneCount(self)
+        if planeCount == 0 {
+            copyRows(
+                from: CVPixelBufferGetBaseAddress(self),
+                sourceStride: CVPixelBufferGetBytesPerRow(self),
+                to: CVPixelBufferGetBaseAddress(copy),
+                destinationStride: CVPixelBufferGetBytesPerRow(copy),
+                rows: CVPixelBufferGetHeight(self)
+            )
+        } else {
+            for plane in 0..<planeCount {
+                copyRows(
+                    from: CVPixelBufferGetBaseAddressOfPlane(self, plane),
+                    sourceStride: CVPixelBufferGetBytesPerRowOfPlane(self, plane),
+                    to: CVPixelBufferGetBaseAddressOfPlane(copy, plane),
+                    destinationStride: CVPixelBufferGetBytesPerRowOfPlane(copy, plane),
+                    rows: CVPixelBufferGetHeightOfPlane(self, plane)
+                )
+            }
+        }
+        return copy
+    }
+}
+
+nonisolated private func copyRows(
+    from source: UnsafeRawPointer?,
+    sourceStride: Int,
+    to destination: UnsafeMutableRawPointer?,
+    destinationStride: Int,
+    rows: Int
+) {
+    guard let source, let destination else { return }
+    let rowBytes = min(sourceStride, destinationStride)
+    for row in 0..<rows {
+        memcpy(destination + row * destinationStride, source + row * sourceStride, rowBytes)
     }
 }
