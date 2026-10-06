@@ -290,7 +290,9 @@ actor CaptureEngine {
         }
 
         let processor = PhotoCaptureProcessor(
-            orientation: request.orientation, onShutterFire: onShutterFire
+            orientation: request.orientation,
+            exposureBias: activeDevice?.exposureTargetBias,
+            onShutterFire: onShutterFire
         )
 
         let id = settings.uniqueID

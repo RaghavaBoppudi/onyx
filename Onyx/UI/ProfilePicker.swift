@@ -29,7 +29,7 @@ struct ProfilePicker: View {
 
     private var selection: Binding<CaptureProfile> {
         Binding(
-            get: { model.profile },
+            get: { model.pendingProfile ?? model.profile },
             set: { model.requestProfile($0) }
         )
     }

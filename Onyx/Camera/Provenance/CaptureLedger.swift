@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+import os
 
 nonisolated extension Sequence where Element == UInt8 {
     var onyxHex: String {
@@ -40,9 +41,14 @@ private nonisolated enum SigningKey {
 
 actor CaptureLedger {
 
-    private struct Tail {
+    private nonisolated struct Tail {
         let sequence: Int
         let hash: String
+        let signer: String
+    }
+
+    private nonisolated struct Header: Decodable {
+        let sequence: Int
         let signer: String
     }
 
@@ -58,6 +64,7 @@ actor CaptureLedger {
 
     private let directory: URL
     private let fileURL: URL
+    private let chain = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
     private var cachedKey: SigningKey?
     private var tail: Tail?
 
@@ -66,39 +73,99 @@ actor CaptureLedger {
         fileURL = directory.appending(path: "ledger.jsonl", directoryHint: .notDirectory)
     }
 
+    nonisolated func submit(dng: Data, context: CaptureContext) -> Task<LedgerReceipt, any Error> {
+        chained { [self] in
+            try await append(dng: dng, context: context)
+        }
+    }
+
+    nonisolated func submitStatus(
+        captureID: UUID,
+        event: String,
+        detail: String
+    ) -> Task<LedgerReceipt, any Error> {
+        chained { [self] in
+            try await appendStatus(captureID: captureID, event: event, detail: detail)
+        }
+    }
+
+    private nonisolated func chained<T: Sendable>(
+        _ work: @escaping @Sendable () async throws -> T
+    ) -> Task<T, any Error> {
+        chain.withLock { last in
+            let before = last
+            let task = Task<T, any Error> {
+                await before?.value
+                return try await work()
+            }
+            last = Task { _ = await task.result }
+            return task
+        }
+    }
+
     func append(dng: Data, context: CaptureContext) throws -> LedgerReceipt {
+        let digest = SHA256.hash(data: dng).onyxHex
+
+        let payload = try commit { head, key in
+            LedgerPayload(
+                schema: 2,
+                sequence: head.sequence + 1,
+                previousHash: head.hash,
+                capturedAtMillis: context.capturedAtMillis,
+                signer: key.id,
+                genesis: nil,
+                status: nil,
+                capture: LedgerPayload.Capture(
+                    id: context.id.uuidString,
+                    dngSHA256: digest,
+                    dngBytes: dng.count,
+                    lens: context.lens,
+                    flashRequested: context.flashRequested,
+                    flashEnabled: context.flashEnabled,
+                    exposureBiasRequested: context.exposureBiasRequested,
+                    exposureBiasActual: context.exposureBiasActual,
+                    locationStatus: context.locationStatus,
+                    location: context.location,
+                    depth: LedgerPayload.Depth(
+                        status: "unavailable",
+                        reason: "rear lenses are physical devices without depth output"
+                    )
+                )
+            )
+        }
+
+        return LedgerReceipt(sequence: payload.sequence, dngSHA256: digest)
+    }
+
+    func appendStatus(captureID: UUID, event: String, detail: String) throws -> LedgerReceipt {
+        let payload = try commit { head, key in
+            LedgerPayload(
+                schema: 2,
+                sequence: head.sequence + 1,
+                previousHash: head.hash,
+                capturedAtMillis: Self.nowMillis(),
+                signer: key.id,
+                genesis: nil,
+                status: LedgerPayload.Status(
+                    captureID: captureID.uuidString,
+                    event: event,
+                    detail: detail
+                ),
+                capture: nil
+            )
+        }
+
+        return LedgerReceipt(sequence: payload.sequence, dngSHA256: nil)
+    }
+
+    private func commit(_ build: (Tail, SigningKey) -> LedgerPayload) throws -> LedgerPayload {
         let key = try signingKey()
         let head = try chainHead(for: key)
-
-        let digest = SHA256.hash(data: dng).onyxHex
-        let capture = LedgerPayload.Capture(
-            id: context.id.uuidString,
-            dngSHA256: digest,
-            dngBytes: dng.count,
-            lens: context.lens,
-            flashRequested: context.flashRequested,
-            exposureBias: context.exposureBias,
-            location: context.location,
-            depth: LedgerPayload.Depth(
-                status: "unavailable",
-                reason: "rear lenses are physical devices without depth output"
-            )
-        )
-        let payload = LedgerPayload(
-            schema: 1,
-            sequence: head.sequence + 1,
-            previousHash: head.hash,
-            capturedAtMillis: Self.nowMillis(),
-            signer: key.id,
-            genesis: nil,
-            capture: capture
-        )
-
+        let payload = build(head, key)
         let entry = try seal(payload, with: key)
         try write(entry)
         tail = Tail(sequence: payload.sequence, hash: entry.hash, signer: key.id)
-
-        return LedgerReceipt(sequence: payload.sequence, dngSHA256: digest, entryHash: entry.hash)
+        return payload
     }
 
     private func chainHead(for key: SigningKey) throws -> Tail {
@@ -127,12 +194,13 @@ actor CaptureLedger {
             reason: reason
         )
         let payload = LedgerPayload(
-            schema: 1,
+            schema: 2,
             sequence: (previous?.sequence ?? -1) + 1,
             previousHash: previous?.hash ?? String(repeating: "0", count: 64),
             capturedAtMillis: Self.nowMillis(),
             signer: key.id,
             genesis: genesis,
+            status: nil,
             capture: nil
         )
 
@@ -180,20 +248,51 @@ actor CaptureLedger {
 
     private func readTail() -> TailReading {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return .empty }
-        guard let data = try? Data(contentsOf: fileURL),
-              let text = String(data: data, encoding: .utf8)
-        else { return .unreadable }
+        guard let data = try? Data(contentsOf: fileURL) else { return .unreadable }
+        if data.isEmpty { return .empty }
 
-        guard let last = text.split(separator: "\n", omittingEmptySubsequences: true).last else {
-            return .empty
+        let bytes = [UInt8](data)
+        let newline = UInt8(ascii: "\n")
+        var end = bytes.count
+
+        while end > 0 {
+            var lineEnd = end
+            if bytes[lineEnd - 1] == newline { lineEnd -= 1 }
+            let lineStart = bytes[..<lineEnd].lastIndex(of: newline).map { $0 + 1 } ?? 0
+
+            if lineStart < lineEnd, let parsed = Self.parseTail(Data(bytes[lineStart..<lineEnd])) {
+                let isWellFormed = lineEnd == bytes.count - 1 && bytes[lineEnd] == newline
+                if !isWellFormed { repair(keeping: lineEnd) }
+                return .tail(parsed)
+            }
+            end = lineStart
         }
 
-        let decoder = JSONDecoder()
-        guard let entry = try? decoder.decode(LedgerEntry.self, from: Data(last.utf8)),
-              let payload = try? decoder.decode(LedgerPayload.self, from: Data(entry.payload.utf8))
-        else { return .unreadable }
+        return .unreadable
+    }
 
-        return .tail(Tail(sequence: payload.sequence, hash: entry.hash, signer: payload.signer))
+    private static func parseTail(_ line: Data) -> Tail? {
+        let decoder = JSONDecoder()
+        guard let entry = try? decoder.decode(LedgerEntry.self, from: line),
+              SHA256.hash(data: Data(entry.payload.utf8)).onyxHex == entry.hash,
+              let header = try? decoder.decode(Header.self, from: Data(entry.payload.utf8))
+        else { return nil }
+
+        return Tail(sequence: header.sequence, hash: entry.hash, signer: header.signer)
+    }
+
+    private func repair(keeping length: Int) {
+        guard let handle = try? FileHandle(forUpdating: fileURL) else { return }
+        defer { try? handle.close() }
+
+        do {
+            try handle.truncate(atOffset: UInt64(length))
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data([0x0A]))
+            try handle.synchronize()
+        } catch {
+            Log.library.error("Ledger tail repair failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func quarantineFile() {

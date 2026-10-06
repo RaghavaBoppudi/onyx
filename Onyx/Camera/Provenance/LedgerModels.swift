@@ -27,9 +27,13 @@ extension LocationEvidence {
 
 nonisolated struct CaptureContext: Sendable {
     let id: UUID
+    let capturedAtMillis: Int64
     let lens: String
     let flashRequested: String
-    let exposureBias: Float
+    let flashEnabled: Bool?
+    let exposureBiasRequested: Float
+    let exposureBiasActual: Float?
+    let locationStatus: String
     let location: LocationEvidence?
 }
 
@@ -54,9 +58,18 @@ nonisolated struct LedgerPayload: Codable, Sendable {
         var dngBytes: Int
         var lens: String
         var flashRequested: String
-        var exposureBias: Float
+        var flashEnabled: Bool?
+        var exposureBiasRequested: Float
+        var exposureBiasActual: Float?
+        var locationStatus: String
         var location: LocationEvidence?
         var depth: Depth
+    }
+
+    nonisolated struct Status: Codable, Sendable {
+        var captureID: String
+        var event: String
+        var detail: String
     }
 
     var schema: Int
@@ -65,6 +78,7 @@ nonisolated struct LedgerPayload: Codable, Sendable {
     var capturedAtMillis: Int64
     var signer: String
     var genesis: Genesis?
+    var status: Status?
     var capture: Capture?
 }
 
@@ -76,8 +90,7 @@ nonisolated struct LedgerEntry: Codable, Sendable {
 
 nonisolated struct LedgerReceipt: Sendable {
     let sequence: Int
-    let dngSHA256: String
-    let entryHash: String
+    let dngSHA256: String?
 }
 
 nonisolated enum LedgerError: Error, Sendable {

@@ -8,6 +8,8 @@ nonisolated struct RawCapture: Sendable {
     let data: Data
     let isRAW: Bool
     let orientation: CGImagePropertyOrientation
+    var exposureBias: Float? = nil
+    var flashEnabled: Bool? = nil
 }
 
 nonisolated struct CaptureRequest: Sendable {
@@ -32,14 +34,17 @@ nonisolated final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDe
     }
 
     private let orientation: CGImagePropertyOrientation
+    private let exposureBias: Float?
     private let onShutterFire: @Sendable () -> Void
     private let state = Mutex(State())
 
     init(
         orientation: CGImagePropertyOrientation,
+        exposureBias: Float?,
         onShutterFire: @escaping @Sendable () -> Void
     ) {
         self.orientation = orientation
+        self.exposureBias = exposureBias
         self.onShutterFire = onShutterFire
     }
 
@@ -77,7 +82,13 @@ nonisolated final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDe
             Log.capture.error("No file data representation")
             return
         }
-        let capture = RawCapture(data: data, isRAW: photo.isRawPhoto, orientation: orientation)
+        let capture = RawCapture(
+            data: data,
+            isRAW: photo.isRawPhoto,
+            orientation: orientation,
+            exposureBias: exposureBias,
+            flashEnabled: photo.resolvedSettings.isFlashEnabled
+        )
         state.withLock { $0.payload = capture }
     }
 

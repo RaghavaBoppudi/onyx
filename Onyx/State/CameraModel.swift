@@ -12,6 +12,7 @@ enum Notice: Equatable {
     case locationDenied
     case rawUnavailable
     case ledgerFailed
+    case locationUnavailable
 
     var message: String {
         switch self {
@@ -23,6 +24,7 @@ enum Notice: Equatable {
         case .locationDenied: "Allow Location access in Settings to geotag your photos."
         case .rawUnavailable: "This lens can't shoot RAW, so Journalist mode can't use it."
         case .ledgerFailed: "Saved, but the capture log couldn't be updated."
+        case .locationUnavailable: "Saved without location. No recent GPS fix was available."
         }
     }
 
@@ -62,7 +64,7 @@ final class CameraModel {
     private(set) var isDualAvailable = false
     private(set) var selectedMode: CaptureMode = .standard
     private(set) var profile: CaptureProfile = .standard
-    private(set) var isChangingProfile = false
+    private(set) var pendingProfile: CaptureProfile?
     private(set) var dualLayout: DualLayoutStyle = .pictureInPicture
     private(set) var blinkOpacity: Double = 0
     private(set) var feedback: FeedbackEvent = .none
@@ -76,25 +78,24 @@ final class CameraModel {
     let recentPhoto = RecentPhotoWatcher()
     let location = LocationProvider()
 
-    private static let developLimit = 3
+    private var developLimit: Int { isJournalist ? 2 : 3 }
 
     var isJournalist: Bool { profile == .journalist }
 
     var acceptsShutter: Bool {
         phase == .running
             && activity == .idle
-            && developingCount < Self.developLimit
-            && !isChangingProfile
+            && developingCount < developLimit
     }
 
     var isShutterDimmed: Bool {
-        activity == .capturing || developingCount >= Self.developLimit || isChangingProfile
+        activity == .capturing || developingCount >= developLimit
     }
     var isSwitching: Bool { activity == .switching }
     var isDeveloping: Bool { developingCount > 0 }
 
     var canChangeProfile: Bool {
-        phase == .running && activity == .idle && !isChangingProfile
+        phase == .running && activity == .idle && pendingProfile == nil
     }
 
     var ghostOverlay: UIImage? {
@@ -190,11 +191,8 @@ final class CameraModel {
 
     func requestProfile(_ new: CaptureProfile) {
         guard canChangeProfile, new != profile else { return }
-        profile = new
-        settings.captureProfile = new
-        isChangingProfile = true
-        emit(.selection)
-        Task { await serialized { await self.applyProfileChange() } }
+        pendingProfile = new
+        Task { await serialized { await self.performSetProfile(new) } }
     }
 
     func capture() async {
@@ -389,12 +387,14 @@ final class CameraModel {
         emit(.selection)
     }
 
-    private func applyProfileChange() async {
-        defer { isChangingProfile = false }
+    private func performSetProfile(_ new: CaptureProfile) async {
+        defer { if pendingProfile == new { pendingProfile = nil } }
+        guard pendingProfile == new, new != profile else { return }
+
         activity = .switching
         defer { activity = .idle }
 
-        if isJournalist {
+        if new == .journalist {
             if isAwaitingSecondFrame {
                 exposureSequence = .none
                 await discardHeldExposure()
@@ -403,11 +403,16 @@ final class CameraModel {
             if cameraPosition == .front { await returnToRearLens() }
 
             await applyExposureBias(CaptureConstants.journalistExposureBias)
+            profile = .journalist
             if settings.geotagsPhotos, LocationProvider.isAuthorized { location.start() }
         } else {
             location.stop()
             await applyExposureBias(selectedMode.isDoubleExposure ? DoubleExposureProfile.exposureBias : nil)
+            profile = .standard
         }
+
+        settings.captureProfile = new
+        emit(.selection)
     }
 
     private func returnToRearLens() async {
@@ -515,7 +520,7 @@ final class CameraModel {
     }
 
     private func performCapture() async {
-        guard phase == .running, activity == .idle, developingCount < Self.developLimit else { return }
+        guard phase == .running, activity == .idle, developingCount < developLimit else { return }
         activity = .capturing
         defer { activity = .idle }
 
@@ -576,6 +581,10 @@ final class CameraModel {
     }
 
     private func captureJournalist() async {
+        if settings.geotagsPhotos, !location.isRunning, LocationProvider.isAuthorized {
+            location.start()
+        }
+
         let request = makeRequest()
 
         guard let shot = await takePhoto(request, errorContext: "Journalist capture") else { return }
@@ -587,33 +596,40 @@ final class CameraModel {
             return
         }
 
+        let wantsLocation = settings.geotagsPhotos
+        let locationMissing = wantsLocation && request.location == nil
+
         let context = CaptureContext(
             id: request.id,
+            capturedAtMillis: Int64(Date.now.timeIntervalSince1970 * 1000),
             lens: selectedLens?.label ?? "unknown",
             flashRequested: Self.flashLabel(request.flashMode),
-            exposureBias: CaptureConstants.journalistExposureBias,
+            flashEnabled: shot.flashEnabled,
+            exposureBiasRequested: CaptureConstants.journalistExposureBias,
+            exposureBiasActual: shot.exposureBias,
+            locationStatus: !wantsLocation ? "off" : (locationMissing ? "unavailable" : "recorded"),
             location: request.location.map { LocationEvidence($0) }
         )
 
-        var ledgerFailed = false
-        do {
-            let receipt = try await ledger.append(dng: shot.data, context: context)
-            Log.library.info("Ledger #\(receipt.sequence) sha256 \(receipt.dngSHA256.prefix(12), privacy: .public)")
-        } catch {
-            ledgerFailed = true
-            Log.library.error("Ledger append failed: \(error.localizedDescription, privacy: .public)")
-        }
+        let entry = ledger.submit(dng: shot.data, context: context)
 
         developingCount += 1
         Task {
             await BackgroundTime.run("Onyx.saveDNG") {
-                await saveDNG(shot.data, request: request, ledgerFailed: ledgerFailed)
+                await saveDNG(shot.data, request: request, entry: entry, locationMissing: locationMissing)
             }
             developingCount -= 1
         }
     }
 
-    private func saveDNG(_ data: Data, request: CaptureRequest, ledgerFailed: Bool) async {
+    private func saveDNG(
+        _ data: Data,
+        request: CaptureRequest,
+        entry: Task<LedgerReceipt, any Error>,
+        locationMissing: Bool
+    ) async {
+        var saveError: (any Error)?
+
         do {
             try await library.saveDNG(
                 data,
@@ -621,11 +637,29 @@ final class CameraModel {
                 location: request.location
             )
             emit(.success)
-            if ledgerFailed { show(.ledgerFailed) }
         } catch {
+            saveError = error
             Log.library.error("DNG save failed [\(request.id.uuidString, privacy: .public)]: \(error.localizedDescription, privacy: .public)")
             emit(.failure)
             show(.saveFailed)
+        }
+
+        do {
+            let receipt = try await entry.value
+            Log.library.info("Ledger #\(receipt.sequence) sha256 \(String(receipt.dngSHA256?.prefix(12) ?? ""), privacy: .public)")
+
+            if let saveError {
+                _ = ledger.submitStatus(
+                    captureID: request.id,
+                    event: "save-failed",
+                    detail: saveError.localizedDescription
+                )
+            } else if locationMissing {
+                show(.locationUnavailable)
+            }
+        } catch {
+            Log.library.error("Ledger append failed [\(request.id.uuidString, privacy: .public)]: \(error.localizedDescription, privacy: .public)")
+            if saveError == nil { show(.ledgerFailed) }
         }
     }
 

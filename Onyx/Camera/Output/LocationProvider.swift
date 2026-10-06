@@ -27,6 +27,9 @@ final class LocationProvider {
 
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var serviceSession: CLServiceSession?
+    @ObservationIgnored private var generation = 0
+
+    var isRunning: Bool { updatesTask != nil }
 
     var freshLocation: CLLocation? {
         guard let location = latestLocation,
@@ -39,6 +42,9 @@ final class LocationProvider {
     func start() {
         guard updatesTask == nil else { return }
 
+        generation += 1
+        let current = generation
+
         serviceSession = CLServiceSession(authorization: .whenInUse)
         updatesTask = Task { [weak self] in
             do {
@@ -49,6 +55,7 @@ final class LocationProvider {
             } catch {
                 Log.capture.warning("Location updates ended: \(error.localizedDescription, privacy: .public)")
             }
+            self?.finish(generation: current)
         }
     }
 
@@ -59,6 +66,13 @@ final class LocationProvider {
         serviceSession = nil
         latestLocation = nil
         isAccessDenied = false
+    }
+
+    private func finish(generation finished: Int) {
+        guard generation == finished else { return }
+        updatesTask = nil
+        serviceSession?.invalidate()
+        serviceSession = nil
     }
 
     private func apply(_ update: CLLocationUpdate) {
