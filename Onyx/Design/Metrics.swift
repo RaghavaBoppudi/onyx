@@ -25,7 +25,7 @@ nonisolated enum Metrics {
         static let railItemSpacing: CGFloat = 22
         static let statusRailWidth: CGFloat = tapTarget + edgeInset * 2
         static let railWidth: CGFloat = Shutter.outerDiameter + edgeInset * 2
-        static let statusGroupHeight: CGFloat = tapTarget * 3 + railItemSpacing * 2
+        static let statusGroupHeight: CGFloat = tapTarget * 4 + railItemSpacing * 3
         static let modePillWidth: CGFloat = 104
         static let modePillHeight: CGFloat = 36
         static let modeButtonHeight: CGFloat = 44
@@ -37,6 +37,7 @@ nonisolated enum Metrics {
         static let ringWidth: CGFloat = 4
         static let ringGap: CGFloat = 7
         static let pressedScale: CGFloat = 0.90
+        static let cancelSlop: CGFloat = 24
         static let outerDiameter: CGFloat = diameter + ringGap * 2
     }
 
@@ -61,6 +62,10 @@ nonisolated enum Metrics {
         static let neighborOpacity: CGFloat = 0.5
         static let dismissDistance: CGFloat = 110
         static let dismissTravel: CGFloat = 280
+        static let topClearanceFraction: CGFloat = 0.12
+        static let avoidanceGap: CGFloat = 12
+        static let edgeMargin: CGFloat = 24
+        static let minimumCardHeight: CGFloat = 120
     }
 
     enum Dual {

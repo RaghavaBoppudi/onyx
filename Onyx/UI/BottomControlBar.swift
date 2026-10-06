@@ -30,7 +30,7 @@ struct CaptureThumbnail: View {
     var body: some View {
         let watcher = model.recentPhoto
 
-        Button { model.openPhotosApp() } label: {
+        Button { openLatest() } label: {
             ZStack {
                 if let image = watcher.thumbnail {
                     Image(uiImage: image)
@@ -46,6 +46,18 @@ struct CaptureThumbnail: View {
                 Circle()
                     .strokeBorder(theme.thumbnailBorder, lineWidth: Metrics.Thumbnail.borderWidth)
             }
+            .overlay {
+                if model.isDeveloping {
+                    ZStack {
+                        Circle().fill(theme.pillFill)
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(theme.iconActive)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .onyxAnimation(.smooth(duration: 0.2), value: model.isDeveloping)
             .scaleEffect(scale)
             .rotationEffect(rotation)
             .onyxAnimation(Metrics.Motion.glyphRotation, value: rotation)
@@ -55,10 +67,19 @@ struct CaptureThumbnail: View {
         .disabled(watcher.thumbnail == nil)
         .restricted(model.isAwaitingSecondFrame)
         .accessibilityLabel("Most recent photo")
-        .accessibilityHint("Opens Photos")
+        .accessibilityValue(model.isDeveloping ? "Saving" : "")
+        .accessibilityHint("Opens the latest photo")
         .onChange(of: watcher.assetIdentifier) { _, _ in
             scale = reduceMotion ? 1 : Metrics.Thumbnail.popScale
             withAnimation(reduceMotion ? .easeOut(duration: 0.15) : Metrics.Motion.thumbnailPop) { scale = 1 }
+        }
+    }
+}
+
+extension CaptureThumbnail {
+    fileprivate func openLatest() {
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Metrics.Motion.panelReveal) {
+            model.showLatestPhoto()
         }
     }
 }
@@ -71,6 +92,7 @@ struct ShutterButton: View {
 
     var body: some View {
         let isEnabled = model.acceptsShutter
+        let radius = Metrics.Shutter.outerDiameter / 2
 
         ZStack {
             Circle()
@@ -85,13 +107,23 @@ struct ShutterButton: View {
         .opacity(model.isShutterDimmed ? 0.4 : 1)
         .contentShape(.circle)
         .animation(Metrics.Motion.shutterPress, value: isPressed)
-        .onLongPressGesture(minimumDuration: 0, pressing: { pressing in
-            if pressing, isEnabled, !isPressed { Haptics.shared.fire(.shutterArm) }
-            isPressed = pressing
-        }, perform: {
-            guard isEnabled else { return }
-            Task { await model.capture() }
-        })
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let isInside = hypot(value.location.x - radius, value.location.y - radius)
+                        <= radius + Metrics.Shutter.cancelSlop
+                    if isInside, !isPressed, isEnabled { Haptics.shared.fire(.shutterArm) }
+                    isPressed = isInside
+                }
+                .onEnded { value in
+                    isPressed = false
+                    guard isEnabled else { return }
+                    let isInside = hypot(value.location.x - radius, value.location.y - radius)
+                        <= radius + Metrics.Shutter.cancelSlop
+                    guard isInside else { return }
+                    Task { await model.capture() }
+                }
+        )
         .accessibilityLabel("Shutter")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {

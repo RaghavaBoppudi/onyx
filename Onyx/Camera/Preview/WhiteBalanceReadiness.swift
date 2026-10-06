@@ -1,6 +1,7 @@
 import AVFoundation
 import Observation
 
+@MainActor
 @Observable
 final class WhiteBalanceReadiness {
 

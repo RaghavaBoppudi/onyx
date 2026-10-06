@@ -18,6 +18,7 @@ actor ImageRenderer {
     nonisolated struct Output: Sendable {
         let heic: Data
         let usedRAWPath: Bool
+        let isDegraded: Bool
     }
 
     private let context = CIContext(options: [.cacheIntermediates: false])
@@ -38,34 +39,50 @@ actor ImageRenderer {
         doubleExposureCurves = Self.curves(tone: DoubleExposureProfile.toneCurve, mono: false)
         doubleExposureMonoCurves = Self.curves(tone: DoubleExposureProfile.toneCurve, mono: true)
 
-        glassKernel = CIWarpKernel(source: """
-            kernel vec2 flutedGlassWarp(float sectionWidth, float maxDisplacement, vec2 axis) {
-                float coord = dot(destCoord(), axis);
-                float localCoord = (fract(coord / sectionWidth) - 0.5) * 2.0;
-                float offset = (localCoord * localCoord * localCoord) * maxDisplacement;
-                return destCoord() + (axis * offset);
-            }
-            """)
+        let library = Self.metalLibraryData()
+        glassKernel = Self.warpKernel("flutedGlassWarp", in: library)
+        glassShadingKernel = Self.colorKernel("flutedGlassShading", in: library)
+        monoBlueFilterKernel = Self.colorKernel("monoBlueFilter", in: library)
 
-        glassShadingKernel = CIColorKernel(source: """
-            kernel vec4 flutedGlassShading(__sample image, float sectionWidth, float shadingStrength, float shadingSharpness, vec2 axis) {
-                float coord = dot(destCoord(), axis);
-                float localCoord = (fract(coord / sectionWidth) - 0.5) * 2.0;
-                float shade = sign(localCoord) * pow(abs(localCoord), shadingSharpness) * shadingStrength;
-                vec3 shaded = image.rgb * (1.0 + shade);
-                return vec4(clamp(shaded, 0.0, 1.0), image.a);
-            }
-            """)
+        Log.render.info("Kernels loaded: glassWarp=\(self.glassKernel != nil) glassShading=\(self.glassShadingKernel != nil) monoBlue=\(self.monoBlueFilterKernel != nil)")
+    }
 
-        monoBlueFilterKernel = CIColorKernel(source: """
-            kernel vec4 monoBlueFilter(__sample image, float strength) {
-                float baseLuma = dot(image.rgb, vec3(0.2126, 0.7152, 0.0722));
-                float blueBias = image.b - max(image.r, image.g);
-                float darken = clamp(blueBias, 0.0, 1.0) * strength;
-                float gray = clamp(baseLuma - darken, 0.0, 1.0);
-                return vec4(gray, gray, gray, image.a);
-            }
-            """)
+    private static func warpKernel(_ name: String, in library: Data?) -> CIWarpKernel? {
+        guard let library else { return nil }
+        do {
+            return try CIWarpKernel(functionName: name, fromMetalLibraryData: library)
+        } catch {
+            Log.render.error("Kernel \(name, privacy: .public) failed to load: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    private static func colorKernel(_ name: String, in library: Data?) -> CIColorKernel? {
+        guard let library else { return nil }
+        do {
+            return try CIColorKernel(functionName: name, fromMetalLibraryData: library)
+        } catch {
+            Log.render.error("Kernel \(name, privacy: .public) failed to load: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    private func isDegraded(_ mode: CaptureMode) -> Bool {
+        switch mode {
+        case .glass: glassKernel == nil || glassShadingKernel == nil
+        case .doubleExposureMono: monoBlueFilterKernel == nil
+        default: false
+        }
+    }
+
+    private static func metalLibraryData() -> Data? {
+        guard let url = Bundle.main.url(forResource: "default", withExtension: "metallib"),
+              let data = try? Data(contentsOf: url)
+        else {
+            Log.render.error("Core Image Metal library not found; Glass and the Mono blue filter are disabled")
+            return nil
+        }
+        return data
     }
 
     func warmUp() {
@@ -81,7 +98,7 @@ actor ImageRenderer {
         let graded = request.position == .front && !shot.isRAW
             ? gradeProcessed(decoded, for: request.mode)
             : grade(decoded, for: request.mode)
-        return try encode(graded, usedRAWPath: shot.isRAW)
+        return try encode(graded, usedRAWPath: shot.isRAW, isDegraded: isDegraded(request.mode))
     }
 
     func renderDual(
@@ -124,7 +141,11 @@ actor ImageRenderer {
         blend.backgroundImage = first
         let combined = (blend.outputImage ?? first).cropped(to: first.extent)
 
-        return try encode(grade(combined, for: request.mode), usedRAWPath: second.isRAW)
+        return try encode(
+            grade(combined, for: request.mode),
+            usedRAWPath: second.isRAW,
+            isDegraded: isDegraded(request.mode)
+        )
     }
 
     private static func curves(tone: [CGPoint], mono: Bool) -> Data {
@@ -344,7 +365,7 @@ actor ImageRenderer {
         return jpeg
     }
 
-    private func encode(_ image: CIImage, usedRAWPath: Bool) throws -> Output {
+    private func encode(_ image: CIImage, usedRAWPath: Bool, isDegraded: Bool = false) throws -> Output {
         guard let heic = self.context.heifRepresentation(
             of: image,
             format: .RGBA8,
@@ -358,6 +379,6 @@ actor ImageRenderer {
             throw CaptureError.renderFailed("HEIC encode failed")
         }
 
-        return Output(heic: heic, usedRAWPath: usedRAWPath)
+        return Output(heic: heic, usedRAWPath: usedRAWPath, isDegraded: isDegraded)
     }
 }

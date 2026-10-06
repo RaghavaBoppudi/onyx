@@ -33,7 +33,7 @@ actor DualCaptureEngine {
 
     private var session: AVCaptureMultiCamSession { box.session }
 
-    func start(rear rearLens: Lens, front frontLens: Lens) throws {
+    func start(rear rearLens: Lens, front frontLens: Lens, style: DualLayoutStyle) throws {
         guard AVCaptureMultiCamSession.isMultiCamSupported else {
             throw CaptureError.multiCamUnsupported
         }
@@ -55,17 +55,14 @@ actor DualCaptureEngine {
         let rearZoom = FrontCameraPipeline.zoomFactor(for: rearLens, on: rearDevice)
         let frontZoom = FrontCameraPipeline.zoomFactor(for: frontLens, on: frontDevice)
 
-        for level in 0..<max(rearFormats.count, frontFormats.count) {
-            let rear = Source(
-                device: rearDevice,
-                format: rearFormats[min(level, rearFormats.count - 1)],
-                zoomFactor: rearZoom
-            )
-            let front = Source(
-                device: frontDevice,
-                format: frontFormats[min(level, frontFormats.count - 1)],
-                zoomFactor: frontZoom
-            )
+        let frontShare = style == .split ? 0.5 : 0.12
+
+        for rearFormat in rearFormats {
+            let required = Int(Double(rearFormat.videoPixelCount) * frontShare)
+            let frontFormat = frontFormats.last { $0.videoPixelCount >= required } ?? frontFormats[0]
+
+            let rear = Source(device: rearDevice, format: rearFormat, zoomFactor: rearZoom)
+            let front = Source(device: frontDevice, format: frontFormat, zoomFactor: frontZoom)
 
             do {
                 try configure(rear: rear, front: front)
@@ -73,6 +70,8 @@ actor DualCaptureEngine {
                 tearDown()
                 throw error
             }
+
+            Log.capture.info("Dual try: rear \(Self.describe(rearFormat), privacy: .public), front \(Self.describe(frontFormat), privacy: .public), hardware \(self.session.hardwareCost), pressure \(self.session.systemPressureCost)")
 
             if isWithinBudget {
                 session.startRunning()
@@ -176,6 +175,12 @@ actor DualCaptureEngine {
         frames.reset()
     }
 
+    private static func describe(_ format: AVCaptureDevice.Format) -> String {
+        let dimensions = format.formatDescription.dimensions
+        let fps = format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
+        return "\(dimensions.width)x\(dimensions.height) binned=\(format.isVideoBinned) fps<=\(Int(fps))"
+    }
+
     private static func candidateFormats(for device: AVCaptureDevice) -> [AVCaptureDevice.Format] {
         let supported = device.formats.filter(\.isMultiCamSupported)
         let preferred = supported.filter(\.isSquareOrFourByThree)
@@ -183,7 +188,12 @@ actor DualCaptureEngine {
 
         var seen = Set<Int>()
         return pool
-            .sorted { $0.videoPixelCount > $1.videoPixelCount }
+            .sorted { lhs, rhs in
+                if lhs.videoPixelCount != rhs.videoPixelCount {
+                    return lhs.videoPixelCount > rhs.videoPixelCount
+                }
+                return lhs.isVideoBinned && !rhs.isVideoBinned
+            }
             .filter { seen.insert($0.videoPixelCount).inserted }
     }
 }

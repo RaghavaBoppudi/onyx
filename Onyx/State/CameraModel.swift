@@ -8,6 +8,8 @@ enum Notice: Equatable {
     case saveFailed
     case captureFailed
     case lensSwitchFailed(String)
+    case effectUnavailable(String)
+    case locationDenied
 
     var message: String {
         switch self {
@@ -15,13 +17,16 @@ enum Notice: Equatable {
         case .saveFailed: "That photo couldn't be saved."
         case .captureFailed: "That photo couldn't be taken."
         case .lensSwitchFailed(let target): "Couldn't switch to the \(target)."
+        case .effectUnavailable(let mode): "\(mode) couldn't be applied to that photo."
+        case .locationDenied: "Allow Location access in Settings to geotag your photos."
         }
     }
 
-    var showsSettings: Bool { self == .libraryDenied }
-    var dismissesAutomatically: Bool { self != .libraryDenied }
+    var showsSettings: Bool { self == .libraryDenied || self == .locationDenied }
+    var dismissesAutomatically: Bool { !showsSettings }
 }
 
+@MainActor
 @Observable
 final class CameraModel {
 
@@ -48,6 +53,7 @@ final class CameraModel {
     private(set) var developingCount = 0
     private(set) var notice: Notice?
     private(set) var pendingLensID: String?
+    private(set) var isViewingLatest = false
     private(set) var lenses: [Lens] = []
     private(set) var selectedLens: Lens?
     private(set) var isDualAvailable = false
@@ -64,8 +70,15 @@ final class CameraModel {
     let recentPhoto = RecentPhotoWatcher()
     let location = LocationProvider()
 
-    var acceptsShutter: Bool { phase == .running && activity == .idle }
-    var isShutterDimmed: Bool { activity == .capturing }
+    private static let developLimit = 3
+
+    var acceptsShutter: Bool {
+        phase == .running && activity == .idle && developingCount < Self.developLimit
+    }
+
+    var isShutterDimmed: Bool {
+        activity == .capturing || developingCount >= Self.developLimit
+    }
     var isSwitching: Bool { activity == .switching }
     var isDeveloping: Bool { developingCount > 0 }
 
@@ -188,6 +201,39 @@ final class CameraModel {
         notice = nil
     }
 
+    func setGeotagging(_ enabled: Bool) {
+        if enabled {
+            guard !LocationProvider.isDenied else {
+                Haptics.shared.fire(.failure)
+                show(.locationDenied)
+                return
+            }
+            settings.geotagsPhotos = true
+            location.start()
+        } else {
+            settings.geotagsPhotos = false
+            location.stop()
+        }
+    }
+
+    func geotagAccessDenied() {
+        guard settings.geotagsPhotos else { return }
+        settings.geotagsPhotos = false
+        location.stop()
+        Haptics.shared.fire(.failure)
+        show(.locationDenied)
+    }
+
+    func showLatestPhoto() {
+        guard recentPhoto.assetIdentifier != nil else { return }
+        Haptics.shared.fire(.toggle)
+        isViewingLatest = true
+    }
+
+    func hideLatestPhoto() {
+        isViewingLatest = false
+    }
+
     func openPhotosApp() {
         guard let url = URL(string: "photos-redirect://") else { return }
         Haptics.shared.fire(.toggle)
@@ -265,7 +311,7 @@ final class CameraModel {
 
         hasLibraryAccess = PhotosAuthorization.hasReadWriteAccess
         if hasLibraryAccess { await recentPhoto.start() }
-        if LocationProvider.isAuthorized { location.start() }
+        if settings.geotagsPhotos, LocationProvider.isAuthorized { location.start() }
 
         Task { await renderer.warmUp() }
     }
@@ -363,7 +409,7 @@ final class CameraModel {
         await engine.stop()
 
         do {
-            try await dualEngine.start(rear: pair.rear, front: pair.front)
+            try await dualEngine.start(rear: pair.rear, front: pair.front, style: dualLayout)
         } catch {
             Log.capture.error("Dual start failed: \(error.localizedDescription, privacy: .public)")
             Haptics.shared.fire(.failure)
@@ -398,12 +444,11 @@ final class CameraModel {
     }
 
     private func performCapture() async {
-        guard phase == .running, activity == .idle else { return }
+        guard phase == .running, activity == .idle, developingCount < Self.developLimit else { return }
         activity = .capturing
         defer { activity = .idle }
 
         guard await ensureLibraryAccess() else { return }
-        location.start()
 
         if isDualActive {
             captureDual()
@@ -435,7 +480,7 @@ final class CameraModel {
             rotationAngle: photoRotationAngle,
             isPortrait: abs(sin(reference.captureAngle * .pi / 180)) > 0.5,
             flashMode: settings.flashMode,
-            location: location.freshLocation
+            location: settings.geotagsPhotos ? location.freshLocation : nil
         )
     }
 
@@ -468,7 +513,7 @@ final class CameraModel {
         let rearOrientation = CGImagePropertyOrientation(rotationAngle: rotation.captureAngle)
         let frontOrientation = CGImagePropertyOrientation(rotationAngle: dualFrontAngle)
         let style = dualLayout
-        let geotag = location.freshLocation
+        let geotag = settings.geotagsPhotos ? location.freshLocation : nil
 
         developingCount += 1
         Task {
@@ -540,7 +585,9 @@ final class CameraModel {
             try await library.save(heic: output.heic, location: request.location)
             Haptics.shared.fire(.success)
 
-            Log.render.info("Developed [\(request.id.uuidString, privacy: .public)] via \(output.usedRAWPath ? "RAW" : "ISP fallback") path")
+            if output.isDegraded { show(.effectUnavailable(request.mode.displayName)) }
+
+            Log.render.info("Developed [\(request.id.uuidString, privacy: .public)] mode=\(request.mode.rawValue, privacy: .public) via \(output.usedRAWPath ? "RAW" : "ISP fallback") path, degraded=\(output.isDegraded)")
         } catch {
             Log.render.error("Develop failed [\(request.id.uuidString, privacy: .public)]: \(error.localizedDescription, privacy: .public)")
             Haptics.shared.fire(.failure)

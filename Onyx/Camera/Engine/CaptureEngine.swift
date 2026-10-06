@@ -66,7 +66,16 @@ actor CaptureEngine {
     private var bayerFormat: OSType?
     private var isOutputAttached = false
     private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
-    private var bayerFormatCache: [String: OSType?] = [:]
+    private var rawSupportCache: [String: RawSupport] = [:]
+
+    private nonisolated enum RawSupport {
+        case bayer(OSType)
+        case unavailable
+
+        var format: OSType? {
+            if case .bayer(let format) = self { format } else { nil }
+        }
+    }
 
     nonisolated func requestCameraAccess() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -76,20 +85,32 @@ actor CaptureEngine {
         }
     }
 
-    private var lastOperation: Task<Void, Never>?
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    private func acquire() async {
+        if !isLocked {
+            isLocked = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            isLocked = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
 
     @discardableResult
-    private func runExclusively<T: Sendable>(
-        _ operation: @escaping () async throws -> T
+    private func runExclusively<T>(
+        _ operation: () async throws -> T
     ) async throws -> T {
-        let previous = lastOperation
-        let task = Task<Result<T, Error>, Never> {
-            _ = await previous?.value
-            do { return .success(try await operation()) }
-            catch { return .failure(error) }
-        }
-        lastOperation = Task { _ = await task.value }
-        return try await task.value.get()
+        await acquire()
+        defer { release() }
+        return try await operation()
     }
 
     func stop() async {
@@ -219,10 +240,10 @@ actor CaptureEngine {
     private func resolvedBayerFormat(for lens: Lens, device: AVCaptureDevice) -> OSType? {
         guard lens.position == .back else { return nil }
 
-        if let cached = bayerFormatCache[lens.id] { return cached }
+        if let cached = rawSupportCache[lens.id] { return cached.format }
 
         let resolved = RawPipeline.resolveBayerFormat(output: photoOutput, device: device)
-        bayerFormatCache[lens.id] = resolved
+        rawSupportCache[lens.id] = resolved.map(RawSupport.bayer) ?? .unavailable
         return resolved
     }
 

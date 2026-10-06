@@ -1,11 +1,16 @@
 import AVFoundation
 import SwiftUI
 
+@MainActor
 @Observable
 final class AppSettings {
 
     var isGridVisible: Bool {
         didSet { defaults.set(isGridVisible, forKey: Keys.grid) }
+    }
+
+    var geotagsPhotos: Bool {
+        didSet { defaults.set(geotagsPhotos, forKey: Keys.geotag) }
     }
 
     var flashMode: AVCaptureDevice.FlashMode {
@@ -19,6 +24,7 @@ final class AppSettings {
     private enum Keys {
         static let grid = "onyx.grid"
         static let flash = "onyx.flash"
+        static let geotag = "onyx.geotag"
         static let legacyAppearance = "onyx.appearance"
     }
 
@@ -27,6 +33,7 @@ final class AppSettings {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.isGridVisible = defaults.bool(forKey: Keys.grid)
+        self.geotagsPhotos = defaults.bool(forKey: Keys.geotag)
         self.flashMode = AVCaptureDevice.FlashMode(
             rawValue: defaults.integer(forKey: Keys.flash)
         ) ?? .off

@@ -53,6 +53,9 @@ private struct PermissionGateView: View {
                 Link("Open Settings", destination: url)
                     .font(Typography.caption)
                     .foregroundStyle(theme.accent)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .contentShape(.rect)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

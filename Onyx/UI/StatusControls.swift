@@ -2,6 +2,8 @@ import SwiftUI
 import AVFoundation
 
 struct StatusControls: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let axis: Axis
     let settings: AppSettings
     let model: CameraModel
@@ -11,6 +13,7 @@ struct StatusControls: View {
             HStack(spacing: 0) {
                 flashIcon.frame(maxWidth: .infinity)
                 gridIcon.frame(maxWidth: .infinity)
+                geotagIcon.frame(maxWidth: .infinity)
                 dualIcon.frame(maxWidth: .infinity)
             }
             .padding(.horizontal, Metrics.Chrome.edgeInset)
@@ -18,6 +21,7 @@ struct StatusControls: View {
         } else {
             VStack(spacing: Metrics.Chrome.railItemSpacing) {
                 dualIcon
+                geotagIcon
                 gridIcon
                 flashIcon
             }
@@ -33,6 +37,17 @@ struct StatusControls: View {
         .restricted(!model.isDualAvailable || model.isAwaitingSecondFrame)
         .accessibilityLabel("Dual capture")
         .accessibilityValue(model.isDualActive ? "On" : "Off")
+    }
+
+    private var geotagIcon: some View {
+        ChromeIcon(
+            symbol: Symbols.geotag,
+            isActive: settings.geotagsPhotos,
+            action: { toggleGeotag() }
+        )
+        .restricted(model.isAwaitingSecondFrame)
+        .accessibilityLabel("Geotag photos")
+        .accessibilityValue(settings.geotagsPhotos ? "On" : "Off")
     }
 
     private var gridIcon: some View {
@@ -59,7 +74,14 @@ struct StatusControls: View {
 
     private func toggleGrid() {
         Haptics.shared.fire(.toggle)
-        withAnimation(.reduceMotionAware(Metrics.Motion.gridFade)) { settings.isGridVisible.toggle() }
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Metrics.Motion.gridFade) {
+            settings.isGridVisible.toggle()
+        }
+    }
+
+    private func toggleGeotag() {
+        Haptics.shared.fire(.toggle)
+        model.setGeotagging(!settings.geotagsPhotos)
     }
 
     private func toggleDual() {

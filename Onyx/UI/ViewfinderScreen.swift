@@ -12,26 +12,38 @@ struct ViewfinderScreen: View {
     @State private var isBrowsingModes = false
     @State private var showsLowLight = false
     @State private var modesFrame: CGRect?
+    @State private var browsedModeID: String?
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                layout(in: proxy.size)
-                    .environment(\.isBrowsingModes, isBrowsingModes)
-                    .scaleEffect(isBrowsingModes && !reduceMotion ? 0.94 : 1)
-                    .opacity(isBrowsingModes ? 0 : 1)
-                    .allowsHitTesting(!isBrowsingModes)
-                    .accessibilityHidden(isBrowsingModes)
+                layout(in: proxy.size, insets: proxy.safeAreaInsets)
+                    .environment(\.isBrowsingModes, isOverlayActive)
+                    .scaleEffect(isOverlayActive && !reduceMotion ? 0.94 : 1)
+                    .opacity(isOverlayActive ? 0 : 1)
+                    .allowsHitTesting(!isOverlayActive)
+                    .accessibilityHidden(isOverlayActive)
 
                 if isBrowsingModes {
                     ModeCardCarousel(
                         modes: model.availableModes,
-                        selected: model.selectedMode,
+                        activeID: $browsedModeID,
                         position: model.cameraPosition,
+                        topInset: proxy.safeAreaInsets.top,
+                        avoiding: modesFrame,
                         onConfirm: { mode in confirmMode(mode) },
-                        onDismiss: { setBrowsing(false) }
+                        onDismiss: { closeModes() }
                     )
                     .transition(reduceMotion ? .opacity : .scale(scale: 1.05).combined(with: .opacity))
+                }
+
+                if model.isViewingLatest {
+                    LatestPhotoViewer(
+                        model: model,
+                        topInset: proxy.safeAreaInsets.top,
+                        avoiding: modesFrame
+                    )
+                    .transition(.opacity)
                 }
             }
             .coordinateSpace(.named(ViewfinderSpace.name))
@@ -41,12 +53,16 @@ struct ViewfinderScreen: View {
             .overlay {
                 modesBackButton(modesFrame)
             }
-            .background(theme.canvas.ignoresSafeArea())
+            .background(theme.canvas)
+            .ignoresSafeArea()
             .onChange(of: DualLayoutStyle.resolve(for: proxy.size), initial: true) { _, style in
                 model.updateDualLayout(style)
             }
         }
         .environment(\.glyphRotation, model.reference.glyphRotation)
+        .onChange(of: model.location.isAccessDenied) { _, isDenied in
+            if isDenied { model.geotagAccessDenied() }
+        }
         .task(id: scenePhase) {
             switch scenePhase {
             case .active: await model.start()
@@ -57,7 +73,7 @@ struct ViewfinderScreen: View {
     }
 
     @ViewBuilder
-    private func layout(in size: CGSize) -> some View {
+    private func layout(in size: CGSize, insets: EdgeInsets) -> some View {
         let isLandscape = size.width > size.height
         let prefersRail = size.height / max(size.width, 1) < Metrics.Chrome.verticalControlsAspectThreshold
 
@@ -66,7 +82,7 @@ struct ViewfinderScreen: View {
         } else if prefersRail {
             statusRailLayout
         } else {
-            standardLayout
+            standardLayout(insets: insets)
         }
     }
 
@@ -85,7 +101,6 @@ struct ViewfinderScreen: View {
             .frame(width: Metrics.Chrome.railWidth)
             .padding(.horizontal, Metrics.Chrome.railHorizontalGap)
         }
-        .ignoresSafeArea()
     }
 
     private var statusRailLayout: some View {
@@ -110,10 +125,9 @@ struct ViewfinderScreen: View {
                 .padding(.top, 8)
                 .padding(.bottom, Metrics.Chrome.railVerticalInset)
         }
-        .ignoresSafeArea()
     }
 
-    private var standardLayout: some View {
+    private func standardLayout(insets: EdgeInsets) -> some View {
         VStack(spacing: 0) {
             statusControls(axis: .horizontal)
 
@@ -129,6 +143,7 @@ struct ViewfinderScreen: View {
 
             Spacer()
         }
+        .padding(insets)
     }
 
     private func statusControls(axis: Axis) -> some View {
@@ -148,16 +163,38 @@ struct ViewfinderScreen: View {
             model.cancelDoubleExposureSequence()
         } else {
             Haptics.shared.fire(.toggle)
+            browsedModeID = model.selectedMode.id
             setBrowsing(true)
         }
     }
 
+    private func closeModes() {
+        let browsed = model.availableModes.first { $0.id == browsedModeID }
+        if let browsed, browsed != model.selectedMode {
+            confirmMode(browsed)
+        } else {
+            setBrowsing(false)
+        }
+    }
+
+    private var isOverlayActive: Bool {
+        isBrowsingModes || model.isViewingLatest
+    }
+
+    private func closeLatestPhoto() {
+        withAnimation(revealAnimation) { model.hideLatestPhoto() }
+    }
+
     @ViewBuilder
     private func modesBackButton(_ frame: CGRect?) -> some View {
-        if isBrowsingModes {
+        if isOverlayActive {
             let button = PillButton(title: "Back", systemImage: Symbols.back.outline) {
                 Haptics.shared.fire(.toggle)
-                setBrowsing(false)
+                if model.isViewingLatest {
+                    closeLatestPhoto()
+                } else {
+                    closeModes()
+                }
             }
             .accessibilityLabel("Back to camera")
             .transition(.opacity)
@@ -219,7 +256,7 @@ struct ViewfinderScreen: View {
                                 .transition(.opacity)
                         }
                     }
-                    .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.whiteBalance.hasConverged)
+                    .onyxAnimation(Metrics.Motion.gridFade, value: model.whiteBalance.hasConverged)
                     .overlay { if settings.isGridVisible { RuleOfThirdsGrid() } }
                     .overlay {
                         theme.shutterBlink
@@ -236,7 +273,7 @@ struct ViewfinderScreen: View {
                                 .transition(.opacity)
                         }
                     }
-                    .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.isAwaitingSecondFrame)
+                    .onyxAnimation(Metrics.Motion.gridFade, value: model.isAwaitingSecondFrame)
                     .overlay(alignment: .bottom) {
                         if model.pipeline == .single {
                             LensSelector(
@@ -260,7 +297,7 @@ struct ViewfinderScreen: View {
                 }
                 .padding(.top, 14)
             }
-            .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: showsLowLight)
+            .onyxAnimation(Metrics.Motion.gridFade, value: showsLowLight)
             .task(id: model.selectedLens?.id) {
                 guard model.isOnDimmerLens else {
                     showsLowLight = false
@@ -271,13 +308,13 @@ struct ViewfinderScreen: View {
                 guard !Task.isCancelled else { return }
                 showsLowLight = false
             }
-            .animation(.reduceMotionAware(Metrics.Motion.gridFade), value: model.notice)
+            .onyxAnimation(Metrics.Motion.gridFade, value: model.notice)
             .onChange(of: model.notice) { _, notice in
                 if let notice { AccessibilityNotification.Announcement(notice.message).post() }
             }
         }
         .aspectRatio(Metrics.Viewfinder.aspect(isLandscape: isLandscape), contentMode: .fit)
-        .animation(.reduceMotionAware(Metrics.Motion.lensSwitch), value: isLandscape)
+        .onyxAnimation(Metrics.Motion.lensSwitch, value: isLandscape)
     }
 }
 
@@ -351,5 +388,83 @@ private struct RuleOfThirdsGrid: View {
         }
         .allowsHitTesting(false)
         .transition(.opacity)
+    }
+}
+
+private struct LatestPhotoViewer: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+
+    let model: CameraModel
+    let topInset: CGFloat
+    let avoiding: CGRect?
+
+    @State private var image: UIImage?
+    @State private var didFail = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            let region = imageRegion(in: proxy.size)
+
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(.rect(cornerRadius: Metrics.Viewfinder.cornerRadius))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Metrics.Viewfinder.cornerRadius)
+                                .strokeBorder(theme.thumbnailBorder, lineWidth: Metrics.Thumbnail.borderWidth)
+                        }
+                        .accessibilityLabel("Most recent photo")
+                } else if didFail {
+                    Text("That photo couldn't be loaded.")
+                        .font(Typography.caption)
+                        .foregroundStyle(theme.secondary)
+                } else {
+                    ProgressView()
+                        .tint(theme.iconActive)
+                }
+            }
+            .frame(width: region.width, height: region.height)
+            .position(x: region.midX, y: region.midY)
+            .overlay(alignment: .topTrailing) {
+                PillButton(title: "Photos", systemImage: "arrow.up.right.square") {
+                    model.openPhotosApp()
+                }
+                .accessibilityLabel("Open in Photos")
+                .padding(.top, topInset + Metrics.Chrome.edgeInset)
+                .padding(.trailing, Metrics.Chrome.edgeInset + 8)
+            }
+            .task {
+                let target = CGSize(
+                    width: region.width * displayScale,
+                    height: region.height * displayScale
+                )
+                image = await model.recentPhoto.fullImage(targetSize: target)
+                didFail = image == nil
+            }
+        }
+    }
+
+    private func imageRegion(in size: CGSize) -> CGRect {
+        let top = max(topInset + 64, size.height * 0.1)
+        var bottom = size.height - Metrics.ModeCarousel.edgeMargin
+
+        if let avoiding {
+            let columnMinX = size.width * 0.25
+            let columnMaxX = size.width * 0.75
+            if avoiding.maxX > columnMinX, avoiding.minX < columnMaxX {
+                bottom = min(bottom, avoiding.minY - Metrics.ModeCarousel.avoidanceGap)
+            }
+        }
+
+        let margin: CGFloat = 16
+        return CGRect(
+            x: margin,
+            y: top,
+            width: size.width - margin * 2,
+            height: max(bottom - top, Metrics.ModeCarousel.minimumCardHeight)
+        )
     }
 }

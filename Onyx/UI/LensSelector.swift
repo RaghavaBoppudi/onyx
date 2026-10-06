@@ -80,6 +80,8 @@ struct LensSelector: View {
             .font(Typography.lens(active: isActive))
             .foregroundStyle(isActive ? theme.iconActive : theme.secondary)
             .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize()
             .scaleEffect(lens.id == pressedID ? 0.94 : 1)
             .frame(width: itemWidth, height: pillHeight)
             .offset(x: slotOffset(for: lens) + dragOffset)

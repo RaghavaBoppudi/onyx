@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 
+@MainActor
 final class Haptics {
     static let shared = Haptics()
 
@@ -45,18 +46,5 @@ final class Haptics {
     private func notify(_ type: UINotificationFeedbackGenerator.FeedbackType) {
         notification.notificationOccurred(type)
         notification.prepare()
-    }
-}
-
-extension Binding where Value: Equatable {
-    func hapticFeedback(_ event: Haptics.Event) -> Binding<Value> {
-        Binding(
-            get: { wrappedValue },
-            set: { newValue in
-                guard newValue != wrappedValue else { return }
-                Haptics.shared.fire(event)
-                wrappedValue = newValue
-            }
-        )
     }
 }

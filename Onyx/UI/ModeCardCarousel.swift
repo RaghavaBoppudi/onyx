@@ -4,28 +4,36 @@ import SwiftUI
 struct ModeCardCarousel: View {
     @Environment(\.theme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .title2) private var captionTextHeight: CGFloat = 64
 
     let modes: [CaptureMode]
     let position: AVCaptureDevice.Position
+    let topInset: CGFloat
+    let avoiding: CGRect?
     let onConfirm: (CaptureMode) -> Void
     let onDismiss: () -> Void
 
-    @State private var activeID: String?
+    @Binding var activeID: String?
     @State private var dismissOffset: CGFloat = 0
     @State private var axisLock: Axis?
+    @State private var isPositioned = false
 
     init(
         modes: [CaptureMode],
-        selected: CaptureMode,
+        activeID: Binding<String?>,
         position: AVCaptureDevice.Position,
+        topInset: CGFloat,
+        avoiding: CGRect?,
         onConfirm: @escaping (CaptureMode) -> Void,
         onDismiss: @escaping () -> Void
     ) {
         self.modes = modes
         self.position = position
+        self.topInset = topInset
+        self.avoiding = avoiding
         self.onConfirm = onConfirm
         self.onDismiss = onDismiss
-        _activeID = State(initialValue: selected.id)
+        _activeID = activeID
     }
 
     private var activeIndex: Int {
@@ -42,7 +50,6 @@ struct ModeCardCarousel: View {
 
     var body: some View {
         carousel
-            .ignoresSafeArea()
             .simultaneousGesture(dismissGesture)
             .onChange(of: activeID) { old, new in
                 guard old != nil, new != nil, old != new else { return }
@@ -53,51 +60,113 @@ struct ModeCardCarousel: View {
     private var carousel: some View {
         GeometryReader { proxy in
             let screen = proxy.size
-            let card = cardSize(in: screen)
+            let origin = proxy.frame(in: .named(ViewfinderSpace.name)).origin
+            let fit = contentFit(screen: screen, origin: origin)
 
-            ZStack {
+            ZStack(alignment: .top) {
                 Color.clear
                     .contentShape(.rect)
                     .onTapGesture(perform: onDismiss)
                     .accessibilityHidden(true)
 
                 VStack(spacing: Metrics.ModeCarousel.captionSpacing) {
-                    cards(card: card, screenWidth: screen.width)
-                    caption(card: card)
+                    cards(card: fit.card, screenWidth: screen.width)
+                    caption(card: fit.card)
                 }
-                .frame(width: screen.width, height: screen.height)
-                .offset(y: dismissOffset)
+                .frame(width: screen.width)
+                .offset(y: fit.top + dismissOffset)
                 .scaleEffect(reduceMotion ? 1 : 1 - dismissProgress * 0.08)
                 .opacity(1 - dismissProgress * 0.6)
             }
-            .frame(width: screen.width, height: screen.height)
+            .frame(width: screen.width, height: screen.height, alignment: .top)
         }
     }
 
-    private func cards(card: CGSize, screenWidth: CGFloat) -> some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: Metrics.ModeCarousel.cardSpacing) {
-                ForEach(modes) { mode in
-                    Button { tap(mode) } label: { cardImage(mode, size: card) }
-                        .buttonStyle(CardPressStyle())
-                        .id(mode.id)
-                        .scrollTransition(.interactive, axis: .horizontal) { [reduceMotion] content, phase in
-                            content
-                                .scaleEffect(reduceMotion ? 1 : 1 - (1 - Metrics.ModeCarousel.neighborScale) * min(abs(phase.value), 1))
-                                .opacity(1 - (1 - Metrics.ModeCarousel.neighborOpacity) * min(abs(phase.value), 1))
-                        }
-                        .accessibilityLabel(mode.displayName)
-                        .accessibilityHint(mode.summary(for: position).replacingOccurrences(of: "\n", with: " "))
-                        .accessibilityAddTraits(mode.id == activeID ? .isSelected : [])
-                }
+    private struct Fit {
+        let card: CGSize
+        let top: CGFloat
+    }
+
+    private func contentFit(screen: CGSize, origin: CGPoint) -> Fit {
+        let preferred = cardSize(in: screen)
+        let aspect = Metrics.Viewfinder.aspect(isLandscape: screen.width > screen.height)
+        let chrome = Metrics.ModeCarousel.captionSpacing
+            + captionTextHeight
+            + Metrics.ModeCarousel.dotsGap
+            + Metrics.ModeCarousel.dotsHeight
+
+        let topBound = max(
+            topInset + Metrics.ModeCarousel.avoidanceGap,
+            screen.height * Metrics.ModeCarousel.topClearanceFraction
+        )
+
+        var bottomBound = screen.height - Metrics.ModeCarousel.edgeMargin
+        if let avoiding {
+            let obstacle = avoiding.offsetBy(dx: -origin.x, dy: -origin.y)
+            let columnMinX = (screen.width - preferred.width) / 2
+            let columnMaxX = (screen.width + preferred.width) / 2
+            if obstacle.maxX > columnMinX, obstacle.minX < columnMaxX {
+                bottomBound = min(bottomBound, obstacle.minY - Metrics.ModeCarousel.avoidanceGap)
             }
-            .scrollTargetLayout()
         }
-        .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
-        .scrollPosition(id: $activeID, anchor: .center)
-        .contentMargins(.horizontal, (screenWidth - card.width) / 2, for: .scrollContent)
-        .scrollIndicators(.hidden)
-        .frame(height: card.height)
+
+        let available = max(bottomBound - topBound, 0)
+        let cardHeight = min(
+            preferred.height,
+            max(available - chrome, Metrics.ModeCarousel.minimumCardHeight)
+        )
+        let card = CGSize(width: cardHeight * aspect, height: cardHeight)
+
+        let blockHeight = card.height + chrome
+        let centered = (screen.height - blockHeight) / 2
+        let top = min(max(centered, topBound), max(bottomBound - blockHeight, topBound))
+
+        return Fit(card: card, top: top)
+    }
+
+    private func cards(card: CGSize, screenWidth: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: Metrics.ModeCarousel.cardSpacing) {
+                    ForEach(modes) { mode in
+                        Button { tap(mode) } label: { cardImage(mode, size: card) }
+                            .buttonStyle(CardPressStyle())
+                            .id(mode.id)
+                            .scrollTransition(.interactive, axis: .horizontal) { [reduceMotion] content, phase in
+                                content
+                                    .scaleEffect(reduceMotion ? 1 : 1 - (1 - Metrics.ModeCarousel.neighborScale) * min(abs(phase.value), 1))
+                                    .opacity(1 - (1 - Metrics.ModeCarousel.neighborOpacity) * min(abs(phase.value), 1))
+                            }
+                            .accessibilityLabel(mode.displayName)
+                            .accessibilityHint(mode.summary(for: position).replacingOccurrences(of: "\n", with: " "))
+                            .accessibilityAddTraits(mode.id == activeID ? .isSelected : [])
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
+            .scrollPosition(id: $activeID, anchor: .center)
+            .contentMargins(.horizontal, (screenWidth - card.width) / 2, for: .scrollContent)
+            .scrollIndicators(.hidden)
+            .frame(height: card.height)
+            .opacity(isPositioned ? 1 : 0)
+            .onAppear { restoreScroll(proxy) }
+        }
+    }
+
+    private func restoreScroll(_ proxy: ScrollViewProxy) {
+        guard let id = activeID, id != modes.first?.id else {
+            isPositioned = true
+            return
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(20))
+            withTransaction(Transaction(animation: nil)) {
+                proxy.scrollTo(id, anchor: .center)
+            }
+            isPositioned = true
+        }
     }
 
     private func cardImage(_ mode: CaptureMode, size: CGSize) -> some View {
@@ -115,23 +184,22 @@ struct ModeCardCarousel: View {
     private func caption(card: CGSize) -> some View {
         let current = modes[activeIndex]
 
-        return VStack(spacing: 4) {
-            Text(current.displayName)
-                .font(Typography.lookTitle)
-                .foregroundStyle(theme.iconActive)
-                .contentTransition(.opacity)
-            Text(current.summary(for: position))
-                .font(Typography.caption)
-                .foregroundStyle(theme.secondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2, reservesSpace: true)
-                .contentTransition(.opacity)
+        return VStack(spacing: Metrics.ModeCarousel.dotsGap) {
+            VStack(spacing: 4) {
+                Text(current.displayName)
+                    .font(Typography.lookTitle)
+                    .foregroundStyle(theme.iconActive)
+                    .contentTransition(.opacity)
+                Text(current.summary(for: position))
+                    .font(Typography.caption)
+                    .foregroundStyle(theme.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2, reservesSpace: true)
+                    .contentTransition(.opacity)
+            }
+            pageDots
         }
         .frame(width: card.width)
-        .overlay(alignment: .bottom) {
-            pageDots
-                .offset(y: Metrics.ModeCarousel.dotsHeight + Metrics.ModeCarousel.dotsGap)
-        }
         .onyxAnimation(.smooth(duration: 0.2), value: activeID)
         .allowsHitTesting(false)
         .accessibilityHidden(true)

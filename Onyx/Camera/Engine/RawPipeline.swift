@@ -56,8 +56,8 @@ nonisolated private final class ObservationToken: @unchecked Sendable {
     }
 }
 
-nonisolated extension AVCaptureDevice {
-    func values<Value: Sendable>(of keyPath: KeyPath<AVCaptureDevice, Value>) -> AsyncStream<Value> {
+nonisolated extension NSObjectProtocol where Self: NSObject {
+    func values<Value: Sendable>(of keyPath: KeyPath<Self, Value>) -> AsyncStream<Value> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let observation = observe(keyPath, options: [.initial, .new]) { _, change in
                 if let value = change.newValue { continuation.yield(value) }

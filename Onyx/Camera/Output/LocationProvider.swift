@@ -2,6 +2,7 @@ import CoreLocation
 import Observation
 import os
 
+@MainActor
 @Observable
 final class LocationProvider {
 
@@ -14,7 +15,15 @@ final class LocationProvider {
         }
     }
 
+    static var isDenied: Bool {
+        switch CLLocationManager().authorizationStatus {
+        case .denied, .restricted: true
+        default: false
+        }
+    }
+
     private(set) var latestLocation: CLLocation?
+    private(set) var isAccessDenied = false
 
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var serviceSession: CLServiceSession?
@@ -48,13 +57,17 @@ final class LocationProvider {
         updatesTask = nil
         serviceSession?.invalidate()
         serviceSession = nil
+        latestLocation = nil
+        isAccessDenied = false
     }
 
     private func apply(_ update: CLLocationUpdate) {
         if update.authorizationDenied || update.authorizationRestricted {
             latestLocation = nil
+            isAccessDenied = true
             return
         }
+        isAccessDenied = false
         if let location = update.location {
             latestLocation = location
         }

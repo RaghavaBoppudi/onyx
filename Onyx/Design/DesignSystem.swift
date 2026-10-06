@@ -6,7 +6,6 @@ nonisolated enum Typography {
         .body.weight(active ? .semibold : .regular)
     }
 
-    static let panelHeader = Font.footnote.weight(.semibold)
     static let pill        = Font.subheadline.weight(.semibold)
     static let caption     = Font.caption
     static let body        = Font.body
@@ -33,6 +32,7 @@ nonisolated enum Symbols {
 
     static let back = SymbolPair(outline: "chevron.left", filled: "chevron.left")
     static let dual = SymbolPair(outline: "pip", filled: "pip.fill")
+    static let geotag = SymbolPair(outline: "location", filled: "location.fill")
     static let noPermission = "camera.metering.unknown"
 }
 
@@ -50,12 +50,6 @@ nonisolated struct ModesIconFrameKey: PreferenceKey {
 
     static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
         value = nextValue() ?? value
-    }
-}
-
-extension Animation {
-    static func reduceMotionAware(_ animation: Animation) -> Animation? {
-        UIAccessibility.isReduceMotionEnabled ? nil : animation
     }
 }
 
