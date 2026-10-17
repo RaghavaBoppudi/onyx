@@ -20,7 +20,7 @@ struct StatusIconButton: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())
         .opacity(isEnabled ? 1 : 0.35)
         .accessibilityLabel(title)
     }
@@ -46,41 +46,27 @@ struct StatusIconToggle: View {
     }
 }
 
-struct GlassCircleButton: View {
-    @Environment(\.isEnabled) private var isEnabled
-
-    let title: String
-    let symbol: String
-    var size: CGFloat = 47
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(Color.primary)
-                .rotatesWithDevice()
-                .frame(width: size, height: size)
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
-        .opacity(isEnabled ? 1 : 0.35)
-        .accessibilityLabel(title)
-    }
-}
-
 struct CameraFlipButton: View {
     let model: CameraModel
 
     var body: some View {
-        GlassCircleButton(
+        StatusIconButton(
             title: "Switch camera",
             symbol: "arrow.triangle.2.circlepath.camera"
         ) {
             Task { await model.flipCamera() }
         }
+        .frame(width: 48, height: 48)
         .disabled(!model.canFlipCamera)
         .accessibilityValue(model.cameraPosition == .front ? "Front" : "Rear")
+    }
+}
+
+struct PressScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 1), value: configuration.isPressed)
     }
 }

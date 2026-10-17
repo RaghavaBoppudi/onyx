@@ -3,7 +3,6 @@ import os
 
 nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
     case cameraAccessDenied
-    case photoLibraryAccessDenied
     case noLensesAvailable
     case deviceUnavailable(String)
     case cannotAddInput
@@ -19,7 +18,6 @@ nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
     var errorDescription: String? {
         switch self {
         case .cameraAccessDenied:         "Onyx needs camera access to shoot."
-        case .photoLibraryAccessDenied:   "Onyx needs permission to save to your library."
         case .noLensesAvailable:          "No usable camera was found on this device."
         case .deviceUnavailable(let l):   "The \(l) lens is unavailable."
         case .cannotAddInput:             "The camera input could not be attached."
@@ -38,7 +36,6 @@ nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
 nonisolated enum CaptureConstants {
     static let rearExposureBias: Float = -0.7
     static let frontExposureBias: Float = 0
-    static let journalistExposureBias: Float = 0
     static let colorSpace: AVCaptureColorSpace = .sRGB
     static let exposureConvergenceTimeout: Duration = .seconds(1)
     static let captureTimeout: Duration = .seconds(10)
@@ -90,42 +87,12 @@ actor CaptureEngine {
         }
     }
 
-    private var isLocked = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    private func acquire() async {
-        if !isLocked {
-            isLocked = true
-            return
-        }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-
-    private func release() {
-        if waiters.isEmpty {
-            isLocked = false
-        } else {
-            waiters.removeFirst().resume()
-        }
-    }
-
-    @discardableResult
-    private func runExclusively<T>(
-        _ operation: () async throws -> T
-    ) async throws -> T {
-        await acquire()
-        defer { release() }
-        return try await operation()
-    }
-
-    func stop() async {
-        try? await runExclusively { [self] in
-            if session.isRunning { session.stopRunning() }
-        }
+    func stop() {
+        if session.isRunning { session.stopRunning() }
     }
 
     func select(lens: Lens) async throws {
-        try await runExclusively { [self] in try await activate(lens) }
+        try await activate(lens)
     }
 
     func restoreExposureBias() async throws {
@@ -139,26 +106,24 @@ actor CaptureEngine {
     }
 
     private func applyExposureBias(_ bias: Float) async throws {
-        try await runExclusively { [self] in
-            guard let device = activeDevice else {
-                throw CaptureError.deviceUnavailable("active")
-            }
-            let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
-
-            do {
-                try device.lockForConfiguration()
-            } catch {
-                throw CaptureError.configurationFailed(error.localizedDescription)
-            }
-            let applied = await BoundedCompletion.run(timeout: .seconds(1)) { finish in
-                device.setExposureTargetBias(clamped) { _ in finish() }
-            }
-            device.unlockForConfiguration()
-            if !applied { Log.capture.warning("Exposure bias update timed out") }
-
-            let updates = device.values(of: \.isAdjustingExposure)
-            await updates.waitFor(false, timeout: CaptureConstants.exposureConvergenceTimeout)
+        guard let device = activeDevice else {
+            throw CaptureError.deviceUnavailable("active")
         }
+        let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
+
+        do {
+            try device.lockForConfiguration()
+        } catch {
+            throw CaptureError.configurationFailed(error.localizedDescription)
+        }
+        let applied = await BoundedCompletion.run(timeout: .seconds(1)) { finish in
+            device.setExposureTargetBias(clamped) { _ in finish() }
+        }
+        device.unlockForConfiguration()
+        if !applied { Log.capture.warning("Exposure bias update timed out") }
+
+        let updates = device.values(of: \.isAdjustingExposure)
+        await updates.waitFor(false, timeout: CaptureConstants.exposureConvergenceTimeout)
     }
 
     private func activate(_ lens: Lens) async throws {
@@ -262,15 +227,6 @@ actor CaptureEngine {
         request: CaptureRequest,
         onShutterFire: @escaping @Sendable () -> Void
     ) async throws -> RawCapture {
-        try await runExclusively { [self] in
-            try await performCapture(request: request, onShutterFire: onShutterFire)
-        }
-    }
-
-    private func performCapture(
-        request: CaptureRequest,
-        onShutterFire: @escaping @Sendable () -> Void
-    ) async throws -> RawCapture {
         guard activeDevice != nil else {
             throw CaptureError.deviceUnavailable("active")
         }
@@ -291,7 +247,6 @@ actor CaptureEngine {
 
         let processor = PhotoCaptureProcessor(
             orientation: request.orientation,
-            exposureBias: activeDevice?.exposureTargetBias,
             onShutterFire: onShutterFire
         )
 

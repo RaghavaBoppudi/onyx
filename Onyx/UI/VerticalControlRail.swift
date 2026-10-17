@@ -34,11 +34,8 @@ struct VerticalControlRail: View {
             Spacer(minLength: 0)
 
             VStack(spacing: 22) {
-                if !model.isJournalist {
-                    CameraFlipButton(model: model)
-                }
+                CameraFlipButton(model: model)
                 CaptureThumbnail(model: model)
-                ProfilePicker(model: model, compact: true)
             }
         }
     }

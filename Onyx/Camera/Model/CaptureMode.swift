@@ -3,7 +3,6 @@ import AVFoundation
 nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
     case standard
     case mono
-    case glass
     case doubleExposure
     case doubleExposureMono
 
@@ -13,7 +12,6 @@ nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .standard: "Default"
         case .mono: "Mono"
-        case .glass: "Glass"
         case .doubleExposure: "Double"
         case .doubleExposureMono: "Double Mono"
         }
@@ -23,7 +21,6 @@ nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .standard: "Our signature minimal-process look"
         case .mono: "Our signature minimal-process look\nin black and white"
-        case .glass: "Nothing like shooting through glass panes"
         case .doubleExposure: "Two frames blended\nlike a physical double exposure"
         case .doubleExposureMono: "Double exposure,\nin black and white"
         }
@@ -43,7 +40,6 @@ nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .standard: "LookPreview.Default"
         case .mono: "LookPreview.Mono"
-        case .glass: "LookPreview.Glass"
         case .doubleExposure: "LookPreview.Double"
         case .doubleExposureMono: "LookPreview.DoubleMono"
         }

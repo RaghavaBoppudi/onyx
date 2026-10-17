@@ -2,11 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Onyx adds your location to Journalist mode photos when you turn location on.</string>
-	<key>UIFileSharingEnabled</key>
-	<true/>
+	<string>Onyx adds where you took a photo to that photo when you turn location on.</string>
 </dict>
 </plist>

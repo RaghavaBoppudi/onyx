@@ -4,6 +4,7 @@ import UIKit
 struct ViewfinderScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let settings: AppSettings
     let model: CameraModel
@@ -69,7 +70,7 @@ struct ViewfinderScreen: View {
             ModeDrawer(model: model) { showsModes = false }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -133,6 +134,7 @@ struct ViewfinderScreen: View {
                 )
                 .frame(width: Layout.statusRailWidth)
                 .padding(.horizontal, Layout.railHorizontalGap)
+                .hiddenWhileBrowsing(showsModes)
             }
             .padding(.top, Layout.railVerticalInset)
             .frame(maxHeight: .infinity)
@@ -153,6 +155,7 @@ struct ViewfinderScreen: View {
                 model: model,
                 onShowModes: { showsModes = true }
             )
+                .hiddenWhileBrowsing(showsModes)
 
             viewfinder(isLandscape: false, cornerRadius: 0)
 
@@ -184,8 +187,13 @@ struct ViewfinderScreen: View {
         }
     }
 
+    private var coverOpacity: Double {
+        if !model.whiteBalance.hasConverged { return 1 }
+        return model.isSwitching ? 0.45 : 0
+    }
+
     private var previewIsMono: Bool {
-        model.selectedMode.isMono && !model.isDualActive && !model.isJournalist
+        model.selectedMode.isMono && !model.isDualActive
     }
 
     private func viewfinder(isLandscape: Bool, cornerRadius: CGFloat) -> some View {
@@ -194,17 +202,15 @@ struct ViewfinderScreen: View {
                 preview
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .saturation(previewIsMono ? 0 : 1)
-                    .opacity(model.isSwitching ? 0.55 : 1)
-                    .animation(.smooth(duration: 0.2), value: model.isSwitching)
                     .background(Color.black)
                     .overlay {
-                        if !model.whiteBalance.hasConverged {
-                            Color.black.transition(.opacity)
-                        }
+                        Color.black
+                            .opacity(coverOpacity)
+                            .allowsHitTesting(false)
                     }
-                    .animation(.easeInOut(duration: 0.18), value: model.whiteBalance.hasConverged)
+                    .animation(.easeInOut(duration: 0.2), value: coverOpacity)
                     .overlay {
-                        if settings.isGridVisible && !model.isJournalist { RuleOfThirdsGrid() }
+                        if settings.isGridVisible { RuleOfThirdsGrid() }
                     }
                     .animation(.easeInOut(duration: 0.18), value: settings.isGridVisible)
                     .overlay {
@@ -233,10 +239,10 @@ struct ViewfinderScreen: View {
 
                 VStack(spacing: 8) {
                     if showsLowLight, model.pipeline == .single {
-                        GlassBanner(message: "This lens gathers less light", onTap: nil)
+                        NoticeBanner(message: "This lens gathers less light", onTap: nil)
                     }
                     if let notice = model.notice, !notice.showsSettings {
-                        GlassBanner(message: notice.message, onTap: { model.dismissNotice() })
+                        NoticeBanner(message: notice.message, onTap: { model.dismissNotice() })
                     }
                 }
                 .padding(.top, 14)
@@ -270,7 +276,7 @@ private extension View {
     }
 }
 
-private struct GlassBanner: View {
+private struct NoticeBanner: View {
     let message: String
     let onTap: (() -> Void)?
 
@@ -280,13 +286,14 @@ private struct GlassBanner: View {
         } label: {
             Text(message)
                 .font(.footnote)
-                .foregroundStyle(.primary)
+                .fontWeight(.medium)
+                .foregroundStyle(Color.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .background(Color.black.opacity(0.72), in: .capsule)
         .padding(.horizontal, 24)
         .transition(.opacity)
         .disabled(onTap == nil)

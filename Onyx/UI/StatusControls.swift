@@ -7,28 +7,33 @@ struct StatusControls: View {
     let model: CameraModel
     let onShowModes: () -> Void
 
-    private enum Item: Hashable {
-        case flash, grid, modes, dual, location
+    private enum Item: Hashable, CaseIterable {
+        case flash, grid, modes, location, dual
     }
 
     private var items: [Item] {
-        let ordered: [Item] = model.isJournalist ? [.flash, .location] : [.flash, .grid, .modes, .dual]
-        return axis == .horizontal ? ordered : ordered.reversed()
+        axis == .horizontal ? Item.allCases : Item.allCases.reversed()
     }
 
     var body: some View {
-        let layout = axis == .horizontal
-            ? AnyLayout(HStackLayout(spacing: 28))
-            : AnyLayout(VStackLayout(spacing: 12))
-
-        layout {
-            ForEach(items, id: \.self) { item in
-                control(for: item)
+        switch axis {
+        case .horizontal:
+            HStack(spacing: 0) {
+                ForEach(items, id: \.self) { item in
+                    control(for: item)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 64)
+        case .vertical:
+            VStack(spacing: 12) {
+                ForEach(items, id: \.self) { item in
+                    control(for: item)
+                }
             }
         }
-        .frame(maxWidth: axis == .horizontal ? .infinity : nil)
-        .frame(height: axis == .horizontal ? 64 : nil)
-        .animation(.smooth, value: model.isJournalist)
     }
 
     @ViewBuilder
@@ -52,6 +57,13 @@ struct StatusControls: View {
             .disabled(model.isAwaitingSecondFrame)
         case .modes:
             modesButton
+        case .location:
+            StatusIconToggle(
+                title: "Location",
+                symbol: "location.slash",
+                activeSymbol: "location.fill",
+                isOn: locationBinding
+            )
         case .dual:
             StatusIconToggle(
                 title: "Dual capture",
@@ -60,13 +72,6 @@ struct StatusControls: View {
                 isOn: dualBinding
             )
             .disabled(!model.isDualAvailable || model.isAwaitingSecondFrame)
-        case .location:
-            StatusIconToggle(
-                title: "Location",
-                symbol: "location",
-                activeSymbol: "location.fill",
-                isOn: locationBinding
-            )
         }
     }
 

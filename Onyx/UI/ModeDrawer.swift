@@ -12,7 +12,7 @@ struct ModeDrawer: View {
         }
         .padding(.vertical, 16)
         .frame(maxWidth: 520)
-        .glassEffect(.regular.tint(Color.black.opacity(0.4)), in: .rect(cornerRadius: 40))
+        .glassEffect(.regular.tint(Color.black.opacity(0.55)), in: .rect(cornerRadius: 32))
         .accessibilityAction(.escape) { onClose() }
     }
 
@@ -26,7 +26,7 @@ struct ModeDrawer: View {
                 .animation(.smooth(duration: 0.2), value: model.selectedMode)
 
             HStack {
-                GlassCircleButton(title: "Back to camera", symbol: "chevron.left", size: 44) {
+                StatusIconButton(title: "Back to camera", symbol: "chevron.left") {
                     onClose()
                 }
                 Spacer()
@@ -38,7 +38,7 @@ struct ModeDrawer: View {
     private var tiles: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 12) {
-                ForEach(model.availableModes) { mode in
+                ForEach(CaptureMode.allCases) { mode in
                     tile(for: mode)
                 }
             }
@@ -65,7 +65,7 @@ struct ModeDrawer: View {
                     }
 
                 Text(mode.displayName)
-                    .font(.caption)
+                    .font(.caption.weight(isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.7))
@@ -73,7 +73,7 @@ struct ModeDrawer: View {
             .frame(width: 76)
             .opacity(isSelected ? 1 : 0.85)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())
         .animation(.smooth(duration: 0.2), value: isSelected)
         .accessibilityLabel(mode.displayName)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

@@ -1,33 +1,26 @@
 import SwiftUI
 
 struct RootView: View {
-    @State private var settings = AppSettings()
-    @State private var model: CameraModel?
+    let settings: AppSettings
+    let model: CameraModel
 
     var body: some View {
         Group {
-            if let model {
-                switch model.phase {
-                case .denied:
-                    PermissionGateView(
-                        message: CaptureError.cameraAccessDenied.localizedDescription,
-                        showsSettingsLink: true
-                    )
-                case .failed(let message):
-                    PermissionGateView(message: message, showsSettingsLink: false)
-                default:
-                    ViewfinderScreen(settings: settings, model: model)
-                }
-            } else {
-                Color.clear
+            switch model.phase {
+            case .denied:
+                PermissionGateView(
+                    message: CaptureError.cameraAccessDenied.localizedDescription,
+                    showsSettingsLink: true
+                )
+            case .failed(let message):
+                PermissionGateView(message: message, showsSettingsLink: false)
+            default:
+                ViewfinderScreen(settings: settings, model: model)
             }
         }
         .preferredColorScheme(.dark)
         .persistentSystemOverlays(.hidden)
         .statusBar(hidden: true)
-        .onAppear {
-            if model == nil { model = CameraModel(settings: settings) }
-        }
     }
 }
 
@@ -52,7 +45,8 @@ private struct PermissionGateView: View {
                         openURL(url)
                     }
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.borderedProminent)
+                .tint(.onyxAccent)
             }
         }
     }
