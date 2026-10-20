@@ -20,9 +20,9 @@ nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
     var summary: String {
         switch self {
         case .standard: "Our signature minimal-process look"
-        case .mono: "Our signature minimal-process look\nin black and white"
-        case .doubleExposure: "Two frames blended\nlike a physical double exposure"
-        case .doubleExposureMono: "Double exposure,\nin black and white"
+        case .mono: "Our signature minimal-process look in black and white"
+        case .doubleExposure: "Two frames blended like a physical double exposure"
+        case .doubleExposureMono: "Double exposure, in black and white"
         }
     }
 
@@ -31,7 +31,7 @@ nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
 
         return switch self {
         case .standard: "The front camera's standard iPhone look"
-        case .mono: "The front camera's standard look\nin black and white"
+        case .mono: "The front camera's standard look in black and white"
         default: summary
         }
     }

@@ -2,7 +2,6 @@ import AVFoundation
 import os
 
 nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
-    case cameraAccessDenied
     case noLensesAvailable
     case deviceUnavailable(String)
     case cannotAddInput
@@ -17,7 +16,6 @@ nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .cameraAccessDenied:         "Onyx needs camera access to shoot."
         case .noLensesAvailable:          "No usable camera was found on this device."
         case .deviceUnavailable(let l):   "The \(l) lens is unavailable."
         case .cannotAddInput:             "The camera input could not be attached."
@@ -76,14 +74,6 @@ actor CaptureEngine {
 
         var format: OSType? {
             if case .bayer(let format) = self { format } else { nil }
-        }
-    }
-
-    nonisolated func requestCameraAccess() async -> Bool {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized: true
-        case .notDetermined: await AVCaptureDevice.requestAccess(for: .video)
-        default: false
         }
     }
 

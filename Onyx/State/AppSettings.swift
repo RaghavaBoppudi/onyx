@@ -21,7 +21,6 @@ final class AppSettings {
         static let grid = "onyx.grid"
         static let flash = "onyx.flash"
         static let geotag = "onyx.geotag"
-        static let retired = ["onyx.appearance", "onyx.profile"]
     }
 
     private let defaults: UserDefaults
@@ -33,6 +32,5 @@ final class AppSettings {
         self.flashMode = AVCaptureDevice.FlashMode(
             rawValue: defaults.integer(forKey: Keys.flash)
         ) ?? .off
-        Keys.retired.forEach(defaults.removeObject(forKey:))
     }
 }

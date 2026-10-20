@@ -4,7 +4,6 @@ import SwiftUI
 import os
 
 enum Notice: Equatable {
-    case libraryDenied
     case saveFailed
     case captureFailed
     case lensSwitchFailed(String)
@@ -13,7 +12,6 @@ enum Notice: Equatable {
 
     var message: String {
         switch self {
-        case .libraryDenied: "Allow Photos access in Settings so Onyx can save your shots."
         case .saveFailed: "That photo couldn't be saved."
         case .captureFailed: "That photo couldn't be taken."
         case .lensSwitchFailed(let target): "Couldn't switch to the \(target)."
@@ -22,7 +20,7 @@ enum Notice: Equatable {
         }
     }
 
-    var showsSettings: Bool { self == .libraryDenied || self == .locationDenied }
+    var showsSettings: Bool { self == .locationDenied }
     var dismissesAutomatically: Bool { !showsSettings }
 }
 
@@ -31,7 +29,7 @@ enum Notice: Equatable {
 final class CameraModel {
 
     enum Phase: Equatable {
-        case idle, requestingAccess, denied, running, failed(String)
+        case idle, running, failed(String)
     }
 
     enum Pipeline: Equatable {
@@ -126,7 +124,6 @@ final class CameraModel {
 
     @ObservationIgnored private var lastOperation: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
-    @ObservationIgnored private var hasLibraryAccess = false
 
     private var photoRotationAngle: CGFloat {
         guard let lens = selectedLens, FrontCameraPipeline.isCenterStage(lens) else {
@@ -272,16 +269,12 @@ final class CameraModel {
 
     private func performStart() async {
         guard phase != .running else { return }
-        phase = .requestingAccess
 
-        guard await engine.requestCameraAccess() else {
-            phase = .denied
-            return
+        if lenses.isEmpty {
+            lenses = LensCatalog.lenses()
+            isDualAvailable = AVCaptureMultiCamSession.isMultiCamSupported
+                && Self.dualPair(in: lenses) != nil
         }
-
-        lenses = LensCatalog.lenses()
-        isDualAvailable = AVCaptureMultiCamSession.isMultiCamSupported
-            && Self.dualPair(in: lenses) != nil
 
         #if targetEnvironment(simulator)
         if lenses.isEmpty {
@@ -291,20 +284,20 @@ final class CameraModel {
         }
         #endif
 
-        guard let initial = Self.defaultLens(in: lenses, at: .back) else {
+        guard let rear = Self.defaultLens(in: lenses, at: .back) else {
             phase = .failed(CaptureError.noLensesAvailable.localizedDescription)
             return
         }
 
+        let initial = selectedLens ?? rear
         apply(initial)
-        reference.bind(to: initial)
+        reference.bind(to: rear)
 
-        if pipeline == .dual {
+        if isDualActive {
             _ = await enterDual()
         } else {
             do {
                 try await engine.select(lens: initial)
-                pipeline = .single
                 whiteBalance.bind(to: initial)
             } catch {
                 phase = .failed(error.localizedDescription)
@@ -315,10 +308,7 @@ final class CameraModel {
         if case .failed = phase { return }
 
         phase = .running
-
-        hasLibraryAccess = PhotosAuthorization.hasReadWriteAccess
-        if hasLibraryAccess { await recentPhoto.start() }
-
+        recentPhoto.start()
         resumeGeotagging()
 
         Task { await renderer.warmUp() }
@@ -464,8 +454,6 @@ final class CameraModel {
         activity = .capturing
         defer { activity = .idle }
 
-        guard await ensureLibraryAccess() else { return }
-
         if isDualActive {
             await captureDual()
             return
@@ -502,21 +490,6 @@ final class CameraModel {
             flashMode: settings.flashMode,
             location: geotag
         )
-    }
-
-    private func ensureLibraryAccess() async -> Bool {
-        if hasLibraryAccess { return true }
-
-        guard await PhotosAuthorization.requestReadWrite() else {
-            emit(.failure)
-            show(.libraryDenied)
-            return false
-        }
-
-        hasLibraryAccess = true
-        if notice == .libraryDenied { dismissNotice() }
-        await recentPhoto.start()
-        return true
     }
 
     private func captureDual() async {

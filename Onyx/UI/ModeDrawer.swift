@@ -80,7 +80,7 @@ struct ModeDrawer: View {
     }
 
     private var summary: some View {
-        Text(model.selectedMode.summary(for: model.cameraPosition).replacingOccurrences(of: "\n", with: " "))
+        Text(model.selectedMode.summary(for: model.cameraPosition))
             .font(.footnote)
             .foregroundStyle(Color.white.opacity(0.85))
             .multilineTextAlignment(.center)

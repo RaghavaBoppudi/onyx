@@ -12,6 +12,13 @@ struct OnyxApp: App {
     }
 
     var body: some Scene {
-        WindowGroup { RootView(settings: settings, model: model) }
+        WindowGroup {
+            LaunchGate {
+                RootView(settings: settings, model: model)
+            }
+            .preferredColorScheme(.dark)
+            .persistentSystemOverlays(.hidden)
+            .statusBar(hidden: true)
+        }
     }
 }
