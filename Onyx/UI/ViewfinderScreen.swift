@@ -12,6 +12,10 @@ struct ViewfinderScreen: View {
     @State private var showsModes = false
     @State private var showsLowLight = false
 
+    private enum LayoutKind {
+        case standard, statusRail, rail
+    }
+
     private enum Layout {
         static let verticalControlsAspectThreshold: CGFloat = 1.8
         static let railVerticalInset: CGFloat = 40
@@ -22,11 +26,15 @@ struct ViewfinderScreen: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let kind = layoutKind(for: proxy.size)
+
             layout(in: proxy.size, insets: proxy.safeAreaInsets)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.background)
                 .ignoresSafeArea()
-                .overlay(alignment: .bottom) { modeDrawer }
+                .overlay(alignment: kind == .rail ? .trailing : .bottom) {
+                    modeDrawer(for: kind, insets: proxy.safeAreaInsets)
+                }
                 .animation(.smooth(duration: 0.35), value: showsModes)
                 .onChange(of: DualLayoutStyle.resolve(for: proxy.size), initial: true) { _, style in
                     model.updateDualLayout(style)
@@ -65,12 +73,19 @@ struct ViewfinderScreen: View {
     }
 
     @ViewBuilder
-    private var modeDrawer: some View {
+    private func modeDrawer(for kind: LayoutKind, insets: EdgeInsets) -> some View {
         if showsModes {
-            ModeDrawer(model: model) { showsModes = false }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
-                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            if kind == .rail {
+                ModeDrawer(model: model, axis: .vertical) { showsModes = false }
+                    .padding(.trailing, insets.trailing + Layout.railHorizontalGap)
+                    .padding(.vertical, Layout.railVerticalInset)
+                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+            } else {
+                ModeDrawer(model: model, axis: .horizontal) { showsModes = false }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 8)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
         }
     }
 
@@ -90,15 +105,22 @@ struct ViewfinderScreen: View {
     @ViewBuilder
     private func layout(in size: CGSize, insets: EdgeInsets) -> some View {
         let isLandscape = size.width > size.height
+
+        switch layoutKind(for: size) {
+        case .rail: railLayout(isLandscape: isLandscape)
+        case .statusRail: statusRailLayout
+        case .standard: standardLayout(insets: insets)
+        }
+    }
+
+    private func layoutKind(for size: CGSize) -> LayoutKind {
+        let isLandscape = size.width > size.height
         let prefersRail = size.height / max(size.width, 1) < Layout.verticalControlsAspectThreshold
 
         if UIDevice.current.userInterfaceIdiom == .pad || (prefersRail && isLandscape) {
-            railLayout(isLandscape: isLandscape)
-        } else if prefersRail {
-            statusRailLayout
-        } else {
-            standardLayout(insets: insets)
+            return .rail
         }
+        return prefersRail ? .statusRail : .standard
     }
 
     private func railLayout(isLandscape: Bool) -> some View {

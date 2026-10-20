@@ -33,17 +33,21 @@ nonisolated enum BoundedCompletion {
     ) async -> Bool {
         await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let once = ResumeOnce()
-            start {
-                if once.claim() { continuation.resume(returning: true) }
-            }
-            Task {
+            let timer = Task {
                 try? await Task.sleep(for: timeout)
                 if once.claim() { continuation.resume(returning: false) }
+            }
+            start {
+                if once.claim() {
+                    timer.cancel()
+                    continuation.resume(returning: true)
+                }
             }
         }
     }
 }
 
+/// `NSKeyValueObservation` is only ever invalidated, never read, so handing the token across tasks is safe.
 nonisolated private final class ObservationToken: @unchecked Sendable {
     private let observation: NSKeyValueObservation
 

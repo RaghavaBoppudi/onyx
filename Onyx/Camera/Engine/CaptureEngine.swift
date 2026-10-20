@@ -16,17 +16,17 @@ nonisolated enum CaptureError: LocalizedError, Sendable, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .noLensesAvailable:          "No usable camera was found on this device."
-        case .deviceUnavailable(let l):   "The \(l) lens is unavailable."
-        case .cannotAddInput:             "The camera input could not be attached."
-        case .cannotAddOutput:            "The photo output could not be attached."
-        case .configurationFailed(let m): "Camera setup failed: \(m)"
-        case .captureFailed(let m):       "Capture failed: \(m)"
-        case .renderFailed(let m):        "Could not develop the photo: \(m)"
-        case .noImageData:                "The capture returned no image data."
-        case .multiCamUnsupported:        "This device cannot run both cameras at once."
-        case .multiCamBudgetExceeded:     "Both cameras cannot run together right now."
-        case .captureTimedOut:            "The camera took too long to respond."
+        case .noLensesAvailable: String(localized: "No usable camera was found on this device.")
+        case .deviceUnavailable(let lens): String(localized: "The \(lens) lens is unavailable.")
+        case .cannotAddInput: String(localized: "The camera input could not be attached.")
+        case .cannotAddOutput: String(localized: "The photo output could not be attached.")
+        case .configurationFailed(let message): String(localized: "Camera setup failed: \(message)")
+        case .captureFailed(let message): String(localized: "Capture failed: \(message)")
+        case .renderFailed(let message): String(localized: "Could not develop the photo: \(message)")
+        case .noImageData: String(localized: "The capture returned no image data.")
+        case .multiCamUnsupported: String(localized: "This device cannot run both cameras at once.")
+        case .multiCamBudgetExceeded: String(localized: "Both cameras cannot run together right now.")
+        case .captureTimedOut: String(localized: "The camera took too long to respond.")
         }
     }
 }
@@ -43,6 +43,7 @@ nonisolated enum CaptureConstants {
     }
 }
 
+/// The session is mutated only by `CaptureEngine` on its serial session queue; everyone else just attaches preview layers.
 nonisolated final class CaptureSessionBox: @unchecked Sendable {
     let session = AVCaptureSession()
 }

@@ -13,7 +13,7 @@ nonisolated extension CIImage {
     }
 }
 
-actor ImageRenderer {
+actor LookRenderer {
 
     nonisolated struct Output: Sendable {
         let heic: Data
@@ -71,7 +71,7 @@ actor ImageRenderer {
         let synthetic = CIImage(color: CIColor(red: 0.4, green: 0.4, blue: 0.4))
             .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
         for mode in CaptureMode.allCases {
-            _ = try? encode(grade(synthetic, for: mode), usedRAWPath: false)
+            _ = try? encode(grade(synthetic, for: mode), usedRAWPath: false, metadata: [:])
         }
     }
 
@@ -80,7 +80,12 @@ actor ImageRenderer {
         let graded = request.position == .front && !shot.isRAW
             ? gradeProcessed(decoded, for: request.mode)
             : grade(decoded, for: request.mode)
-        return try encode(graded, usedRAWPath: shot.isRAW, isDegraded: isDegraded(request.mode))
+        return try encode(
+            graded,
+            usedRAWPath: shot.isRAW,
+            isDegraded: isDegraded(request.mode),
+            metadata: PhotoMetadata.properties(from: shot.data)
+        )
     }
 
     func renderDual(
@@ -96,7 +101,7 @@ actor ImageRenderer {
             mirrorsFront: FrontCameraPipeline.mirrorsSavedImage,
             style: style
         )
-        return try encode(composite, usedRAWPath: false)
+        return try encode(composite, usedRAWPath: false, metadata: PhotoMetadata.properties(from: nil))
     }
 
     func beginDoubleExposure(_ shot: RawCapture, request: CaptureRequest) throws -> Data {
@@ -126,7 +131,8 @@ actor ImageRenderer {
         return try encode(
             grade(combined, for: request.mode),
             usedRAWPath: second.isRAW,
-            isDegraded: isDegraded(request.mode)
+            isDegraded: isDegraded(request.mode),
+            metadata: PhotoMetadata.properties(from: second.data)
         )
     }
 
@@ -305,9 +311,14 @@ actor ImageRenderer {
         return jpeg
     }
 
-    private func encode(_ image: CIImage, usedRAWPath: Bool, isDegraded: Bool = false) throws -> Output {
+    private func encode(
+        _ image: CIImage,
+        usedRAWPath: Bool,
+        isDegraded: Bool = false,
+        metadata: [String: Any]
+    ) throws -> Output {
         guard let heic = self.context.heifRepresentation(
-            of: image,
+            of: image.settingProperties(metadata),
             format: .RGBA8,
             colorSpace: outputSpace,
             options: [

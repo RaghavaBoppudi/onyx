@@ -10,6 +10,16 @@
 		A03D816F305CE5DB00C355F8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A03D816E305CE5DB00C355F8 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A0EF197530881512004CDC4E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A05FFBEF2FF44585004918E9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A05FFBF62FF44585004918E9;
+			remoteInfo = Onyx;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		A030B2DB3001C2EF00EE202F /* Embed Watch Content */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -24,6 +34,7 @@
 /* Begin PBXFileReference section */
 		A03D816E305CE5DB00C355F8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A05FFBF72FF44585004918E9 /* Onyx.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Onyx.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A0EF197130881512004CDC4E /* OnyxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OnyxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -45,10 +56,20 @@
 			path = Onyx;
 			sourceTree = "<group>";
 		};
+		A0EF197230881512004CDC4E /* OnyxTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = OnyxTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A05FFBF42FF44585004918E9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		A0EF196E30881512004CDC4E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
 			);
@@ -61,6 +82,7 @@
 			children = (
 				A03D816E305CE5DB00C355F8 /* Assets.xcassets */,
 				A0A609A9303CA3C4005AA254 /* Onyx */,
+				A0EF197230881512004CDC4E /* OnyxTests */,
 				A05FFBF82FF44585004918E9 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -69,6 +91,7 @@
 			isa = PBXGroup;
 			children = (
 				A05FFBF72FF44585004918E9 /* Onyx.app */,
+				A0EF197130881512004CDC4E /* OnyxTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -95,6 +118,27 @@
 			productReference = A05FFBF72FF44585004918E9 /* Onyx.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A0EF197030881512004CDC4E /* OnyxTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A0EF197730881512004CDC4E /* Build configuration list for PBXNativeTarget "OnyxTests" */;
+			buildPhases = (
+				A0EF196D30881512004CDC4E /* Sources */,
+				A0EF196E30881512004CDC4E /* Frameworks */,
+				A0EF196F30881512004CDC4E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A0EF197630881512004CDC4E /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A0EF197230881512004CDC4E /* OnyxTests */,
+			);
+			name = OnyxTests;
+			productName = OnyxTests;
+			productReference = A0EF197130881512004CDC4E /* OnyxTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -102,11 +146,15 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2700;
+				LastSwiftUpdateCheck = 2710;
 				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					A05FFBF62FF44585004918E9 = {
 						CreatedOnToolsVersion = 27.0;
+					};
+					A0EF197030881512004CDC4E = {
+						CreatedOnToolsVersion = 27.1;
+						TestTargetID = A05FFBF62FF44585004918E9;
 					};
 				};
 			};
@@ -125,6 +173,7 @@
 			projectRoot = "";
 			targets = (
 				A05FFBF62FF44585004918E9 /* Onyx */,
+				A0EF197030881512004CDC4E /* OnyxTests */,
 			);
 		};
 /* End PBXProject section */
@@ -136,6 +185,11 @@
 				A03D816F305CE5DB00C355F8 /* Assets.xcassets in Resources */,
 			);
 		};
+		A0EF196F30881512004CDC4E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -144,7 +198,20 @@
 			files = (
 			);
 		};
+		A0EF196D30881512004CDC4E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A0EF197630881512004CDC4E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A05FFBF62FF44585004918E9 /* Onyx */;
+			targetProxy = A0EF197530881512004CDC4E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A05FFC002FF44587004918E9 /* Debug configuration for PBXProject "Onyx" */ = {
@@ -360,6 +427,48 @@
 			};
 			name = Release;
 		};
+		A0EF197830881512004CDC4E /* Debug configuration for PBXNativeTarget "OnyxTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5U787PNUF5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raghavaboppudi.OnyxTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Onyx.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Onyx";
+			};
+			name = Debug;
+		};
+		A0EF197930881512004CDC4E /* Release configuration for PBXNativeTarget "OnyxTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5U787PNUF5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raghavaboppudi.OnyxTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Onyx.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Onyx";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -376,6 +485,14 @@
 			buildConfigurations = (
 				A05FFC032FF44587004918E9 /* Debug configuration for PBXNativeTarget "Onyx" */,
 				A05FFC042FF44587004918E9 /* Release configuration for PBXNativeTarget "Onyx" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		A0EF197730881512004CDC4E /* Build configuration list for PBXNativeTarget "OnyxTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A0EF197830881512004CDC4E /* Debug configuration for PBXNativeTarget "OnyxTests" */,
+				A0EF197930881512004CDC4E /* Release configuration for PBXNativeTarget "OnyxTests" */,
 			);
 			defaultConfigurationName = Release;
 		};

@@ -6,22 +6,41 @@ import os
 enum Notice: Equatable {
     case saveFailed
     case captureFailed
-    case lensSwitchFailed(String)
-    case effectUnavailable(String)
+    case lensSwitchFailed(Lens)
+    case effectUnavailable(CaptureMode)
     case locationDenied
+    case interrupted(CameraEvent.Reason)
+    case overheating
 
     var message: String {
         switch self {
-        case .saveFailed: "That photo couldn't be saved."
-        case .captureFailed: "That photo couldn't be taken."
-        case .lensSwitchFailed(let target): "Couldn't switch to the \(target)."
-        case .effectUnavailable(let mode): "\(mode) couldn't be applied to that photo."
-        case .locationDenied: "Allow Location access in Settings to add where you took your photos."
+        case .saveFailed:
+            String(localized: "That photo couldn't be saved.")
+        case .captureFailed:
+            String(localized: "That photo couldn't be taken.")
+        case .lensSwitchFailed(let lens):
+            lens.position == .front
+                ? String(localized: "Couldn't switch to the front camera.")
+                : String(localized: "Couldn't switch to the \(lens.label) lens.")
+        case .effectUnavailable(let mode):
+            String(localized: "\(mode.displayName) couldn't be applied to that photo.")
+        case .locationDenied:
+            String(localized: "Allow Location access in Settings to add where you took your photos.")
+        case .interrupted(let reason):
+            reason.message
+        case .overheating:
+            String(localized: "The camera paused to cool down. Dual capture is off.")
         }
     }
 
     var showsSettings: Bool { self == .locationDenied }
-    var dismissesAutomatically: Bool { !showsSettings }
+
+    var dismissesAutomatically: Bool {
+        switch self {
+        case .interrupted, .locationDenied: false
+        default: true
+        }
+    }
 }
 
 @MainActor
@@ -48,7 +67,7 @@ final class CameraModel {
     private(set) var phase: Phase = .idle
     private(set) var pipeline: Pipeline = .single
     private(set) var activity: Activity = .idle
-    private(set) var developingCount = 0
+    private(set) var isInterrupted = false
     private(set) var notice: Notice?
     private(set) var pendingLensID: String?
     private(set) var lenses: [Lens] = []
@@ -67,20 +86,20 @@ final class CameraModel {
     let whiteBalance = WhiteBalanceReadiness()
     let recentPhoto = RecentPhotoWatcher()
     let location = LocationProvider()
-
-    private let developLimit = 3
+    let developQueue = DevelopQueue()
 
     var acceptsShutter: Bool {
         phase == .running
             && activity == .idle
-            && developingCount < developLimit
+            && !developQueue.isFull
+            && !isInterrupted
     }
 
     var isShutterDimmed: Bool {
-        activity == .capturing || developingCount >= developLimit
+        activity == .capturing || developQueue.isFull || isInterrupted
     }
     var isSwitching: Bool { activity == .switching }
-    var isDeveloping: Bool { developingCount > 0 }
+    var isDeveloping: Bool { developQueue.isBusy }
 
     var ghostOverlay: UIImage? {
         if case .awaitingSecond(let ghost) = exposureSequence { ghost } else { nil }
@@ -117,13 +136,16 @@ final class CameraModel {
 
     private let engine = CaptureEngine()
     private let dualEngine = DualCaptureEngine()
-    private let renderer = ImageRenderer()
+    private let renderer = LookRenderer()
     private let library = PhotoLibraryWriter()
     private let settings: AppSettings
     private var lastLens: [AVCaptureDevice.Position: Lens] = [:]
 
     @ObservationIgnored private var lastOperation: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var lastRecovery: ContinuousClock.Instant?
+    private let monitor = CameraEventMonitor()
 
     private var photoRotationAngle: CGFloat {
         guard let lens = selectedLens, FrontCameraPipeline.isCenterStage(lens) else {
@@ -142,6 +164,12 @@ final class CameraModel {
 
     init(settings: AppSettings) {
         self.settings = settings
+
+        monitor.watch(engine.box.session)
+        monitor.watch(dualEngine.box.session)
+        eventTask = Task { [weak self, events = monitor.events] in
+            for await event in events { self?.handle(event) }
+        }
     }
 
     func start() async {
@@ -238,7 +266,10 @@ final class CameraModel {
     func openPhotosApp() {
         guard let url = URL(string: "photos-redirect://") else { return }
         emit(.tap)
-        UIApplication.shared.open(url)
+        UIApplication.shared.open(url) { [weak self] opened in
+            guard !opened else { return }
+            Task { @MainActor in self?.emit(.failure) }
+        }
     }
 
     private func emit(_ kind: FeedbackEvent.Kind) {
@@ -269,6 +300,7 @@ final class CameraModel {
 
     private func performStart() async {
         guard phase != .running else { return }
+        isInterrupted = false
 
         if lenses.isEmpty {
             lenses = LensCatalog.lenses()
@@ -308,6 +340,7 @@ final class CameraModel {
         if case .failed = phase { return }
 
         phase = .running
+        watchPressure()
         recentPhoto.start()
         resumeGeotagging()
 
@@ -333,7 +366,7 @@ final class CameraModel {
             apply(lens)
         } catch {
             emit(.failure)
-            show(.lensSwitchFailed(lens.position == .front ? "front camera" : "\(lens.label) lens"))
+            show(.lensSwitchFailed(lens))
             Log.lens.error("Lens switch failed: \(error.localizedDescription, privacy: .public)")
         }
     }
@@ -421,6 +454,7 @@ final class CameraModel {
         secondaryRotation.bind(to: pair.front)
         whiteBalance.bind(to: pair.rear)
         pipeline = .dual
+        watchPressure()
         return true
     }
 
@@ -435,6 +469,7 @@ final class CameraModel {
         await dualEngine.stop()
         pipeline = .single
         await restoreSingle()
+        watchPressure()
     }
 
     private func restoreSingle() async {
@@ -450,7 +485,7 @@ final class CameraModel {
     }
 
     private func performCapture() async {
-        guard phase == .running, activity == .idle, developingCount < developLimit else { return }
+        guard phase == .running, activity == .idle, !developQueue.isFull, !isInterrupted else { return }
         activity = .capturing
         defer { activity = .idle }
 
@@ -508,19 +543,15 @@ final class CameraModel {
         let style = dualLayout
         let place = geotag
 
-        developingCount += 1
-        Task {
-            await BackgroundTime.run("Onyx.developDual") {
-                await developDual(
-                    frames,
-                    id: id,
-                    rearOrientation: rearOrientation,
-                    frontOrientation: frontOrientation,
-                    style: style,
-                    location: place
-                )
-            }
-            developingCount -= 1
+        developQueue.enqueue("Onyx.developDual") {
+            await self.developDual(
+                frames,
+                id: id,
+                rearOrientation: rearOrientation,
+                frontOrientation: frontOrientation,
+                style: style,
+                location: place
+            )
         }
     }
 
@@ -564,12 +595,8 @@ final class CameraModel {
     }
 
     private func beginDevelop(_ shot: RawCapture, request: CaptureRequest, finishingDoubleExposure: Bool) {
-        developingCount += 1
-        Task {
-            await BackgroundTime.run("Onyx.develop") {
-                await develop(shot, request: request, finishingDoubleExposure: finishingDoubleExposure)
-            }
-            developingCount -= 1
+        developQueue.enqueue("Onyx.develop") {
+            await self.develop(shot, request: request, finishingDoubleExposure: finishingDoubleExposure)
         }
     }
 
@@ -582,7 +609,7 @@ final class CameraModel {
             try await library.save(heic: output.heic, location: request.location)
             emit(.success)
 
-            if output.isDegraded { show(.effectUnavailable(request.mode.displayName)) }
+            if output.isDegraded { show(.effectUnavailable(request.mode)) }
 
             Log.render.info("Developed [\(request.id.uuidString, privacy: .public)] mode=\(request.mode.rawValue, privacy: .public) via \(output.usedRAWPath ? "RAW" : "ISP fallback") path, degraded=\(output.isDegraded)")
         } catch {
@@ -631,6 +658,51 @@ final class CameraModel {
         } catch {
             Log.capture.error("Exposure bias update failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func handle(_ event: CameraEvent) {
+        switch event {
+        case .interrupted(let reason):
+            isInterrupted = true
+            emit(.failure)
+            show(.interrupted(reason))
+
+        case .interruptionEnded:
+            isInterrupted = false
+            if case .interrupted? = notice { dismissNotice() }
+
+        case .runtimeError:
+            let now = ContinuousClock.now
+            if let last = lastRecovery, now - last < .seconds(3) {
+                emit(.failure)
+                show(.captureFailed)
+                return
+            }
+            lastRecovery = now
+            Task { await serialized { await self.recover() } }
+
+        case .pressureElevated:
+            guard isDualActive else { return }
+            emit(.failure)
+            show(.overheating)
+            Task { await serialized { await self.performSetDual(false) } }
+        }
+    }
+
+    private func recover() async {
+        guard phase == .running else { return }
+        await performStop()
+        await performStart()
+    }
+
+    private func watchPressure() {
+        let active: [Lens]
+        if isDualActive, let pair = Self.dualPair(in: lenses) {
+            active = [pair.rear, pair.front]
+        } else {
+            active = selectedLens.map { [$0] } ?? []
+        }
+        monitor.watchPressure(of: active.compactMap { $0.resolveDevice() })
     }
 
     private func fireShutterFeedback() {

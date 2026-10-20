@@ -1,11 +1,13 @@
 import AVFoundation
 import os
 
+/// Pixel buffers are immutable once copied out of the store, so sharing them across tasks is safe.
 nonisolated struct DualFrames: @unchecked Sendable {
     let rear: CVPixelBuffer
     let front: CVPixelBuffer
 }
 
+/// `latest` is guarded by an unfair lock; the outputs are configured once and then only used by the session.
 nonisolated final class DualFrameStore: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
 
     let rearOutput = AVCaptureVideoDataOutput()
