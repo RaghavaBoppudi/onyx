@@ -76,7 +76,7 @@ final class CameraModel {
     private(set) var selectedMode: CaptureMode = .standard
     private(set) var dualLayout: DualLayoutStyle = .pictureInPicture
     private(set) var blinkOpacity: Double = 0
-    private(set) var feedback: FeedbackEvent = .none
+    private(set) var feedback: FeedbackEvent?
 
     private var exposureSequence: ExposureSequence = .none
 
@@ -273,7 +273,7 @@ final class CameraModel {
     }
 
     private func emit(_ kind: FeedbackEvent.Kind) {
-        feedback = FeedbackEvent(serial: feedback.serial + 1, kind: kind)
+        feedback = FeedbackEvent(serial: (feedback?.serial ?? 0) + 1, kind: kind)
     }
 
     private func serialized(_ operation: @escaping @MainActor () async -> Void) async {

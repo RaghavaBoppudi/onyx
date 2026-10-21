@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 nonisolated extension Color {
     static var onyxAccent: Color {
@@ -18,11 +19,16 @@ extension View {
 
 private struct GlyphRotationModifier: ViewModifier {
     @Environment(\.glyphRotation) private var rotation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var animation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : .snappy(duration: 0.3, extraBounce: 0.08)
+    }
 
     func body(content: Content) -> some View {
         content
             .rotationEffect(rotation)
-            .animation(.snappy(duration: 0.3, extraBounce: 0.08), value: rotation)
+            .animation(animation, value: rotation)
     }
 }
 
@@ -50,5 +56,21 @@ nonisolated enum Metrics {
         static let opacity: Double = 0.42
         static let inDuration: Double = 0.055
         static let outDuration: Double = 0.13
+    }
+}
+
+enum ScreenClass {
+    case standard, statusRail, rail
+
+    private static let railAspectThreshold: CGFloat = 1.8
+
+    static func resolve(for size: CGSize) -> ScreenClass {
+        let isLandscape = size.width > size.height
+        let prefersRail = size.height / max(size.width, 1) < railAspectThreshold
+
+        if UIDevice.current.userInterfaceIdiom == .pad || (prefersRail && isLandscape) {
+            return .rail
+        }
+        return prefersRail ? .statusRail : .standard
     }
 }

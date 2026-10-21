@@ -12,12 +12,7 @@ struct ViewfinderScreen: View {
     @State private var showsModes = false
     @State private var showsLowLight = false
 
-    private enum LayoutKind {
-        case standard, statusRail, rail
-    }
-
     private enum Layout {
-        static let verticalControlsAspectThreshold: CGFloat = 1.8
         static let railVerticalInset: CGFloat = 40
         static let railHorizontalGap: CGFloat = 16
         static let railWidth: CGFloat = 104
@@ -26,7 +21,7 @@ struct ViewfinderScreen: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let kind = layoutKind(for: proxy.size)
+            let kind = ScreenClass.resolve(for: proxy.size)
 
             layout(in: proxy.size, insets: proxy.safeAreaInsets)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,7 +43,7 @@ struct ViewfinderScreen: View {
             .allowsHitTesting(false)
         }
         .sensoryFeedback(trigger: model.feedback) { _, event in
-            event.serial == 0 ? nil : event.kind.sensoryFeedback
+            event?.kind.sensoryFeedback
         }
         .alert(
             "Permission Needed",
@@ -73,7 +68,7 @@ struct ViewfinderScreen: View {
     }
 
     @ViewBuilder
-    private func modeDrawer(for kind: LayoutKind, insets: EdgeInsets) -> some View {
+    private func modeDrawer(for kind: ScreenClass, insets: EdgeInsets) -> some View {
         if showsModes {
             if kind == .rail {
                 ModeDrawer(model: model, axis: .vertical) { showsModes = false }
@@ -106,21 +101,11 @@ struct ViewfinderScreen: View {
     private func layout(in size: CGSize, insets: EdgeInsets) -> some View {
         let isLandscape = size.width > size.height
 
-        switch layoutKind(for: size) {
+        switch ScreenClass.resolve(for: size) {
         case .rail: railLayout(isLandscape: isLandscape)
         case .statusRail: statusRailLayout
         case .standard: standardLayout(insets: insets)
         }
-    }
-
-    private func layoutKind(for size: CGSize) -> LayoutKind {
-        let isLandscape = size.width > size.height
-        let prefersRail = size.height / max(size.width, 1) < Layout.verticalControlsAspectThreshold
-
-        if UIDevice.current.userInterfaceIdiom == .pad || (prefersRail && isLandscape) {
-            return .rail
-        }
-        return prefersRail ? .statusRail : .standard
     }
 
     private func railLayout(isLandscape: Bool) -> some View {

@@ -35,7 +35,7 @@ struct ModeDrawer: View {
     private var header: some View {
         ZStack {
             Text(model.selectedMode.displayName.uppercased())
-                .font(.system(size: 15, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .tracking(2)
                 .foregroundStyle(Color.white)
                 .contentTransition(.opacity)

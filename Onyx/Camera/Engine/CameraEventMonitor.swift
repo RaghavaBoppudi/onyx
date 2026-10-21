@@ -31,7 +31,7 @@ nonisolated final class CameraEventMonitor: Sendable {
 
     private let continuation: AsyncStream<CameraEvent>.Continuation
     private let sessionTokens = Mutex<[NotificationTokens]>([])
-    private let pressureTokens = Mutex<Observations?>(nil)
+    private let pressureTokens = Mutex<ObservationBag?>(nil)
 
     init() {
         let pair = AsyncStream.makeStream(of: CameraEvent.self, bufferingPolicy: .bufferingNewest(8))
@@ -73,7 +73,7 @@ nonisolated final class CameraEventMonitor: Sendable {
                 }
             }
         }
-        let bag = Observations(observations)
+        let bag = ObservationBag(observations)
         pressureTokens.withLock { $0 = bag }
     }
 
@@ -98,13 +98,5 @@ private final class NotificationTokens: @unchecked Sendable {
 
     deinit {
         tokens.forEach { NotificationCenter.default.removeObserver($0) }
-    }
-}
-
-private final class Observations: @unchecked Sendable {
-    private let observations: [NSKeyValueObservation]
-
-    init(_ observations: [NSKeyValueObservation]) {
-        self.observations = observations
     }
 }

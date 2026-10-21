@@ -1,15 +1,49 @@
 import SwiftUI
 
 struct CaptureAnimation: View {
+    enum Device {
+        case phone, duo, tablet
+
+        init(_ screen: ScreenClass) {
+            switch screen {
+            case .standard: self = .phone
+            case .statusRail: self = .duo
+            case .rail: self = .tablet
+            }
+        }
+
+        var canvas: CGSize { self == .tablet ? CGSize(width: 840, height: 680) : CGSize(width: 600, height: 750) }
+        var cropTop: CGFloat { self == .duo ? 270 : 0 }
+        var scale: CGFloat { self == .tablet ? 0.72 : 1 }
+        var corner: CGFloat { self == .tablet ? 40 : 54 }
+        var bezel: CGFloat { self == .tablet ? 12 : 8 }
+
+        var chassis: CGRect {
+            switch self {
+            case .phone: CGRect(x: 163.5, y: 85.5, width: 273, height: 579)
+            case .duo: CGRect(x: 163.5, y: 300.5, width: 273, height: 364)
+            case .tablet: CGRect(x: 200, y: 30, width: 440, height: 330)
+            }
+        }
+
+        var shutter: CGPoint {
+            self == .tablet ? CGPoint(x: chassis.maxX - 50, y: chassis.midY) : CGPoint(x: 293.5, y: 591.5)
+        }
+    }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    let device: Device
+
     var body: some View {
+        let visible = CGSize(width: device.canvas.width, height: device.canvas.height - device.cropTop)
+
         Group {
             if reduceMotion {
-                CaptureScene(pose: .still)
+                Stage(device: device, pose: .still)
             } else {
                 KeyframeAnimator(initialValue: Pose(), repeating: true) { pose in
-                    CaptureScene(pose: pose)
+                    Stage(device: device, pose: pose)
                 } keyframes: { _ in
                     KeyframeTrack(\.rise) {
                         CubicKeyframe(1, duration: 0.9, startVelocity: 2 / 0.9, endVelocity: 0)
@@ -33,7 +67,11 @@ struct CaptureAnimation: View {
                 }
             }
         }
-        .frame(width: Artboard.size.width, height: Artboard.size.height)
+        .frame(width: device.canvas.width, height: device.canvas.height)
+        .offset(y: -device.cropTop)
+        .frame(width: visible.width, height: visible.height, alignment: .top)
+        .scaleEffect(0.3, anchor: .topLeading)
+        .frame(width: visible.width * 0.3, height: visible.height * 0.3, alignment: .topLeading)
         .clipShape(.rect(cornerRadius: 30, style: .continuous))
         .accessibilityHidden(true)
     }
@@ -47,65 +85,59 @@ private struct Pose {
     static let still = Pose(rise: 1)
 }
 
-private struct CaptureScene: View {
+private struct Stage: View {
+    let device: CaptureAnimation.Device
     let pose: Pose
 
+    private var isTablet: Bool { device == .tablet }
+
     var body: some View {
-        ZStack {
-            Palette.gray
+        ZStack(alignment: .topLeading) {
+            Color(white: 0.2)
             Color.onyxAccent.opacity(pose.flash)
 
-            ZStack {
-                Image("CaptureHand").resizable()
-                Phone(press: pose.press)
-                Image("CaptureThumb").resizable()
-                    .rotationEffect(.degrees(-6 * pose.press), anchor: Artboard.pivot)
+            ZStack(alignment: .topLeading) {
+                Image(isTablet ? "CaptureTabletHand" : "CaptureHand")
+                if isTablet { Image("CaptureTabletHand").scaleEffect(x: -1) }
+                Chassis(device: device, press: pose.press)
+                if isTablet { thumb(angle: 0).scaleEffect(x: -1) }
+                thumb(angle: -6 * pose.press)
             }
-            .offset(y: (1 - pose.rise) * Artboard.exitTravel)
+            .offset(y: (1 - pose.rise) * device.canvas.height)
         }
+    }
+
+    private func thumb(angle: Double) -> some View {
+        Image("CaptureThumb")
+            .rotationEffect(.degrees(angle), anchor: UnitPoint(x: 449.5 / 600, y: 697.5 / 750))
+            .scaleEffect(device.scale, anchor: UnitPoint(x: 293.5 / 600, y: 591.5 / 750))
+            .offset(x: device.shutter.x - 293.5, y: device.shutter.y - 591.5)
+            .frame(width: device.canvas.width, height: device.canvas.height, alignment: .topLeading)
     }
 }
 
-private struct Phone: View {
+private struct Chassis: View {
+    let device: CaptureAnimation.Device
     let press: Double
 
     var body: some View {
-        Canvas { [press] context, size in
-            context.scaleBy(x: size.width / Artboard.design.width, y: size.height / Artboard.design.height)
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: device.corner, style: .continuous)
+                .fill(.black)
+                .overlay {
+                    RoundedRectangle(cornerRadius: device.corner - device.bezel, style: .continuous)
+                        .fill(Color(white: 0.2))
+                        .padding(device.bezel)
+                }
+                .frame(width: device.chassis.width, height: device.chassis.height)
+                .offset(x: device.chassis.minX, y: device.chassis.minY)
 
-            context.fill(
-                Path(roundedRect: Artboard.phone, cornerRadius: 54, style: .continuous),
-                with: .color(.black)
-            )
-            context.fill(
-                Path(roundedRect: Artboard.phone.insetBy(dx: 8, dy: 8), cornerRadius: 46, style: .continuous),
-                with: .color(Palette.gray)
-            )
-            context.fill(
-                Path(roundedRect: Artboard.island, cornerRadius: 11, style: .continuous),
-                with: .color(.black)
-            )
-
-            let center = Artboard.shutter
-            context.stroke(Path(ellipseIn: center.insetBy(dx: -6.5, dy: -6.5)), with: .color(.white), lineWidth: 5)
-
-            let inset = 25 * 0.18 * press
-            context.fill(Path(ellipseIn: center.insetBy(dx: inset, dy: inset)), with: .color(.white))
+            ZStack {
+                Circle().stroke(.white, lineWidth: 5).frame(width: 63, height: 63)
+                Circle().fill(.white).frame(width: 50, height: 50).scaleEffect(1 - 0.18 * press)
+            }
+            .scaleEffect(device.scale)
+            .position(device.shutter)
         }
     }
-}
-
-private enum Palette {
-    static let gray = Color(white: 0.2)
-}
-
-private enum Artboard {
-    static let size = CGSize(width: 180, height: 225)
-    static let design = CGSize(width: 600, height: 750)
-    static let exitTravel = size.height * 1.07
-
-    static let phone = CGRect(x: 163.5, y: 85.5, width: 273, height: 579)
-    static let island = CGRect(x: 261, y: 107.5, width: 78, height: 22)
-    static let shutter = CGRect(x: 268.5, y: 566.5, width: 50, height: 50)
-    static let pivot = UnitPoint(x: 449.5 / design.width, y: 697.5 / design.height)
 }

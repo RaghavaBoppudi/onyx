@@ -1,17 +1,13 @@
 import SwiftUI
 import UIKit
 
-private let hasLaunchedKey = "onyx.hasLaunched"
-
 struct LaunchGate<Content: View>: View {
     private let content: Content
 
     @State private var permissions = Permissions()
     @State private var admitted = false
     @State private var splashVisible = true
-    @State private var launchSplash: Duration = UserDefaults.standard.bool(forKey: hasLaunchedKey)
-        ? .milliseconds(500)
-        : .milliseconds(1400)
+    @AppStorage("onyx.hasLaunched") private var hasLaunched = false
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -37,8 +33,9 @@ struct LaunchGate<Content: View>: View {
         }
         .task {
             admitted = permissions.requiredGranted
-            UserDefaults.standard.set(true, forKey: hasLaunchedKey)
-            await holdSplash(for: launchSplash)
+            let hold: Duration = hasLaunched ? .milliseconds(500) : .milliseconds(1400)
+            hasLaunched = true
+            await holdSplash(for: hold)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { permissions.refresh() }
@@ -74,11 +71,12 @@ private struct PermissionsScreen: View {
     let onContinue: () -> Void
 
     @Environment(\.openURL) private var openURL
+    @State private var device = CaptureAnimation.Device.phone
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 36) {
-                CaptureAnimation()
+                CaptureAnimation(device: device)
                     .frame(maxWidth: .infinity)
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -107,6 +105,9 @@ private struct PermissionsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollBounceBehavior(.basedOnSize)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            device = CaptureAnimation.Device(ScreenClass.resolve(for: size))
+        }
         .safeAreaInset(edge: .bottom) {
             Button(action: onContinue) {
                 Text("Continue")
@@ -187,7 +188,7 @@ private extension Permissions.Kind {
         }
     }
 
-    var title: String {
+    var title: LocalizedStringResource {
         switch self {
         case .camera: "Camera"
         case .photos: "Photos"
@@ -195,7 +196,7 @@ private extension Permissions.Kind {
         }
     }
 
-    var detail: String {
+    var detail: LocalizedStringResource {
         switch self {
         case .camera: "Required to take photos."
         case .photos: "Required to save your photos."

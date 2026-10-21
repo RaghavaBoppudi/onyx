@@ -47,16 +47,16 @@ nonisolated enum BoundedCompletion {
     }
 }
 
-/// `NSKeyValueObservation` is only ever invalidated, never read, so handing the token across tasks is safe.
-nonisolated private final class ObservationToken: @unchecked Sendable {
-    private let observation: NSKeyValueObservation
+/// KVO observations are only ever invalidated, never read, so handing them across tasks is safe.
+nonisolated final class ObservationBag: @unchecked Sendable {
+    private let observations: [NSKeyValueObservation]
 
-    init(_ observation: NSKeyValueObservation) {
-        self.observation = observation
+    init(_ observations: [NSKeyValueObservation]) {
+        self.observations = observations
     }
 
-    func cancel() {
-        observation.invalidate()
+    func invalidate() {
+        observations.forEach { $0.invalidate() }
     }
 }
 
@@ -66,8 +66,8 @@ nonisolated extension NSObjectProtocol where Self: NSObject {
             let observation = observe(keyPath, options: [.initial, .new]) { _, change in
                 if let value = change.newValue { continuation.yield(value) }
             }
-            let token = ObservationToken(observation)
-            continuation.onTermination = { _ in token.cancel() }
+            let bag = ObservationBag([observation])
+            continuation.onTermination = { _ in bag.invalidate() }
         }
     }
 }
