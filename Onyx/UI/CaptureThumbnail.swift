@@ -30,7 +30,7 @@ struct CaptureThumbnail: View {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 46, height: 46)
-                        .background(.ultraThinMaterial, in: .circle)
+                        .background(Color.black.opacity(0.55), in: .circle)
                         .transition(.opacity)
                 }
             }

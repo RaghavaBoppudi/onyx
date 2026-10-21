@@ -1,5 +1,23 @@
+import CoreLocation
 import Photos
 import UIKit
+import UniformTypeIdentifiers
+import os
+
+nonisolated struct PhotoLibraryWriter: Sendable {
+
+    func save(heic: Data, location: CLLocation?) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            let options = PHAssetResourceCreationOptions()
+            options.uniformTypeIdentifier = UTType.heic.identifier
+            request.addResource(with: .photo, data: heic, options: options)
+            request.location = location
+        }
+
+        Log.library.info("Saved HEIC, \(heic.count / 1024) KB, location: \(location != nil)")
+    }
+}
 
 @MainActor
 @Observable
@@ -15,8 +33,15 @@ final class RecentPhotoWatcher: NSObject, PHPhotoLibraryChangeObserver {
 
     private static let targetSize = CGSize(width: 160, height: 160)
 
-    func start() async {
-        guard await PhotosAuthorization.requestReadWrite() else { return }
+    private var hasAccess: Bool {
+        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
+        case .authorized, .limited: true
+        default: false
+        }
+    }
+
+    func start() {
+        guard hasAccess else { return }
 
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]

@@ -3,6 +3,7 @@ import os
 
 nonisolated struct Lens: Identifiable, Hashable, Sendable {
     let id: String
+    let deviceID: String
     let deviceType: AVCaptureDevice.DeviceType
     let position: AVCaptureDevice.Position
     let factor: CGFloat
@@ -17,9 +18,7 @@ nonisolated struct Lens: Identifiable, Hashable, Sendable {
     }
 
     func resolveDevice() -> AVCaptureDevice? {
-        AVCaptureDevice.DiscoverySession(
-            deviceTypes: [deviceType], mediaType: .video, position: position
-        ).devices.first
+        AVCaptureDevice(uniqueID: deviceID)
     }
 }
 
@@ -72,6 +71,7 @@ nonisolated enum LensCatalog {
             .map { device, factor in
                 Lens(
                     id: device.uniqueID,
+                    deviceID: device.uniqueID,
                     deviceType: device.deviceType,
                     position: .back,
                     factor: factor / reference,
@@ -98,6 +98,7 @@ nonisolated enum LensCatalog {
                     ? CGFloat(tan(wideFOV * .pi / 360) / tan(fov * .pi / 360)) : 1.0
                 return Lens(
                     id: device.uniqueID,
+                    deviceID: device.uniqueID,
                     deviceType: device.deviceType,
                     position: .back,
                     factor: factor,
@@ -119,6 +120,7 @@ nonisolated enum LensCatalog {
         return [
             Lens(
                 id: wide.uniqueID,
+                deviceID: wide.uniqueID,
                 deviceType: wide.deviceType,
                 position: .front,
                 factor: 1.0,
@@ -136,6 +138,7 @@ nonisolated enum LensCatalog {
     private static func centerStageLens(for device: AVCaptureDevice, factor: CGFloat) -> Lens {
         Lens(
             id: "\(device.uniqueID)@\(Lens.format(factor))",
+            deviceID: device.uniqueID,
             deviceType: device.deviceType,
             position: .front,
             factor: factor,

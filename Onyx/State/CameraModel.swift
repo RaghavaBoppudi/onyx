@@ -4,32 +4,43 @@ import SwiftUI
 import os
 
 enum Notice: Equatable {
-    case libraryDenied
     case saveFailed
     case captureFailed
-    case lensSwitchFailed(String)
-    case effectUnavailable(String)
+    case lensSwitchFailed(Lens)
+    case effectUnavailable(CaptureMode)
     case locationDenied
-    case rawUnavailable
-    case ledgerFailed
-    case locationUnavailable
+    case interrupted(CameraEvent.Reason)
+    case overheating
 
     var message: String {
         switch self {
-        case .libraryDenied: "Allow Photos access in Settings so Onyx can save your shots."
-        case .saveFailed: "That photo couldn't be saved."
-        case .captureFailed: "That photo couldn't be taken."
-        case .lensSwitchFailed(let target): "Couldn't switch to the \(target)."
-        case .effectUnavailable(let mode): "\(mode) couldn't be applied to that photo."
-        case .locationDenied: "Allow Location access in Settings to geotag your photos."
-        case .rawUnavailable: "This lens can't shoot RAW, so Journalist mode can't use it."
-        case .ledgerFailed: "Saved, but the capture log couldn't be updated."
-        case .locationUnavailable: "Saved without location. No recent GPS fix was available."
+        case .saveFailed:
+            String(localized: "That photo couldn't be saved.")
+        case .captureFailed:
+            String(localized: "That photo couldn't be taken.")
+        case .lensSwitchFailed(let lens):
+            lens.position == .front
+                ? String(localized: "Couldn't switch to the front camera.")
+                : String(localized: "Couldn't switch to the \(lens.label) lens.")
+        case .effectUnavailable(let mode):
+            String(localized: "\(mode.displayName) couldn't be applied to that photo.")
+        case .locationDenied:
+            String(localized: "Allow Location access in Settings to add where you took your photos.")
+        case .interrupted(let reason):
+            reason.message
+        case .overheating:
+            String(localized: "The camera paused to cool down. Dual capture is off.")
         }
     }
 
-    var showsSettings: Bool { self == .libraryDenied || self == .locationDenied }
-    var dismissesAutomatically: Bool { !showsSettings }
+    var showsSettings: Bool { self == .locationDenied }
+
+    var dismissesAutomatically: Bool {
+        switch self {
+        case .interrupted, .locationDenied: false
+        default: true
+        }
+    }
 }
 
 @MainActor
@@ -37,7 +48,7 @@ enum Notice: Equatable {
 final class CameraModel {
 
     enum Phase: Equatable {
-        case idle, requestingAccess, denied, running, failed(String)
+        case idle, running, failed(String)
     }
 
     enum Pipeline: Equatable {
@@ -45,7 +56,7 @@ final class CameraModel {
     }
 
     enum Activity: Equatable {
-        case idle, switching, capturing
+        case idle, switching, changingMode, capturing
     }
 
     private enum ExposureSequence {
@@ -56,18 +67,16 @@ final class CameraModel {
     private(set) var phase: Phase = .idle
     private(set) var pipeline: Pipeline = .single
     private(set) var activity: Activity = .idle
-    private(set) var developingCount = 0
+    private(set) var isInterrupted = false
     private(set) var notice: Notice?
     private(set) var pendingLensID: String?
     private(set) var lenses: [Lens] = []
     private(set) var selectedLens: Lens?
     private(set) var isDualAvailable = false
     private(set) var selectedMode: CaptureMode = .standard
-    private(set) var profile: CaptureProfile = .standard
-    private(set) var pendingProfile: CaptureProfile?
     private(set) var dualLayout: DualLayoutStyle = .pictureInPicture
     private(set) var blinkOpacity: Double = 0
-    private(set) var feedback: FeedbackEvent = .none
+    private(set) var feedback: FeedbackEvent?
 
     private var exposureSequence: ExposureSequence = .none
 
@@ -77,26 +86,20 @@ final class CameraModel {
     let whiteBalance = WhiteBalanceReadiness()
     let recentPhoto = RecentPhotoWatcher()
     let location = LocationProvider()
-
-    private var developLimit: Int { isJournalist ? 2 : 3 }
-
-    var isJournalist: Bool { profile == .journalist }
+    let developQueue = DevelopQueue()
 
     var acceptsShutter: Bool {
         phase == .running
             && activity == .idle
-            && developingCount < developLimit
+            && !developQueue.isFull
+            && !isInterrupted
     }
 
     var isShutterDimmed: Bool {
-        activity == .capturing || developingCount >= developLimit
+        activity == .capturing || developQueue.isFull || isInterrupted
     }
     var isSwitching: Bool { activity == .switching }
-    var isDeveloping: Bool { developingCount > 0 }
-
-    var canChangeProfile: Bool {
-        phase == .running && activity == .idle && pendingProfile == nil
-    }
+    var isDeveloping: Bool { developQueue.isBusy }
 
     var ghostOverlay: UIImage? {
         if case .awaitingSecond(let ghost) = exposureSequence { ghost } else { nil }
@@ -107,19 +110,16 @@ final class CameraModel {
     var cameraPosition: AVCaptureDevice.Position { selectedLens?.position ?? .back }
 
     var visibleLenses: [Lens] {
-        let position: AVCaptureDevice.Position = isJournalist ? .back : cameraPosition
-        return lenses.filter { $0.position == position }
+        lenses.filter { $0.position == cameraPosition }
     }
 
     var hasFrontCamera: Bool { lenses.contains { $0.position == .front } }
 
     var canFlipCamera: Bool {
-        hasFrontCamera && !isDualActive && !isAwaitingSecondFrame && !isJournalist
+        hasFrontCamera && !isDualActive && !isAwaitingSecondFrame
     }
 
     var isDualActive: Bool { pipeline == .dual }
-
-    var availableModes: [CaptureMode] { CaptureMode.allCases }
 
     var isOnDimmerLens: Bool {
         guard let lens = selectedLens, lens.position == .back else { return false }
@@ -136,15 +136,16 @@ final class CameraModel {
 
     private let engine = CaptureEngine()
     private let dualEngine = DualCaptureEngine()
-    private let renderer = ImageRenderer()
+    private let renderer = LookRenderer()
     private let library = PhotoLibraryWriter()
-    private let ledger = CaptureLedger()
     private let settings: AppSettings
     private var lastLens: [AVCaptureDevice.Position: Lens] = [:]
 
     @ObservationIgnored private var lastOperation: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
-    @ObservationIgnored private var hasLibraryAccess = false
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var lastRecovery: ContinuousClock.Instant?
+    private let monitor = CameraEventMonitor()
 
     private var photoRotationAngle: CGFloat {
         guard let lens = selectedLens, FrontCameraPipeline.isCenterStage(lens) else {
@@ -163,7 +164,12 @@ final class CameraModel {
 
     init(settings: AppSettings) {
         self.settings = settings
-        self.profile = settings.captureProfile
+
+        monitor.watch(engine.box.session)
+        monitor.watch(dualEngine.box.session)
+        eventTask = Task { [weak self, events = monitor.events] in
+            for await event in events { self?.handle(event) }
+        }
     }
 
     func start() async {
@@ -187,12 +193,6 @@ final class CameraModel {
 
     func setMode(_ mode: CaptureMode) async {
         await serialized { await self.performSetMode(mode) }
-    }
-
-    func requestProfile(_ new: CaptureProfile) {
-        guard canChangeProfile, new != profile else { return }
-        pendingProfile = new
-        Task { await serialized { await self.performSetProfile(new) } }
     }
 
     func capture() async {
@@ -254,14 +254,26 @@ final class CameraModel {
         show(.locationDenied)
     }
 
+    private func resumeGeotagging() {
+        guard settings.geotagsPhotos else { return }
+        if LocationProvider.isDenied {
+            settings.geotagsPhotos = false
+        } else if LocationProvider.isAuthorized {
+            location.start()
+        }
+    }
+
     func openPhotosApp() {
         guard let url = URL(string: "photos-redirect://") else { return }
         emit(.tap)
-        UIApplication.shared.open(url)
+        UIApplication.shared.open(url) { [weak self] opened in
+            guard !opened else { return }
+            Task { @MainActor in self?.emit(.failure) }
+        }
     }
 
     private func emit(_ kind: FeedbackEvent.Kind) {
-        feedback = FeedbackEvent(serial: feedback.serial + 1, kind: kind)
+        feedback = FeedbackEvent(serial: (feedback?.serial ?? 0) + 1, kind: kind)
     }
 
     private func serialized(_ operation: @escaping @MainActor () async -> Void) async {
@@ -288,16 +300,13 @@ final class CameraModel {
 
     private func performStart() async {
         guard phase != .running else { return }
-        phase = .requestingAccess
+        isInterrupted = false
 
-        guard await engine.requestCameraAccess() else {
-            phase = .denied
-            return
+        if lenses.isEmpty {
+            lenses = LensCatalog.lenses()
+            isDualAvailable = AVCaptureMultiCamSession.isMultiCamSupported
+                && Self.dualPair(in: lenses) != nil
         }
-
-        lenses = LensCatalog.lenses()
-        isDualAvailable = AVCaptureMultiCamSession.isMultiCamSupported
-            && Self.dualPair(in: lenses) != nil
 
         #if targetEnvironment(simulator)
         if lenses.isEmpty {
@@ -307,20 +316,20 @@ final class CameraModel {
         }
         #endif
 
-        guard let initial = Self.defaultLens(in: lenses, at: .back) else {
+        guard let rear = Self.defaultLens(in: lenses, at: .back) else {
             phase = .failed(CaptureError.noLensesAvailable.localizedDescription)
             return
         }
 
+        let initial = selectedLens ?? rear
         apply(initial)
-        reference.bind(to: initial)
+        reference.bind(to: rear)
 
-        if pipeline == .dual {
+        if isDualActive {
             _ = await enterDual()
         } else {
             do {
                 try await engine.select(lens: initial)
-                pipeline = .single
                 whiteBalance.bind(to: initial)
             } catch {
                 phase = .failed(error.localizedDescription)
@@ -331,14 +340,9 @@ final class CameraModel {
         if case .failed = phase { return }
 
         phase = .running
-
-        hasLibraryAccess = PhotosAuthorization.hasReadWriteAccess
-        if hasLibraryAccess { await recentPhoto.start() }
-
-        if isJournalist {
-            await applyExposureBias(CaptureConstants.journalistExposureBias)
-            if settings.geotagsPhotos, LocationProvider.isAuthorized { location.start() }
-        }
+        watchPressure()
+        recentPhoto.start()
+        resumeGeotagging()
 
         Task { await renderer.warmUp() }
     }
@@ -362,15 +366,15 @@ final class CameraModel {
             apply(lens)
         } catch {
             emit(.failure)
-            show(.lensSwitchFailed(lens.position == .front ? "front camera" : "\(lens.label) lens"))
+            show(.lensSwitchFailed(lens))
             Log.lens.error("Lens switch failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     private func performSetMode(_ mode: CaptureMode) async {
-        guard mode != selectedMode, activity == .idle, !isDualActive, !isJournalist else { return }
+        guard mode != selectedMode, activity == .idle, !isDualActive else { return }
 
-        activity = .switching
+        activity = .changingMode
         defer { activity = .idle }
 
         if isAwaitingSecondFrame, !mode.isDoubleExposure {
@@ -387,50 +391,9 @@ final class CameraModel {
         emit(.selection)
     }
 
-    private func performSetProfile(_ new: CaptureProfile) async {
-        defer { if pendingProfile == new { pendingProfile = nil } }
-        guard pendingProfile == new, new != profile else { return }
-
-        activity = .switching
-        defer { activity = .idle }
-
-        if new == .journalist {
-            if isAwaitingSecondFrame {
-                exposureSequence = .none
-                await discardHeldExposure()
-            }
-            if isDualActive { await exitDual() }
-            if cameraPosition == .front { await returnToRearLens() }
-
-            await applyExposureBias(CaptureConstants.journalistExposureBias)
-            profile = .journalist
-            if settings.geotagsPhotos, LocationProvider.isAuthorized { location.start() }
-        } else {
-            location.stop()
-            await applyExposureBias(selectedMode.isDoubleExposure ? DoubleExposureProfile.exposureBias : nil)
-            profile = .standard
-        }
-
-        settings.captureProfile = new
-        emit(.selection)
-    }
-
-    private func returnToRearLens() async {
-        guard let rear = lastLens[.back] ?? Self.defaultLens(in: lenses, at: .back) else { return }
-
-        do {
-            try await engine.select(lens: rear)
-            apply(rear)
-        } catch {
-            emit(.failure)
-            show(.lensSwitchFailed("\(rear.label) lens"))
-            Log.lens.error("Return to rear lens failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
     private func performSetDual(_ enabled: Bool) async {
         guard enabled != isDualActive, activity == .idle else { return }
-        guard !enabled || (isDualAvailable && !isJournalist) else { return }
+        guard !enabled || isDualAvailable else { return }
 
         activity = .switching
         defer { activity = .idle }
@@ -491,6 +454,7 @@ final class CameraModel {
         secondaryRotation.bind(to: pair.front)
         whiteBalance.bind(to: pair.rear)
         pipeline = .dual
+        watchPressure()
         return true
     }
 
@@ -505,6 +469,7 @@ final class CameraModel {
         await dualEngine.stop()
         pipeline = .single
         await restoreSingle()
+        watchPressure()
     }
 
     private func restoreSingle() async {
@@ -520,16 +485,9 @@ final class CameraModel {
     }
 
     private func performCapture() async {
-        guard phase == .running, activity == .idle, developingCount < developLimit else { return }
+        guard phase == .running, activity == .idle, !developQueue.isFull, !isInterrupted else { return }
         activity = .capturing
         defer { activity = .idle }
-
-        guard await ensureLibraryAccess() else { return }
-
-        if isJournalist {
-            await captureJournalist()
-            return
-        }
 
         if isDualActive {
             await captureDual()
@@ -553,6 +511,10 @@ final class CameraModel {
         beginDevelop(shot, request: request, finishingDoubleExposure: isSecondExposure)
     }
 
+    private var geotag: CLLocation? {
+        settings.geotagsPhotos ? location.freshLocation : nil
+    }
+
     private func makeRequest() -> CaptureRequest {
         CaptureRequest(
             id: UUID(),
@@ -561,114 +523,8 @@ final class CameraModel {
             rotationAngle: photoRotationAngle,
             isPortrait: abs(sin(reference.captureAngle * .pi / 180)) > 0.5,
             flashMode: settings.flashMode,
-            location: isJournalist && settings.geotagsPhotos ? location.freshLocation : nil
+            location: geotag
         )
-    }
-
-    private func ensureLibraryAccess() async -> Bool {
-        if hasLibraryAccess { return true }
-
-        guard await PhotosAuthorization.requestReadWrite() else {
-            emit(.failure)
-            show(.libraryDenied)
-            return false
-        }
-
-        hasLibraryAccess = true
-        if notice == .libraryDenied { dismissNotice() }
-        await recentPhoto.start()
-        return true
-    }
-
-    private func captureJournalist() async {
-        if settings.geotagsPhotos, !location.isRunning, LocationProvider.isAuthorized {
-            location.start()
-        }
-
-        let request = makeRequest()
-
-        guard let shot = await takePhoto(request, errorContext: "Journalist capture") else { return }
-
-        guard shot.isRAW else {
-            Log.capture.error("Journalist capture returned processed data on \(self.selectedLens?.label ?? "unknown", privacy: .public)")
-            emit(.failure)
-            show(.rawUnavailable)
-            return
-        }
-
-        let wantsLocation = settings.geotagsPhotos
-        let locationMissing = wantsLocation && request.location == nil
-
-        let context = CaptureContext(
-            id: request.id,
-            capturedAtMillis: Int64(Date.now.timeIntervalSince1970 * 1000),
-            lens: selectedLens?.label ?? "unknown",
-            flashRequested: Self.flashLabel(request.flashMode),
-            flashEnabled: shot.flashEnabled,
-            exposureBiasRequested: CaptureConstants.journalistExposureBias,
-            exposureBiasActual: shot.exposureBias,
-            locationStatus: !wantsLocation ? "off" : (locationMissing ? "unavailable" : "recorded"),
-            location: request.location.map { LocationEvidence($0) }
-        )
-
-        let entry = ledger.submit(dng: shot.data, context: context)
-
-        developingCount += 1
-        Task {
-            await BackgroundTime.run("Onyx.saveDNG") {
-                await saveDNG(shot.data, request: request, entry: entry, locationMissing: locationMissing)
-            }
-            developingCount -= 1
-        }
-    }
-
-    private func saveDNG(
-        _ data: Data,
-        request: CaptureRequest,
-        entry: Task<LedgerReceipt, any Error>,
-        locationMissing: Bool
-    ) async {
-        var saveError: (any Error)?
-
-        do {
-            try await library.saveDNG(
-                data,
-                fileName: "Onyx-\(request.id.uuidString).dng",
-                location: request.location
-            )
-            emit(.success)
-        } catch {
-            saveError = error
-            Log.library.error("DNG save failed [\(request.id.uuidString, privacy: .public)]: \(error.localizedDescription, privacy: .public)")
-            emit(.failure)
-            show(.saveFailed)
-        }
-
-        do {
-            let receipt = try await entry.value
-            Log.library.info("Ledger #\(receipt.sequence) sha256 \(String(receipt.dngSHA256?.prefix(12) ?? ""), privacy: .public)")
-
-            if let saveError {
-                _ = ledger.submitStatus(
-                    captureID: request.id,
-                    event: "save-failed",
-                    detail: saveError.localizedDescription
-                )
-            } else if locationMissing {
-                show(.locationUnavailable)
-            }
-        } catch {
-            Log.library.error("Ledger append failed [\(request.id.uuidString, privacy: .public)]: \(error.localizedDescription, privacy: .public)")
-            if saveError == nil { show(.ledgerFailed) }
-        }
-    }
-
-    private static func flashLabel(_ mode: AVCaptureDevice.FlashMode) -> String {
-        switch mode {
-        case .on: "on"
-        case .auto: "auto"
-        default: "off"
-        }
     }
 
     private func captureDual() async {
@@ -685,19 +541,17 @@ final class CameraModel {
         let rearOrientation = CGImagePropertyOrientation(rotationAngle: rotation.captureAngle)
         let frontOrientation = CGImagePropertyOrientation(rotationAngle: dualFrontAngle)
         let style = dualLayout
+        let place = geotag
 
-        developingCount += 1
-        Task {
-            await BackgroundTime.run("Onyx.developDual") {
-                await developDual(
-                    frames,
-                    id: id,
-                    rearOrientation: rearOrientation,
-                    frontOrientation: frontOrientation,
-                    style: style
-                )
-            }
-            developingCount -= 1
+        developQueue.enqueue("Onyx.developDual") {
+            await self.developDual(
+                frames,
+                id: id,
+                rearOrientation: rearOrientation,
+                frontOrientation: frontOrientation,
+                style: style,
+                location: place
+            )
         }
     }
 
@@ -741,12 +595,8 @@ final class CameraModel {
     }
 
     private func beginDevelop(_ shot: RawCapture, request: CaptureRequest, finishingDoubleExposure: Bool) {
-        developingCount += 1
-        Task {
-            await BackgroundTime.run("Onyx.develop") {
-                await develop(shot, request: request, finishingDoubleExposure: finishingDoubleExposure)
-            }
-            developingCount -= 1
+        developQueue.enqueue("Onyx.develop") {
+            await self.develop(shot, request: request, finishingDoubleExposure: finishingDoubleExposure)
         }
     }
 
@@ -759,7 +609,7 @@ final class CameraModel {
             try await library.save(heic: output.heic, location: request.location)
             emit(.success)
 
-            if output.isDegraded { show(.effectUnavailable(request.mode.displayName)) }
+            if output.isDegraded { show(.effectUnavailable(request.mode)) }
 
             Log.render.info("Developed [\(request.id.uuidString, privacy: .public)] mode=\(request.mode.rawValue, privacy: .public) via \(output.usedRAWPath ? "RAW" : "ISP fallback") path, degraded=\(output.isDegraded)")
         } catch {
@@ -774,7 +624,8 @@ final class CameraModel {
         id: UUID,
         rearOrientation: CGImagePropertyOrientation,
         frontOrientation: CGImagePropertyOrientation,
-        style: DualLayoutStyle
+        style: DualLayoutStyle,
+        location: CLLocation?
     ) async {
         do {
             let output = try await renderer.renderDual(
@@ -783,7 +634,7 @@ final class CameraModel {
                 frontOrientation: frontOrientation,
                 style: style
             )
-            try await library.save(heic: output.heic, location: nil)
+            try await library.save(heic: output.heic, location: location)
             emit(.success)
         } catch {
             Log.render.error("Dual develop failed [\(id.uuidString, privacy: .public)]: \(error.localizedDescription, privacy: .public)")
@@ -807,6 +658,51 @@ final class CameraModel {
         } catch {
             Log.capture.error("Exposure bias update failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func handle(_ event: CameraEvent) {
+        switch event {
+        case .interrupted(let reason):
+            isInterrupted = true
+            emit(.failure)
+            show(.interrupted(reason))
+
+        case .interruptionEnded:
+            isInterrupted = false
+            if case .interrupted? = notice { dismissNotice() }
+
+        case .runtimeError:
+            let now = ContinuousClock.now
+            if let last = lastRecovery, now - last < .seconds(3) {
+                emit(.failure)
+                show(.captureFailed)
+                return
+            }
+            lastRecovery = now
+            Task { await serialized { await self.recover() } }
+
+        case .pressureElevated:
+            guard isDualActive else { return }
+            emit(.failure)
+            show(.overheating)
+            Task { await serialized { await self.performSetDual(false) } }
+        }
+    }
+
+    private func recover() async {
+        guard phase == .running else { return }
+        await performStop()
+        await performStart()
+    }
+
+    private func watchPressure() {
+        let active: [Lens]
+        if isDualActive, let pair = Self.dualPair(in: lenses) {
+            active = [pair.rear, pair.front]
+        } else {
+            active = selectedLens.map { [$0] } ?? []
+        }
+        monitor.watchPressure(of: active.compactMap { $0.resolveDevice() })
     }
 
     private func fireShutterFeedback() {

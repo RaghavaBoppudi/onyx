@@ -4,6 +4,7 @@ import UIKit
 struct ViewfinderScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let settings: AppSettings
     let model: CameraModel
@@ -12,7 +13,6 @@ struct ViewfinderScreen: View {
     @State private var showsLowLight = false
 
     private enum Layout {
-        static let verticalControlsAspectThreshold: CGFloat = 1.8
         static let railVerticalInset: CGFloat = 40
         static let railHorizontalGap: CGFloat = 16
         static let railWidth: CGFloat = 104
@@ -21,11 +21,15 @@ struct ViewfinderScreen: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let kind = ScreenClass.resolve(for: proxy.size)
+
             layout(in: proxy.size, insets: proxy.safeAreaInsets)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.background)
                 .ignoresSafeArea()
-                .overlay(alignment: .bottom) { modeDrawer }
+                .overlay(alignment: kind == .rail ? .trailing : .bottom) {
+                    modeDrawer(for: kind, insets: proxy.safeAreaInsets)
+                }
                 .animation(.smooth(duration: 0.35), value: showsModes)
                 .onChange(of: DualLayoutStyle.resolve(for: proxy.size), initial: true) { _, style in
                     model.updateDualLayout(style)
@@ -39,7 +43,7 @@ struct ViewfinderScreen: View {
             .allowsHitTesting(false)
         }
         .sensoryFeedback(trigger: model.feedback) { _, event in
-            event.serial == 0 ? nil : event.kind.sensoryFeedback
+            event?.kind.sensoryFeedback
         }
         .alert(
             "Permission Needed",
@@ -64,12 +68,19 @@ struct ViewfinderScreen: View {
     }
 
     @ViewBuilder
-    private var modeDrawer: some View {
+    private func modeDrawer(for kind: ScreenClass, insets: EdgeInsets) -> some View {
         if showsModes {
-            ModeDrawer(model: model) { showsModes = false }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+            if kind == .rail {
+                ModeDrawer(model: model, axis: .vertical) { showsModes = false }
+                    .padding(.trailing, insets.trailing + Layout.railHorizontalGap)
+                    .padding(.vertical, Layout.railVerticalInset)
+                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+            } else {
+                ModeDrawer(model: model, axis: .horizontal) { showsModes = false }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 8)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
         }
     }
 
@@ -89,14 +100,11 @@ struct ViewfinderScreen: View {
     @ViewBuilder
     private func layout(in size: CGSize, insets: EdgeInsets) -> some View {
         let isLandscape = size.width > size.height
-        let prefersRail = size.height / max(size.width, 1) < Layout.verticalControlsAspectThreshold
 
-        if UIDevice.current.userInterfaceIdiom == .pad || (prefersRail && isLandscape) {
-            railLayout(isLandscape: isLandscape)
-        } else if prefersRail {
-            statusRailLayout
-        } else {
-            standardLayout(insets: insets)
+        switch ScreenClass.resolve(for: size) {
+        case .rail: railLayout(isLandscape: isLandscape)
+        case .statusRail: statusRailLayout
+        case .standard: standardLayout(insets: insets)
         }
     }
 
@@ -133,6 +141,7 @@ struct ViewfinderScreen: View {
                 )
                 .frame(width: Layout.statusRailWidth)
                 .padding(.horizontal, Layout.railHorizontalGap)
+                .hiddenWhileBrowsing(showsModes)
             }
             .padding(.top, Layout.railVerticalInset)
             .frame(maxHeight: .infinity)
@@ -153,6 +162,7 @@ struct ViewfinderScreen: View {
                 model: model,
                 onShowModes: { showsModes = true }
             )
+                .hiddenWhileBrowsing(showsModes)
 
             viewfinder(isLandscape: false, cornerRadius: 0)
 
@@ -184,8 +194,13 @@ struct ViewfinderScreen: View {
         }
     }
 
+    private var coverOpacity: Double {
+        if !model.whiteBalance.hasConverged { return 1 }
+        return model.isSwitching ? 0.45 : 0
+    }
+
     private var previewIsMono: Bool {
-        model.selectedMode.isMono && !model.isDualActive && !model.isJournalist
+        model.selectedMode.isMono && !model.isDualActive
     }
 
     private func viewfinder(isLandscape: Bool, cornerRadius: CGFloat) -> some View {
@@ -194,17 +209,15 @@ struct ViewfinderScreen: View {
                 preview
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .saturation(previewIsMono ? 0 : 1)
-                    .opacity(model.isSwitching ? 0.55 : 1)
-                    .animation(.smooth(duration: 0.2), value: model.isSwitching)
                     .background(Color.black)
                     .overlay {
-                        if !model.whiteBalance.hasConverged {
-                            Color.black.transition(.opacity)
-                        }
+                        Color.black
+                            .opacity(coverOpacity)
+                            .allowsHitTesting(false)
                     }
-                    .animation(.easeInOut(duration: 0.18), value: model.whiteBalance.hasConverged)
+                    .animation(.easeInOut(duration: 0.2), value: coverOpacity)
                     .overlay {
-                        if settings.isGridVisible && !model.isJournalist { RuleOfThirdsGrid() }
+                        if settings.isGridVisible { RuleOfThirdsGrid() }
                     }
                     .animation(.easeInOut(duration: 0.18), value: settings.isGridVisible)
                     .overlay {
@@ -233,10 +246,10 @@ struct ViewfinderScreen: View {
 
                 VStack(spacing: 8) {
                     if showsLowLight, model.pipeline == .single {
-                        GlassBanner(message: "This lens gathers less light", onTap: nil)
+                        NoticeBanner(message: "This lens gathers less light", onTap: nil)
                     }
                     if let notice = model.notice, !notice.showsSettings {
-                        GlassBanner(message: notice.message, onTap: { model.dismissNotice() })
+                        NoticeBanner(message: notice.message, onTap: { model.dismissNotice() })
                     }
                 }
                 .padding(.top, 14)
@@ -270,7 +283,7 @@ private extension View {
     }
 }
 
-private struct GlassBanner: View {
+private struct NoticeBanner: View {
     let message: String
     let onTap: (() -> Void)?
 
@@ -280,13 +293,14 @@ private struct GlassBanner: View {
         } label: {
             Text(message)
                 .font(.footnote)
-                .foregroundStyle(.primary)
+                .fontWeight(.medium)
+                .foregroundStyle(Color.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .background(Color.black.opacity(0.72), in: .capsule)
         .padding(.horizontal, 24)
         .transition(.opacity)
         .disabled(onTap == nil)
@@ -314,5 +328,22 @@ private struct RuleOfThirdsGrid: View {
         }
         .allowsHitTesting(false)
         .transition(.opacity)
+    }
+}
+
+private struct BottomControlBar: View {
+    let model: CameraModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Spacer()
+            CaptureThumbnail(model: model)
+            Spacer()
+            ShutterButton(model: model)
+            Spacer()
+            CameraFlipButton(model: model)
+            Spacer()
+        }
+        .padding(.horizontal, 8)
     }
 }

@@ -12,8 +12,6 @@ nonisolated struct FeedbackEvent: Equatable, Sendable {
 
     let serial: Int
     let kind: Kind
-
-    static let none = FeedbackEvent(serial: 0, kind: .selection)
 }
 
 extension FeedbackEvent.Kind {

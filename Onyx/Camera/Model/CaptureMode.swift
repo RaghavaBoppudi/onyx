@@ -3,7 +3,6 @@ import AVFoundation
 nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
     case standard
     case mono
-    case glass
     case doubleExposure
     case doubleExposureMono
 
@@ -11,21 +10,19 @@ nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
 
     var displayName: String {
         switch self {
-        case .standard: "Default"
-        case .mono: "Mono"
-        case .glass: "Glass"
-        case .doubleExposure: "Double"
-        case .doubleExposureMono: "Double Mono"
+        case .standard: String(localized: "Default")
+        case .mono: String(localized: "Mono")
+        case .doubleExposure: String(localized: "Double")
+        case .doubleExposureMono: String(localized: "Double Mono")
         }
     }
 
     var summary: String {
         switch self {
-        case .standard: "Our signature minimal-process look"
-        case .mono: "Our signature minimal-process look\nin black and white"
-        case .glass: "Nothing like shooting through glass panes"
-        case .doubleExposure: "Two frames blended\nlike a physical double exposure"
-        case .doubleExposureMono: "Double exposure,\nin black and white"
+        case .standard: String(localized: "Our signature minimal-process look")
+        case .mono: String(localized: "Our signature minimal-process look in black and white")
+        case .doubleExposure: String(localized: "Two frames blended like a physical double exposure")
+        case .doubleExposureMono: String(localized: "Double exposure, in black and white")
         }
     }
 
@@ -33,8 +30,8 @@ nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
         guard position == .front else { return summary }
 
         return switch self {
-        case .standard: "The front camera's standard iPhone look"
-        case .mono: "The front camera's standard look\nin black and white"
+        case .standard: String(localized: "The front camera's standard iPhone look")
+        case .mono: String(localized: "The front camera's standard look in black and white")
         default: summary
         }
     }
@@ -43,7 +40,6 @@ nonisolated enum CaptureMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .standard: "LookPreview.Default"
         case .mono: "LookPreview.Mono"
-        case .glass: "LookPreview.Glass"
         case .doubleExposure: "LookPreview.Double"
         case .doubleExposureMono: "LookPreview.DoubleMono"
         }

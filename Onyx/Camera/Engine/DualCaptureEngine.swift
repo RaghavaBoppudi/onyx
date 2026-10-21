@@ -1,6 +1,7 @@
 import AVFoundation
 import os
 
+/// The multicam session is mutated only by `DualCaptureEngine` on its serial session queue.
 nonisolated final class DualSessionBox: @unchecked Sendable {
     let session: AVCaptureMultiCamSession
     let rearPreviewLayer: AVCaptureVideoPreviewLayer

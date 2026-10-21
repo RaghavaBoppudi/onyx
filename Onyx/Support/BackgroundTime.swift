@@ -20,7 +20,6 @@ nonisolated private final class BackgroundTaskToken: Sendable {
 
 @MainActor
 enum BackgroundTime {
-
     static func run(_ name: String, _ body: () async -> Void) async {
         let token = BackgroundTaskToken()
         let identifier = UIApplication.shared.beginBackgroundTask(withName: name) {

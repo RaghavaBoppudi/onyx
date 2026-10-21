@@ -17,16 +17,10 @@ final class AppSettings {
         didSet { defaults.set(flashMode.rawValue, forKey: Keys.flash) }
     }
 
-    var captureProfile: CaptureProfile {
-        didSet { defaults.set(captureProfile.rawValue, forKey: Keys.profile) }
-    }
-
     private enum Keys {
         static let grid = "onyx.grid"
         static let flash = "onyx.flash"
         static let geotag = "onyx.geotag"
-        static let profile = "onyx.profile"
-        static let legacyAppearance = "onyx.appearance"
     }
 
     private let defaults: UserDefaults
@@ -38,8 +32,5 @@ final class AppSettings {
         self.flashMode = AVCaptureDevice.FlashMode(
             rawValue: defaults.integer(forKey: Keys.flash)
         ) ?? .off
-        self.captureProfile = defaults.string(forKey: Keys.profile)
-            .flatMap(CaptureProfile.init(rawValue:)) ?? .standard
-        defaults.removeObject(forKey: Keys.legacyAppearance)
     }
 }

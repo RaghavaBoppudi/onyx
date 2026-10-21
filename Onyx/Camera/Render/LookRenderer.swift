@@ -13,7 +13,7 @@ nonisolated extension CIImage {
     }
 }
 
-actor ImageRenderer {
+actor LookRenderer {
 
     nonisolated struct Output: Sendable {
         let heic: Data
@@ -27,8 +27,6 @@ actor ImageRenderer {
     private let monoCurves: Data
     private let doubleExposureCurves: Data
     private let doubleExposureMonoCurves: Data
-    private let glassKernel: CIWarpKernel?
-    private let glassShadingKernel: CIColorKernel?
     private let monoBlueFilterKernel: CIColorKernel?
 
     private var heldExposure: CIImage?
@@ -40,21 +38,9 @@ actor ImageRenderer {
         doubleExposureMonoCurves = Self.curves(tone: DoubleExposureProfile.toneCurve, mono: true)
 
         let library = Self.metalLibraryData()
-        glassKernel = Self.warpKernel("flutedGlassWarp", in: library)
-        glassShadingKernel = Self.colorKernel("flutedGlassShading", in: library)
         monoBlueFilterKernel = Self.colorKernel("monoBlueFilter", in: library)
 
-        Log.render.info("Kernels loaded: glassWarp=\(self.glassKernel != nil) glassShading=\(self.glassShadingKernel != nil) monoBlue=\(self.monoBlueFilterKernel != nil)")
-    }
-
-    private static func warpKernel(_ name: String, in library: Data?) -> CIWarpKernel? {
-        guard let library else { return nil }
-        do {
-            return try CIWarpKernel(functionName: name, fromMetalLibraryData: library)
-        } catch {
-            Log.render.error("Kernel \(name, privacy: .public) failed to load: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
+        Log.render.info("Kernels loaded: monoBlue=\(self.monoBlueFilterKernel != nil)")
     }
 
     private static func colorKernel(_ name: String, in library: Data?) -> CIColorKernel? {
@@ -68,18 +54,14 @@ actor ImageRenderer {
     }
 
     private func isDegraded(_ mode: CaptureMode) -> Bool {
-        switch mode {
-        case .glass: glassKernel == nil || glassShadingKernel == nil
-        case .doubleExposureMono: monoBlueFilterKernel == nil
-        default: false
-        }
+        mode == .doubleExposureMono && monoBlueFilterKernel == nil
     }
 
     private static func metalLibraryData() -> Data? {
         guard let url = Bundle.main.url(forResource: "default", withExtension: "metallib"),
               let data = try? Data(contentsOf: url)
         else {
-            Log.render.error("Core Image Metal library not found; Glass and the Mono blue filter are disabled")
+            Log.render.error("Core Image Metal library not found; the Mono blue filter is disabled")
             return nil
         }
         return data
@@ -89,7 +71,7 @@ actor ImageRenderer {
         let synthetic = CIImage(color: CIColor(red: 0.4, green: 0.4, blue: 0.4))
             .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
         for mode in CaptureMode.allCases {
-            _ = try? encode(grade(synthetic, for: mode), usedRAWPath: false)
+            _ = try? encode(grade(synthetic, for: mode), usedRAWPath: false, metadata: [:])
         }
     }
 
@@ -98,7 +80,12 @@ actor ImageRenderer {
         let graded = request.position == .front && !shot.isRAW
             ? gradeProcessed(decoded, for: request.mode)
             : grade(decoded, for: request.mode)
-        return try encode(graded, usedRAWPath: shot.isRAW, isDegraded: isDegraded(request.mode))
+        return try encode(
+            graded,
+            usedRAWPath: shot.isRAW,
+            isDegraded: isDegraded(request.mode),
+            metadata: PhotoMetadata.properties(from: shot.data)
+        )
     }
 
     func renderDual(
@@ -114,7 +101,7 @@ actor ImageRenderer {
             mirrorsFront: FrontCameraPipeline.mirrorsSavedImage,
             style: style
         )
-        return try encode(composite, usedRAWPath: false)
+        return try encode(composite, usedRAWPath: false, metadata: PhotoMetadata.properties(from: nil))
     }
 
     func beginDoubleExposure(_ shot: RawCapture, request: CaptureRequest) throws -> Data {
@@ -144,7 +131,8 @@ actor ImageRenderer {
         return try encode(
             grade(combined, for: request.mode),
             usedRAWPath: second.isRAW,
-            isDegraded: isDegraded(request.mode)
+            isDegraded: isDegraded(request.mode),
+            metadata: PhotoMetadata.properties(from: second.data)
         )
     }
 
@@ -221,7 +209,7 @@ actor ImageRenderer {
         case .mono:
             return luma(image.applyingFilter("CILinearToSRGBToneCurve"))
                 .applyingFilter("CISRGBToneCurveToLinear")
-        case .glass, .doubleExposure, .doubleExposureMono:
+        case .doubleExposure, .doubleExposureMono:
             return grade(image, for: mode)
         }
     }
@@ -239,8 +227,6 @@ actor ImageRenderer {
                 saturation: 0,
                 contrast: MonochromeProfile.contrast
             )
-        case .glass:
-            return glass(applyCurves(encoded, curves: standardCurves, saturation: LookProfile.saturation))
         case .doubleExposure:
             return applyCurves(
                 encoded,
@@ -306,46 +292,6 @@ actor ImageRenderer {
         return filtered
     }
 
-    private func glass(_ image: CIImage) -> CIImage {
-        guard let glassKernel else {
-            Log.render.error("Glass kernel unavailable, skipping warp")
-            return image
-        }
-
-        let isPortrait = image.extent.height > image.extent.width
-        let shortSide = isPortrait ? image.extent.width : image.extent.height
-        let sectionWidth = Float(shortSide) / GlassProfile.sectionCount
-        let displacement = sectionWidth * GlassProfile.maxDisplacementFactor
-        let axis = isPortrait ? CIVector(x: 1, y: 0) : CIVector(x: 0, y: 1)
-
-        let dx = isPortrait ? CGFloat(-displacement) : 0
-        let dy = isPortrait ? 0 : CGFloat(-displacement)
-
-        let warped = glassKernel.apply(
-            extent: image.extent,
-            roiCallback: { _, rect in rect.insetBy(dx: dx, dy: dy) },
-            image: image.clampedToExtent(),
-            arguments: [sectionWidth, displacement, axis]
-        ) ?? image
-
-        let shaded = glassShadingKernel?.apply(
-            extent: warped.extent,
-            arguments: [
-                warped,
-                sectionWidth,
-                GlassProfile.shadingStrength,
-                GlassProfile.shadingSharpness,
-                axis
-            ]
-        ) ?? warped
-
-        let blur = CIFilter.gaussianBlur()
-        blur.inputImage = shaded
-        blur.radius = GlassProfile.frostBlurRadius
-
-        return (blur.outputImage ?? shaded).cropped(to: image.extent)
-    }
-
     private func desaturated(_ image: CIImage) -> CIImage {
         let controls = CIFilter.colorControls()
         controls.inputImage = image
@@ -365,9 +311,14 @@ actor ImageRenderer {
         return jpeg
     }
 
-    private func encode(_ image: CIImage, usedRAWPath: Bool, isDegraded: Bool = false) throws -> Output {
+    private func encode(
+        _ image: CIImage,
+        usedRAWPath: Bool,
+        isDegraded: Bool = false,
+        metadata: [String: Any]
+    ) throws -> Output {
         guard let heic = self.context.heifRepresentation(
-            of: image,
+            of: image.settingProperties(metadata),
             format: .RGBA8,
             colorSpace: outputSpace,
             options: [
